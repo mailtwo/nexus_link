@@ -19,3 +19,7 @@ This project follows context7 principles:
 ### Code Documentation Policy
 - For all newly written code, add XML docstrings for each class, member function, and member variable.
 - Keep docstrings concise and practical (purpose, key behavior, and important constraints).
+
+### C# Source Layout Policy
+- Put all C# game-logic code under `src/`.
+- Use subfolders inside `src/` (for example `src/runtime`, `src/vfs`) instead of creating C# logic folders at project root.
