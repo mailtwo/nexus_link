@@ -4,6 +4,7 @@ When unsure about implementation details, ALWAYS ask the developer.
 ## Development Guidelines
 
 ### Context7 Compliance
+Always use Context7 MCP when I need library/API documentation, code generation, setup or configuration steps without me having to explicitly ask.
 This project follows context7 principles:
 - Do what has been asked; nothing more, nothing less
 - NEVER create files unless they're absolutely necessary for achieving your goal

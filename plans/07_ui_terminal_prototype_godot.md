@@ -25,7 +25,7 @@
   - `LineEdit` (단일 라인 입력)
 - 코드/텍스트 편집기(에디터 모드):
   - `CodeEdit` (권장) 또는 `TextEdit`
-  - 오버레이로 전체 화면을 덮는 방식
+  - 터미널 뷰와 에디터 뷰를 전환하는 방식(편집 중 터미널 숨김)
 
 근거:
 - `RichTextLabel`은 BBCode/서식/메타 데이터(클릭) 처리에 적합
@@ -50,16 +50,14 @@ TerminalScene (Control)
 │   └── InputRow (HBoxContainer)              # 프롬프트 + 입력
 │       ├── Prompt (Label)                    # "player@term:~$ "
 │       └── Input (LineEdit)                  # 커맨드 입력
-└── EditorOverlay (Control) [hidden]          # 편집기 오버레이
-    ├── Panel (PanelContainer)
-    │   └── EditorVBox (VBoxContainer)
-    │       ├── EditorStatus (HBoxContainer)  # 파일/모드/힌트
-    │       │   ├── FileLabel (Label)
-    │       │   ├── ModeLabel (Label)         # INSERT/NORMAL
-    │       │   └── HintLabel (Label)         # Ctrl+S, Esc 등
-    │       └── Editor (CodeEdit)             # 멀티라인 편집기
-    └── Blocker (ColorRect)                   # 뒤 클릭 차단(선택)
+└── EditorOverlay (Control) [hidden]          # 편집기 전용 뷰
+    └── Editor (CodeEdit)                     # 멀티라인 편집기
 ```
+
+편집기 모드 전환 규칙(프로토타입):
+- `EditorOverlay.visible = true`일 때 `VBox`를 숨겨서 “터미널 위 오버레이”가 아니라 “터미널 대신 에디터”처럼 보이게 한다.
+- 편집 중에는 `InputRow`를 비활성화하고, 터미널 출력/입력 영역은 보이지 않게 유지한다.
+- 에디터 영역은 터미널 본문 영역과 동일한 크기(동일한 여백)로 맞춘다.
 
 ### 3.2 프롬프트 문자열 규칙(연출)
 - 로컬 쉘:
@@ -126,10 +124,12 @@ MVP에서는 `Ctrl+S`, `Esc`만 있어도 충분.
 ### 5.3 구현 팁
 - `EditorOverlay.visible = true`일 때:
   - `Editor.grab_focus()`
-  - 터미널 Input은 비활성화(입력 충돌 방지)
+  - 터미널 `VBox`를 숨기고 Input을 비활성화(입력 충돌 방지)
 - 오버레이 닫을 때:
   - 변경 사항 저장 여부 처리
   - `Input.grab_focus()` 복귀
+- 에디터 상단 상태/도움말 바는 프로토타입에서 생략 가능.
+- 터미널↔에디터 전환 시 이질감이 없도록 배경색/폰트/폰트 크기/기본 글자색을 동일하게 유지.
 
 ---
 

@@ -57,7 +57,6 @@ theme_override_constants/separation = 8
 [node name="Prompt" type="Label" parent="VBox/InputRow"]
 layout_mode = 2
 text = "player@term:~/ $ "
-theme_override_colors/font_color = Color(0.545098, 0.952941, 0.639216, 1)
 
 [node name="Input" type="LineEdit" parent="VBox/InputRow"]
 layout_mode = 2
@@ -65,8 +64,6 @@ size_flags_horizontal = 3
 keep_editing_on_text_submit = true
 caret_blink = true
 placeholder_text = "Type a command and press Enter"
-theme_override_colors/font_color = Color(0.839216, 0.976471, 0.858824, 1)
-theme_override_colors/caret_color = Color(0.545098, 0.952941, 0.639216, 1)
 
 [node name="EditorOverlay" type="Control" parent="."]
 visible = false
@@ -74,53 +71,17 @@ layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="Panel" type="PanelContainer" parent="EditorOverlay"]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = 40.0
-offset_top = 40.0
-offset_right = -40.0
-offset_bottom = -40.0
-grow_horizontal = 2
-grow_vertical = 2
-
-[node name="EditorVBox" type="VBoxContainer" parent="EditorOverlay/Panel"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="EditorStatus" type="HBoxContainer" parent="EditorOverlay/Panel/EditorVBox"]
-layout_mode = 2
-theme_override_constants/separation = 12
-
-[node name="FileLabel" type="Label" parent="EditorOverlay/Panel/EditorVBox/EditorStatus"]
-layout_mode = 2
-text = "file: (none)"
-
-[node name="ModeLabel" type="Label" parent="EditorOverlay/Panel/EditorVBox/EditorStatus"]
-layout_mode = 2
-text = "mode: INSERT"
-
-[node name="HintLabel" type="Label" parent="EditorOverlay/Panel/EditorVBox/EditorStatus"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "Ctrl+S save | Esc close"
-horizontal_alignment = 2
-
-[node name="Editor" type="CodeEdit" parent="EditorOverlay/Panel/EditorVBox"]
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="Blocker" type="ColorRect" parent="EditorOverlay"]
+[node name="Editor" type="CodeEdit" parent="EditorOverlay"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-mouse_filter = 2
-color = Color(0, 0, 0, 0)
