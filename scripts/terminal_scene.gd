@@ -12,6 +12,7 @@ var text_buffer: Array[String] = []
 
 
 func _ready() -> void:
+	input_line.keep_editing_on_text_submit = true
 	input_line.text_submitted.connect(_on_input_submitted)
 	input_line.grab_focus()
 	_append_output("Terminal prototype ready.")
@@ -28,12 +29,12 @@ func _on_input_submitted(command_text: String) -> void:
 	var trimmed: String = command_text.strip_edges()
 	if trimmed.is_empty():
 		input_line.clear()
-		input_line.grab_focus()
+		input_line.call_deferred("grab_focus")
 		return
 
 	_append_output("%s%s" % [prompt_label.text, trimmed])
 	input_line.clear()
-	input_line.grab_focus()
+	input_line.call_deferred("grab_focus")
 
 
 func _append_output(line: String) -> void:

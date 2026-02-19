@@ -62,6 +62,7 @@ theme_override_colors/font_color = Color(0.545098, 0.952941, 0.639216, 1)
 [node name="Input" type="LineEdit" parent="VBox/InputRow"]
 layout_mode = 2
 size_flags_horizontal = 3
+keep_editing_on_text_submit = true
 caret_blink = true
 placeholder_text = "Type a command and press Enter"
 theme_override_colors/font_color = Color(0.839216, 0.976471, 0.858824, 1)
