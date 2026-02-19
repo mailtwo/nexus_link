@@ -1,14 +1,15 @@
 # MiniScript 적용 + CPU/RAM 제약 설계
 
-이 문서는 **Lua 대신 MiniScript를 채택**했을 때의 Unity 임베딩 구조, 샌드박싱, 그리고 **CPU(실행 예산) / RAM(논리 메모리)** 제약을 “업그레이드 가능한 성장 시스템”으로 연결하는 설계를 정리한다.
+이 문서는 **Lua 대신 MiniScript를 채택**했을 때의 **Godot(PC, C#) 임베딩 구조**(엔진 무관 C# 호스트 모델), 샌드박싱, 그리고 **CPU(실행 예산) / RAM(논리 메모리)** 제약을 “업그레이드 가능한 성장 시스템”으로 연결하는 설계를 정리한다.
 
 ---
 
 ## 1) MiniScript를 쓰는 이유(프로젝트 관점)
 
 - MiniScript는 “임베드(embedded) 언어”로 설계되어, 게임/앱 내부에서 스크립트를 실행하기 좋다.
-- Unity 통합 가이드가 존재하고, “여러 스크립트를 각각의 독립 샌드박스”로 동시에 돌릴 수 있으며,  
-  호스트(Unity)가 노출한 것만 접근하도록 만들 수 있다.
+- MiniScript의 C# 통합 가이드(예시는 Unity지만 개념은 엔진 무관)가 존재하고,
+  “여러 스크립트를 각각의 독립 샌드박스”로 동시에 돌릴 수 있으며,
+  호스트(게임)가 노출한 것만 접근하도록 만들 수 있다.
 
 **프로젝트 결정**  
 - 유저 스크립트 언어: **MiniScript**
@@ -17,29 +18,40 @@
 
 ---
 
-## 2) Unity에서의 실행 모델(권장: time-slicing)
+## 2) Godot에서의 실행 모델(권장: time-slicing)
 
 ### 기본 구조(요약)
 - 프로그램(툴)마다 `Interpreter` 인스턴스 1개
-- 게임 루프(예: `Update`)에서 매 프레임 `RunUntilDone(timeSliceSeconds)` 호출  
+- 게임 루프(예: Godot의 `_Process`)에서 매 프레임 `RunUntilDone(timeSliceSeconds)` 호출  
   → 스크립트가 길어도 **프레임을 멈추지 않고** 조금씩 진행
 
 ### 예시(의사 코드)
 ```csharp
-// per tool/program
-Interpreter itp = new Interpreter();
-itp.Reset(sourceCode);
-itp.Compile();
+using Godot;
+using Miniscript; // 예시 네임스페이스(실제는 패키지 구조에 맞게 조정)
 
-void Update() {
-    // CPU 레벨에 따라 timeSlice 조절
-    float slice = cpuBudgetSecondsPerFrame;
-    itp.RunUntilDone(slice);
+// per tool/program
+public partial class ProgramRunner : Node
+{
+    private Interpreter _itp;
+    public float CpuBudgetSecondsPerFrame = 0.002f; // CPU 레벨에 따라 조절
+
+    public override void _Ready()
+    {
+        _itp = new Interpreter();
+        _itp.Reset(sourceCode);
+        _itp.Compile();
+    }
+
+    public override void _Process(double delta)
+    {
+        _itp.RunUntilDone(CpuBudgetSecondsPerFrame);
+    }
 }
 ```
 
 ### wait/yield와 프레임 협업
-- MiniScript 기본 intrinsic로 `wait(seconds)` / `yield`가 있어
+- (권장) 호스트가 `wait(seconds)` / `yield` 계열 intrinsic를 제공하면
   - 네트워크/크랙/다운로드 같은 “시간 걸리는 작업”을 게임적으로 표현 가능
   - `yield`는 다음 메인 루프(다음 프레임)까지 대기하는 느낌으로 사용
 
@@ -159,6 +171,6 @@ CPU 제약은 크게 두 가지 방식이 있다.
 ```text
 MiniScript Manual: https://miniscript.org/files/MiniScript-Manual.pdf
 MiniScript Wait Wiki: https://miniscript.org/wiki/Wait
-MiniScript Integration Guide (Unity): https://miniscript.org/files/MiniScript-Integration-Guide.pdf
+MiniScript Integration Guide (Unity 예시, C# 임베딩 참고): https://miniscript.org/files/MiniScript-Integration-Guide.pdf
 Halting problem(정적 상한 계산 한계 배경): https://en.wikipedia.org/wiki/Halting_problem
 ```

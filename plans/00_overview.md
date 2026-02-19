@@ -3,7 +3,7 @@
 이 문서 세트는 **터미널 기반 코딩-해킹 인디 게임**을 만들 때, 구현/기획 판단을 빠르게 내릴 수 있도록 핵심 설계를 주제별로 분리해 정리한 것입니다.
 
 - 엔진: Godot(PC) 가정  
-  - (레거시 문서 일부는 Unity 가정 문구가 남아 있을 수 있음)
+  - (05 문서는 Unity 레거시 참고용, 나머지는 Godot 전제)
 - UI: 기본은 **터미널/텍스트 중심**
 - 핵심 차별점: 유저가 “툴(프로그램)”을 **MiniScript로 수정/개선/자동화**하여 공략 루트를 만들어냄
 - 해킹 대상: **현실 시스템이 아닌, 게임 내 가상 네트워크/가상 OS/가상 서비스**
@@ -18,7 +18,7 @@
    - “왜 이 장르가 재밌는지”와 “어떤 UX/게임 루프가 검증되었는지” 요약
 
 2) **02_miniscript_interpreter_and_constraints.md**  
-   - Lua 대신 MiniScript 채택 이유, Unity 임베딩 구조  
+   - Lua 대신 MiniScript 채택 이유, **Godot(C#) 임베딩/샌드박스 실행 모델**  
    - **CPU(실행 예산)/RAM(논리 메모리)** 제약, 업그레이드 설계  
    - 실행 타임슬라이스, wait/yield, 샌드박싱, 메모리 추정/예약(Reservation) 전략
 
@@ -30,13 +30,25 @@
    - 너가 정리한 공격 루트를 기반으로, 각 루트의 **미션 템플릿**(단서→준비→위험→보상→교훈) 정리  
    - “현실감은 살리되 따라 하기 어렵게” 만들기 위한 추상화 원칙 포함
 
-5) **06_server_nodes_design_v0.md**  
+5) **05_ui_terminal_prototype.md** (레거시)
+   - Unity 전제의 초기 터미널 UI 기획 문서(참고용 유지)
+   - 최신 Godot 구현 스펙은 07 문서를 기준으로 함
+
+6) **06_server_nodes_design_v0.md**
    - 프로토타입 v0의 **서버 노드/클러스터 설정**(쉬움/중간/어려움 v0) 정리  
    - IP/포트/서비스/계정/초기 파일시스템/토큰(OTP·unlock) 레지스트리 등 “시나리오 실행에 필요한 최소 데이터” 포함
 
-6) **07_ui_terminal_prototype_godot.md**  
+7) **07_ui_terminal_prototype_godot.md**
    - Godot(PC) 기반 **터미널 UI + 코드 에디터 오버레이** 기획  
    - 씬/노드 트리, 입력 이벤트(히스토리/자동완성/클릭 링크), MVP 명령어 세트, DoD(성공 기준) 포함
+
+8) **08_vfs_overlay_design_v0.md**
+   - 서버 수가 커져도 확장 가능한 **VFS(Base + Overlay + Tombstone + BlobStore)** 설계  
+   - 서버별 파일 추가/수정/삭제(기본 파일 삭제 포함)와 런타임 파일 조작 규칙을 정의
+
+9) **09_server_node_runtime_schema_v0.md**
+   - 월드 런타임의 **서버/프로세스/세션/디스크 오버레이** 등 핵심 상태를 담는 스키마(v0)  
+   - `server_list`/`process_list` 단일 진실 원칙, reboot/프로세스 완료 규칙 등 구현 규칙 포함
 
 
 ---
@@ -50,6 +62,8 @@
   - RAM = 논리 메모리(문자열/리스트/맵 규모 기반) + 실행 전 **예약(Reservation)** 모델
 - **보안 개념 학습**: 공격 성공 시 “왜 뚫렸는지 / 어떻게 막는지” 피드백 제공
 - **탐지/긴장감**: 로깅/모니터링 시스템 + Trace 게이지(소음/은밀함 트레이드오프)
+- **디스크 모델**: 공통 BaseFS + 서버별 OverlayFS(tombstone 포함) + BlobStore 중복 제거(08 문서)
+- **런타임 스키마**: `server_list`/`process_list` 중심(단일 진실) + reboot/프로세스 완료 규칙(09 문서)
 
 ---
 
@@ -68,7 +82,7 @@
 이건 현재 파일들에 일부 언급되지만, 실제 제작에 들어가면 **별도 문서/스프레드시트로 관리**하는 게 좋아요.
 
 - **게임 루프/경제**: 계약/보상/상점/업그레이드 비용/리스크 보상 곡선
-- **콘텐츠 제작 파이프라인**: 서버/미션/취약점 토글 데이터를 어떻게 찍어낼지(에디터 툴, JSON/ScriptableObject)
+- **콘텐츠 제작 파이프라인**: 서버/미션/취약점 토글 데이터를 어떻게 찍어낼지(에디터 툴, JSON/Godot Resource(.tres/.res))
 - **UX**: 터미널 UI, 코드 에디터(자동완성/오류 표시), 디버깅(로그/스택/프로파일)
 - **안전장치**: 무한루프/메모리 폭주/크래시 방지, 스크립트 타임아웃, 보호된 API 경계
 - **밸런싱**: 자동화가 게임을 “혼자 돌리는” 상태로 가지 않게 하는 장치(수동 퍼즐/이벤트/탐지 강화)
@@ -82,7 +96,7 @@
 ## 참고 링크(원문)
 ```text
 MiniScript Manual: https://miniscript.org/files/MiniScript-Manual.pdf
-MiniScript Integration Guide (Unity): https://miniscript.org/files/MiniScript-Integration-Guide.pdf
+MiniScript Integration Guide (Unity 예시, C# 임베딩 참고): https://miniscript.org/files/MiniScript-Integration-Guide.pdf
 OWASP Top 10:2021: https://owasp.org/Top10/2021/
 OWASP Top 10 for LLM Apps: https://owasp.org/www-project-top-10-for-large-language-model-applications/
 Hacknet (Steam): https://store.steampowered.com/app/365450/Hacknet/
