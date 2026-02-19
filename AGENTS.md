@@ -15,3 +15,7 @@ This project follows context7 principles:
 - For this project, implement features based on the markdown files in the `plans/` folder by default.
 - If the developer does not specify details, use the relevant `plans/` documents as the source of truth.
 - If a request conflicts with the `plans/` documents, ask the developer for confirmation before proceeding.
+
+### Code Documentation Policy
+- For all newly written code, add XML docstrings for each class, member function, and member variable.
+- Keep docstrings concise and practical (purpose, key behavior, and important constraints).
