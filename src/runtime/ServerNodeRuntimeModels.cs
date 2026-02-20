@@ -277,6 +277,9 @@ public sealed class ServerNodeRuntime
     /// <summary>Server role type.</summary>
     public ServerRole Role { get; set; }
 
+    /// <summary>Scenario-provided informational lines.</summary>
+    public List<string> Info { get; } = new();
+
     /// <summary>Logical online/offline state.</summary>
     public ServerStatus Status { get; private set; }
 

@@ -1,5 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+
+#nullable enable
 
 namespace Uplink2.Blueprint;
 

@@ -553,6 +553,28 @@ public sealed class OverlayFileSystem
         return normalized;
     }
 
+    /// <summary>Adds a tombstone so the path is hidden from merged view.</summary>
+    public string AddTombstone(string path, string cwd = "/")
+    {
+        var normalized = BaseFileSystem.NormalizePath(cwd, path);
+        if (normalized == "/")
+        {
+            throw new InvalidOperationException("Cannot tombstone root directory.");
+        }
+
+        if (overlayEntries.TryGetValue(normalized, out var existingEntry) &&
+            existingEntry.EntryKind == VfsEntryKind.File &&
+            !string.IsNullOrEmpty(existingEntry.ContentId))
+        {
+            blobStore.Release(existingEntry.ContentId);
+        }
+
+        overlayEntries.Remove(normalized);
+        tombstones.Add(normalized);
+        ApplyRemoveChild(GetParentPath(normalized), GetName(normalized));
+        return normalized;
+    }
+
     /// <summary>Reads merged file content by path.</summary>
     public bool TryReadFileText(string path, out string content)
     {
