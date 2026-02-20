@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using Uplink2.Blueprint;
+using Uplink2.Runtime.Syscalls;
 using Uplink2.Vfs;
 
 namespace Uplink2.Runtime;
@@ -68,6 +69,9 @@ public partial class WorldRuntime : Node
     /// <summary>Initial player workstation server instance.</summary>
     public ServerNodeRuntime PlayerWorkstationServer { get; private set; } = null!;
 
+    // System-call processor for command dispatch.
+    private SystemCallProcessor systemCallProcessor = null!;
+
     // Runtime allocators/state.
     private int nextProcessId = 1;
 
@@ -85,5 +89,6 @@ public partial class WorldRuntime : Node
         BuildBaseOsImage();
         LoadDictionaryPasswordPool();
         BuildInitialWorldFromBlueprint();
+        InitializeSystemCalls();
     }
 }
