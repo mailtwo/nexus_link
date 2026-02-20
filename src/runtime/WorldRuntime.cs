@@ -1,4 +1,5 @@
-using Godot;
+﻿using Godot;
+using System;
 using System.Collections.Generic;
 using Uplink2.Vfs;
 
@@ -16,8 +17,11 @@ public partial class WorldRuntime : Node
     /// <summary>Shared immutable base filesystem image.</summary>
     public BaseFileSystem BaseFileSystem { get; private set; }
 
-    /// <summary>Global server registry keyed by IP.</summary>
-    public Dictionary<string, ServerNodeRuntime> ServerList { get; } = new();
+    /// <summary>Global server registry keyed by node id.</summary>
+    public Dictionary<string, ServerNodeRuntime> ServerList { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>IP to node id reverse index.</summary>
+    public Dictionary<string, string> IpIndex { get; } = new(StringComparer.Ordinal);
 
     /// <summary>Global process registry keyed by process id.</summary>
     public Dictionary<int, ProcessStruct> ProcessList { get; } = new();
@@ -61,22 +65,33 @@ public partial class WorldRuntime : Node
     /// <summary>Creates initial world state with one workstation server.</summary>
     private void BuildInitialServerRuntime()
     {
-        var workstationIp = "10.0.0.10";
         var workstation = new ServerNodeRuntime(
+            nodeId: "player_workstation",
             name: "player-workstation",
             role: ServerRole.Terminal,
-            ip: workstationIp,
             baseFileSystem: BaseFileSystem,
             blobStore: BlobStore);
 
+        workstation.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+        });
+        workstation.SetExposure("internet", true);
+
         workstation.Users["player"] = new UserConfig
         {
+            UserId = "player",
             UserPasswd = "player",
             AuthMode = AuthMode.Static,
             Privilege = PrivilegeConfig.FullAccess(),
         };
         workstation.Users["system"] = new UserConfig
         {
+            UserId = "system",
             UserPasswd = string.Empty,
             AuthMode = AuthMode.None,
             Privilege = PrivilegeConfig.FullAccess(),
@@ -102,8 +117,35 @@ public partial class WorldRuntime : Node
             Action = "runtime bootstrap",
         });
 
-        ServerList[workstation.Ip] = workstation;
+        RegisterServer(workstation);
         PlayerWorkstationServer = workstation;
+    }
+
+    /// <summary>Registers a server and refreshes ip index entries.</summary>
+    public void RegisterServer(ServerNodeRuntime server)
+    {
+        if (server is null)
+        {
+            throw new ArgumentNullException(nameof(server));
+        }
+
+        if (ServerList.ContainsKey(server.NodeId))
+        {
+            throw new InvalidOperationException($"Duplicate node id: {server.NodeId}");
+        }
+
+        ServerList[server.NodeId] = server;
+
+        foreach (var iface in server.Interfaces)
+        {
+            if (IpIndex.TryGetValue(iface.Ip, out var existingNodeId) &&
+                !string.Equals(existingNodeId, server.NodeId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"Duplicate IP mapping: {iface.Ip}");
+            }
+
+            IpIndex[iface.Ip] = server.NodeId;
+        }
     }
 
     /// <summary>Allocates the next unique process id.</summary>
@@ -112,9 +154,27 @@ public partial class WorldRuntime : Node
         return nextProcessId++;
     }
 
-    /// <summary>Returns a server by IP if found.</summary>
-    public bool TryGetServer(string ip, out ServerNodeRuntime server)
+    /// <summary>Returns a server by node id if found.</summary>
+    public bool TryGetServer(string nodeId, out ServerNodeRuntime server)
     {
-        return ServerList.TryGetValue(ip, out server);
+        return ServerList.TryGetValue(nodeId, out server);
+    }
+
+    /// <summary>Returns a server by IP if found.</summary>
+    public bool TryGetServerByIp(string ip, out ServerNodeRuntime server)
+    {
+        server = null;
+        if (!IpIndex.TryGetValue(ip, out var nodeId))
+        {
+            return false;
+        }
+
+        return ServerList.TryGetValue(nodeId, out server);
+    }
+
+    /// <summary>Resolves node id from IP if present.</summary>
+    public bool TryResolveNodeIdByIp(string ip, out string nodeId)
+    {
+        return IpIndex.TryGetValue(ip, out nodeId);
     }
 }
