@@ -243,7 +243,7 @@ process: HashSet<int /*processId*/>
 
 ```text
 DaemonStruct
-- daemonType: ENUM { OTP, firewall, accessMonitor }
+- daemonType: ENUM { OTP, firewall, connectionRateLimiter }
 - daemonArgs: Dictionary<string, Any>
     OTP:
       - userKey: string
@@ -251,12 +251,50 @@ DaemonStruct
       - allowedDriftSteps: int
       - otpPairId: string
     firewall: { }
-    accessMonitor:
-      - tracerNodeId: string
+    connectionRateLimiter:
+      - monitorMs: int      # IP별 접속 시도 집계 윈도우(ms)
+      - threshold: int      # monitorMs 윈도우 내 허용 시도 횟수(초과 시 차단)
+      - blockMs: int        # threshold 초과 IP 차단 시간(ms)
+      - rateLimit: int      # 1초당 처리 가능한 검사 수(비차단 IP 시도만 대상)
+      - recoveryMs: int     # rateLimit 초과 과부하 발생 시 비활성 시간(ms)
 ```
 
 OTP 규칙(v0.2):
 - OTP 제어 계정 참조는 반드시 `userKey`를 사용한다(`userId` 참조 금지).
+
+connectionRateLimiter 규칙(v0.2):
+- 목적: 특정 IP의 과도한 접속 시도를 탐지/차단하되, 데몬 자체 처리량 한계를 모델링한다.
+- 접속 시도 처리 단위 시간은 ms 기준으로 계산한다.
+- 런타임 권장 상태:
+  - `blockedUntilByIp: Dictionary<IP, int /*unixMs*/>`
+  - `recentAttemptsByIp: Dictionary<IP, Queue<int /*unixMs*/>>` (monitorMs 윈도우 관리)
+  - `rateWindowStartMs: int`, `rateCheckedInWindow: int`
+  - `overloadedUntilMs: int`
+
+처리 순서(접속 시도 1건 기준):
+1) `now < overloadedUntilMs`면 데몬 비활성 상태로 간주한다.  
+   - 이 구간에서는 데몬이 어떤 시도도 block하지 않는다(통과 처리).
+2) `blockedUntilByIp[ip] > now`면 즉시 drop한다.  
+   - 이 시도는 `rateLimit` 카운트에서 제외한다.
+3) `recentAttemptsByIp[ip]`에서 `now - monitorMs`보다 오래된 기록을 제거한다.
+4) 만약 이번 시도로 `threshold`를 초과하면:
+   - `blockedUntilByIp[ip] = now + blockMs`
+   - 이번 시도는 즉시 drop
+   - 이번 시도는 `rateLimit` 카운트에서 제외
+5) 위 조건에 걸리지 않은 시도만 `rateLimit` 검사 대상으로 본다.  
+   - 현재 1초 윈도우(`rateWindowStartMs`)의 `rateCheckedInWindow`가 `rateLimit` 미만이면 검사 성공:
+     - `rateCheckedInWindow++`
+     - `recentAttemptsByIp[ip]`에 `now` 추가
+     - 시도는 통과
+   - `rateLimit` 이상이면 과부하 발생:
+     - `overloadedUntilMs = now + recoveryMs`
+     - 이번 시도는 block하지 않고 통과
+     - 이후 `recoveryMs` 동안 모든 시도는 block하지 않음
+
+카운트 규칙(필수):
+- 차단된 IP에서 들어온 시도는 `rateLimit` 카운트에서 제외한다.
+- `threshold` 초과를 유발한 시도는 즉시 drop하며 `rateLimit` 카운트에서 제외한다.
+- 과부하 상태로 넘어간 이후의 시도는 검사 자체를 수행하지 않으므로 `rateLimit` 카운트 증가 대상이 아니다.
 
 ---
 
@@ -292,6 +330,7 @@ LogStruct
 - [ ] 세션/프로세스 내부 참조는 `userKey`, 표시/로그는 `userId` 사용
 - [ ] `lanNeighbors`를 nodeId 기반으로 유지하고 `net.scan("lan")`은 IP 목록 반환
 - [ ] OTP daemon 참조를 `userKey` 기준으로 검증
+- [ ] `connectionRateLimiter` daemon 구현: `monitorMs/threshold/blockMs/rateLimit/recoveryMs` 규칙 반영
 - [ ] 프로세스 tick: `now >= endAt` 처리 + 서버 reason 보호 규칙
 - [ ] reboot 규칙: 서버 offline(reboot) 전환 + 프로세스/세션 정리 + booting 생성
 - [ ] VFS overlay: `diskOverlay` + Resolve 우선순위 + overlayDir 델타 유지
