@@ -78,7 +78,7 @@ public enum DaemonType
 {
     Otp,
     Firewall,
-    AccessMonitor,
+    ConnectionRateLimiter,
 }
 
 /// <summary>Log action category.</summary>
@@ -167,7 +167,7 @@ public sealed class DaemonStruct
     /// <summary>Daemon type key.</summary>
     public DaemonType DaemonType { get; set; }
 
-    /// <summary>Arbitrary daemon arguments.</summary>
+    /// <summary>Arbitrary daemon arguments keyed by daemon contract.</summary>
     public Dictionary<string, object> DaemonArgs { get; } = new(StringComparer.Ordinal);
 }
 
