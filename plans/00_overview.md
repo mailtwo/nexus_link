@@ -48,7 +48,7 @@
 
 9) **09_server_node_runtime_schema_v0.md**
    - 월드 런타임의 **서버/프로세스/세션/디스크 오버레이** 등 핵심 상태를 담는 스키마(v0)  
-   - `server_list`/`process_list` 단일 진실 원칙, reboot/프로세스 완료 규칙 등 구현 규칙 포함
+   - `serverList(nodeId key)` + `ipIndex` + `processList` 단일 진실 원칙, reboot/프로세스 완료 규칙, subnet/exposure 런타임 모델 포함
 
 
 ---
@@ -63,7 +63,7 @@
 - **보안 개념 학습**: 공격 성공 시 “왜 뚫렸는지 / 어떻게 막는지” 피드백 제공
 - **탐지/긴장감**: 로깅/모니터링 시스템 + Trace 게이지(소음/은밀함 트레이드오프)
 - **디스크 모델**: 공통 BaseFS + 서버별 OverlayFS(tombstone 포함) + BlobStore 중복 제거(08 문서)
-- **런타임 스키마**: `server_list`/`process_list` 중심(단일 진실) + reboot/프로세스 완료 규칙(09 문서)
+- **런타임 스키마**: `serverList(nodeId key)`/`ipIndex`/`processList` 중심(단일 진실) + subnet/exposure 상태 캐시 + reboot/프로세스 완료 규칙(09 문서)
 
 ---
 

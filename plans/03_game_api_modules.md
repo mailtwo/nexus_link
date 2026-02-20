@@ -79,11 +79,16 @@
 ## 3) 네트워크/장비 모듈
 
 ### 3.1 net (스캔/연결/정보수집)
-- `net.scan(subnetOrHost)` → host list
+- `net.scan(subnetOrHost)` → host IP list
 - `net.ports(host)` → 열린 포트/서비스 목록(권한/탐지에 따라 가시성 차등)
 - `net.banner(host, port)` → 버전/배너(구형 컴포넌트 단서)
 - `net.connect(host, port, opts)` → connection handle
 - `net.route()` / `net.traceroute(host)` (선택)
+
+`net.scan("lan")` 구현 규칙(v0.2):
+- 내부 계산: `lanNeighbors: List<nodeId>` 기반
+- 외부 반환: 플레이어 UX 유지를 위해 IP 문자열 리스트 반환
+- 변환: nodeId -> (현재 netId 컨텍스트의 ip)
 
 ### 3.2 fw (방화벽/ACL)
 - `fw.list(device)`
@@ -108,6 +113,10 @@
 - `auth.logout(session)`
 - `auth.whoami(session)`
 - `auth.tokens(session)` (선택: 토큰 스코프 확인)
+
+로그인 host 해석 규칙(v0.2):
+- `auth.login(host, ...)`의 `host`는 기본적으로 IP를 받는다.
+- 내부에서는 `ipIndex`로 `nodeId`를 역참조해 실제 서버 런타임을 조회한다.
 
 **공격 루트 연결**
 - 약한 비번/기본 비번/credential stuffing/스프레이
