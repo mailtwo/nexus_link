@@ -1,155 +1,155 @@
 ---
 ServerSpec:
   hardGatewayServer:
-    - initialStatus: online
-    - initialReason: OK
-    - hostname: hard_gateway
-    - users:
-        hardGatewayUser1:
-          userId: root
-          passwd: AUTO:c5_base64
-          authMode: static
-          privilege:
-            read: true
-            write: true
-            execute: true
+    initialStatus: online
+    initialReason: OK
+    hostname: hard_gateway
+    users:
+      hardGatewayUser1:
+        userId: root
+        passwd: AUTO:c5_base64
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
   hardTerminal1Server:
-    - initialStatus: online
-    - initialReason: OK
-    - hostname: hard_terminal
-    - users:
-        hardTerminal1User1:
-          userId: root
-          passwd: AUTO:c4_base64
-          authMode: static
-          privilege:
-            read: true
-            write: true
-            execute: true
+    initialStatus: online
+    initialReason: OK
+    hostname: hard_terminal
+    users:
+      hardTerminal1User1:
+        userId: root
+        passwd: AUTO:c4_base64
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
   hardTerminal2Server:
-    - initialStatus: online
-    - initialReason: OK
-    - hostname: hard_terminal
-    - users:
-        hardTerminal2User1:
-          userId: root
-          passwd: AUTO:c5_base64
-          authMode: static
-          privilege:
-            read: true
-            write: true
-            execute: true
+    initialStatus: online
+    initialReason: OK
+    hostname: hard_terminal
+    users:
+      hardTerminal2User1:
+        userId: root
+        passwd: AUTO:c5_base64
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
   hardTerminal3Server:
-    - initialStatus: online
-    - initialReason: OK
-    - hostname: hard_terminal
-    - users:
-        hardTerminal3User1:
-          userId: root
-          passwd: AUTO:c4_base64
-          authMode: static
-          privilege:
-            read: true
-            write: true
-            execute: true
+    initialStatus: online
+    initialReason: OK
+    hostname: hard_terminal
+    users:
+      hardTerminal3User1:
+        userId: root
+        passwd: AUTO:c4_base64
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
   hardTerminal4Server:
-    - initialStatus: online
-    - initialReason: OK
-    - hostname: hard_terminal
-    - users:
-        hardTerminal4User1:
-          userId: root
-          passwd: AUTO:c6_base64
-          authMode: static
-          privilege:
-            read: true
-            write: true
-            execute: true
+    initialStatus: online
+    initialReason: OK
+    hostname: hard_terminal
+    users:
+      hardTerminal4User1:
+        userId: root
+        passwd: AUTO:c6_base64
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
   hardTerminal5Server:
-    - initialStatus: online
-    - initialReason: OK
-    - hostname: hard_terminal
-    - users:
-        hardTerminal5User1:
-          userId: root
-          passwd: AUTO:c5_base64
-          authMode: static
-          privilege:
-            read: true
-            write: true
-            execute: true
+    initialStatus: online
+    initialReason: OK
+    hostname: hard_terminal
+    users:
+      hardTerminal5User1:
+        userId: root
+        passwd: AUTO:c5_base64
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
   hardGuard1Server:
-    - initialStatus: online
-    - initialReason: OK
-    - hostname: hard_terminal
-    - users:
-        hardGuard1User1:
-          userId: root
-          passwd: AUTO:c5_base64
-          authMode: static
-          privilege:
-            read: true
-            write: true
-            execute: true
+    initialStatus: online
+    initialReason: OK
+    hostname: hard_terminal
+    users:
+      hardGuard1User1:
+        userId: root
+        passwd: AUTO:c5_base64
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
   hardGuard2Server:
-    - initialStatus: online
-    - initialReason: OK
-    - hostname: hard_terminal
-    - users:
-        hardGuard2User1:
-          userId: root
-          passwd: AUTO:c5_base64
-          authMode: static
-          privilege:
-            read: true
-            write: true
-            execute: true
+    initialStatus: online
+    initialReason: OK
+    hostname: hard_terminal
+    users:
+      hardGuard2User1:
+        userId: root
+        passwd: AUTO:c5_base64
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
   hardGuard3Server:
-    - initialStatus: online
-    - initialReason: OK
-    - hostname: hard_terminal
-    - users:
-        hardGuard3User1:
-          userId: root
-          passwd: AUTO:c5_base64
-          authMode: static
-          privilege:
-            read: true
-            write: true
-            execute: true
+    initialStatus: online
+    initialReason: OK
+    hostname: hard_terminal
+    users:
+      hardGuard3User1:
+        userId: root
+        passwd: AUTO:c5_base64
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
   hardGuard4Server:
-    - initialStatus: online
-    - initialReason: OK
-    - hostname: hard_terminal
-    - users:
-        hardGuard4User1:
-          userId: root
-          passwd: AUTO:c5_base64
-          authMode: static
-          privilege:
-            read: true
-            write: true
-            execute: true
+    initialStatus: online
+    initialReason: OK
+    hostname: hard_terminal
+    users:
+      hardGuard4User1:
+        userId: root
+        passwd: AUTO:c5_base64
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
   hardMainframeServer:
-    - initialStatus: online
-    - initialReason: OK
-    - hostname: hard_mainframe
-    - users:
-        hardMainframeSUser1:
-          userId: root
-          passwd: AUTO:c5_base64
-          authMode: static
-          privilege:
-            read: true
-            write: true
-            execute: true
-    - daemons:
-        connectionRateLimiter:
-          monitorMs: 1000
-          threshold: 5
-          blockMs: 10000
-          rateLimit: 18
-          recoveryMs: 30000
+    initialStatus: online
+    initialReason: OK
+    hostname: hard_mainframe
+    users:
+      hardMainframeSUser1:
+        userId: root
+        passwd: AUTO:c5_base64
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
+    daemons:
+      connectionRateLimiter:
+        monitorMs: 1000
+        threshold: 5
+        blockMs: 10000
+        rateLimit: 18
+        recoveryMs: 30000
 Scenario:
   hardScenario:
     servers:
@@ -157,110 +157,110 @@ Scenario:
         specId: hardGatewayServer
         role: gateway
         interfaces:
-          - internet: 
-              initiallyExposed: true
-          - hardSubnet:
-              initiallyExposed: true
+          - netId: internet
+            initiallyExposed: true
+          - netId: hardSubnet
+            initiallyExposed: true
       hardScenario/hardTerminal1Server:
         specId: hardTerminal1Server
         role: terminal
         interfaces:
-          - hardSubnet:
-              initiallyExposed: false
+          - netId: hardSubnet
+            initiallyExposed: false
       hardScenario/hardTerminal2Server:
         specId: hardTerminal2Server
         role: terminal
         interfaces:
-          - hardSubnet:
-              initiallyExposed: false
+          - netId: hardSubnet
+            initiallyExposed: false
       hardScenario/hardTerminal3Server:
         specId: hardTerminal3Server
         role: terminal
         interfaces:
-          - hardSubnet:
-              initiallyExposed: false
+          - netId: hardSubnet
+            initiallyExposed: false
       hardScenario/hardTerminal4Server:
         specId: hardTerminal4Server
         role: terminal
         interfaces:
-          - hardSubnet:
-              initiallyExposed: false
+          - netId: hardSubnet
+            initiallyExposed: false
       hardScenario/hardTerminal5Server:
         specId: hardTerminal5Server
         role: terminal
         interfaces:
-          - hardSubnet:
-              initiallyExposed: false
+          - netId: hardSubnet
+            initiallyExposed: false
       hardScenario/hardGuard1Server:
         specId: hardGuard1Server
         role: terminal
         interfaces:
-          - hardSubnet:
-              initiallyExposed: false
+          - netId: hardSubnet
+            initiallyExposed: false
       hardScenario/hardGuard2Server:
         specId: hardGuard2Server
         role: terminal
         interfaces:
-          - hardSubnet:
-              initiallyExposed: false
+          - netId: hardSubnet
+            initiallyExposed: false
       hardScenario/hardGuard3Server:
         specId: hardGuard3Server
         role: terminal
         interfaces:
-          - hardSubnet:
-              initiallyExposed: false
+          - netId: hardSubnet
+            initiallyExposed: false
       hardScenario/hardGuard4Server:
         specId: hardGuard4Server
         role: terminal
         interfaces:
-          - hardSubnet:
-              initiallyExposed: false
+          - netId: hardSubnet
+            initiallyExposed: false
       hardScenario/hardMainframeServer:
         specId: hardMainframeServer
         role: mainframe
         interfaces:
-          - hardSubnet:
-              initiallyExposed: false
-  subnetTopology:
-    hardSubnet:
-      addressPlan: 11.0.0.0/24
-      links:
-      - a: hardScenario/hardGatewayServer
-        b: hardScenario/hardTerminal1Server
-      - a: hardScenario/hardGatewayServer
-        b: hardScenario/hardTerminal2Server
-      - a: hardScenario/hardTerminal1Server
-        b: hardScenario/hardTerminal3Server
-      - a: hardScenario/hardTerminal2Server
-        b: hardScenario/hardTerminal4Server
-      - a: hardScenario/hardTerminal4Server
-        b: hardScenario/hardGuard1Server
-      - a: hardScenario/hardTerminal4Server
-        b: hardScenario/hardGuard2Server
-      - a: hardScenario/hardTerminal3Server
-        b: hardScenario/hardTerminal5Server
-      - a: hardScenario/hardGuard2Server
-        b: hardScenario/hardTerminal5Server
-      - a: hardScenario/hardTerminal5Server
-        b: hardScenario/hardGuard3Server
-      - a: hardScenario/hardGuard3Server
-        b: hardScenario/hardGuard4Server
-      - a: hardScenario/hardGuard1Server
-        b: hardScenario/hardMainframeServer
-      - a: hardScenario/hardGuard2Server
-        b: hardScenario/hardMainframeServer
-      - a: hardScenario/hardGuard3Server
-        b: hardScenario/hardMainframeServer
-      - a: hardScenario/hardGuard4Server
-        b: hardScenario/hardMainframeServer
-  events:
-    hardScenarioWinEvent:
-      conditionType: privilegeAcquire
-      conditionArgs:
-        nodeId: hardScenario/hardMainframeServer
-        userId: root
-        privilege: execute
-      actions:
-        - actionType: print
-          actionArgs:
-            text: You passed [Hard] scenario!
+          - netId: hardSubnet
+            initiallyExposed: false
+    subnetTopology:
+      hardSubnet:
+        addressPlan: 11.0.0.0/24
+        links:
+        - a: hardScenario/hardGatewayServer
+          b: hardScenario/hardTerminal1Server
+        - a: hardScenario/hardGatewayServer
+          b: hardScenario/hardTerminal2Server
+        - a: hardScenario/hardTerminal1Server
+          b: hardScenario/hardTerminal3Server
+        - a: hardScenario/hardTerminal2Server
+          b: hardScenario/hardTerminal4Server
+        - a: hardScenario/hardTerminal4Server
+          b: hardScenario/hardGuard1Server
+        - a: hardScenario/hardTerminal4Server
+          b: hardScenario/hardGuard2Server
+        - a: hardScenario/hardTerminal3Server
+          b: hardScenario/hardTerminal5Server
+        - a: hardScenario/hardGuard2Server
+          b: hardScenario/hardTerminal5Server
+        - a: hardScenario/hardTerminal5Server
+          b: hardScenario/hardGuard3Server
+        - a: hardScenario/hardGuard3Server
+          b: hardScenario/hardGuard4Server
+        - a: hardScenario/hardGuard1Server
+          b: hardScenario/hardMainframeServer
+        - a: hardScenario/hardGuard2Server
+          b: hardScenario/hardMainframeServer
+        - a: hardScenario/hardGuard3Server
+          b: hardScenario/hardMainframeServer
+        - a: hardScenario/hardGuard4Server
+          b: hardScenario/hardMainframeServer
+    events:
+      hardScenarioWinEvent:
+        conditionType: privilegeAcquire
+        conditionArgs:
+          nodeId: hardScenario/hardMainframeServer
+          userKey: hardMainframeSUser1
+          privilege: execute
+        actions:
+          - actionType: print
+            actionArgs:
+              text: You passed [Hard] scenario!

@@ -1,9 +1,9 @@
 ---
 campaigns:
-  - prototypeCampaign:
-      childCampaigns: []
-      scenarios:
-        - startScenario
-        - easyScenario
-        - mediumScenario
-        - hardScenario
+  prototypeCampaign:
+    childCampaigns: []
+    scenarios:
+      - startScenario
+      - easyScenario
+      - mediumScenario
+      - hardScenario

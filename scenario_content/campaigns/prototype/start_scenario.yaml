@@ -1,24 +1,24 @@
 ---
 ServerSpec:
   myWorkstation:
-    - initialStatus: online
-    - initialReason: OK
-    - hostname: mainWorkstation
-    - users:
-        mainCharacter:
-          userId: AUTO:user
-          passwd: null
-          authMode: none
-          privilege:
-            read: true
-            write: true
-            execute: true
+    initialStatus: online
+    initialReason: OK
+    hostname: mainWorkstation
+    users:
+      mainCharacter:
+        userId: AUTO:user
+        passwd: null
+        authMode: none
+        privilege:
+          read: true
+          write: true
+          execute: true
 Scenario:
   startScenario:
     servers:
       startScenario/myWorkstation:
-        specId: mainWorkstation
+        specId: myWorkstation
         role: terminal
         interfaces:
-          - internet:
-              initiallyExposed: true
+          - netId: internet
+            initiallyExposed: true
