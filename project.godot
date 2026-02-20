@@ -15,6 +15,10 @@ run/main_scene="res://scenes/TerminalScene.tscn"
 config/features=PackedStringArray("4.6", "C#", "Forward Plus")
 config/icon="res://icon.svg"
 
+[autoload]
+
+WorldRuntime="*res://src/runtime/world/WorldRuntime.cs"
+
 [dotnet]
 
 project/assembly_name="Uplink2"

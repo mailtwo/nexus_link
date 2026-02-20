@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text;
 using Uplink2.Vfs;
 
 namespace Uplink2.Runtime.Syscalls;
@@ -101,22 +103,63 @@ internal sealed class LsCommandHandler : VfsCommandHandlerBase
         }
 
         var children = context.Server.DiskOverlay.ListChildren(targetPath);
-        var outputLines = new List<string>(children.Count);
+        var displayEntries = new List<string>(children.Count);
         foreach (var childName in children)
         {
             var childPath = targetPath == "/" ? "/" + childName : targetPath + "/" + childName;
             if (context.Server.DiskOverlay.TryResolveEntry(childPath, out var childEntry) &&
                 childEntry.EntryKind == VfsEntryKind.Dir)
             {
-                outputLines.Add(childName + "/");
+                displayEntries.Add(childName + "/");
             }
             else
             {
-                outputLines.Add(childName);
+                displayEntries.Add(childName);
             }
         }
 
-        return SystemCallResultFactory.Success(lines: outputLines);
+        return SystemCallResultFactory.Success(lines: FormatLsOutput(displayEntries));
+    }
+
+    private static IReadOnlyList<string> FormatLsOutput(IReadOnlyList<string> entries)
+    {
+        if (entries.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var maxWidth = entries.Max(static entry => entry.Length);
+        var columnWidth = Math.Max(2, maxWidth + 2);
+        const int terminalWidth = 96;
+        var columns = Math.Max(1, terminalWidth / columnWidth);
+
+        if (columns == 1)
+        {
+            return new List<string>(entries);
+        }
+
+        var lines = new List<string>((entries.Count + columns - 1) / columns);
+        for (var offset = 0; offset < entries.Count; offset += columns)
+        {
+            var count = Math.Min(columns, entries.Count - offset);
+            var builder = new StringBuilder(columnWidth * count);
+            for (var index = 0; index < count; index++)
+            {
+                var entry = entries[offset + index];
+                if (index < count - 1)
+                {
+                    builder.Append(entry.PadRight(columnWidth));
+                }
+                else
+                {
+                    builder.Append(entry);
+                }
+            }
+
+            lines.Add(builder.ToString().TrimEnd());
+        }
+
+        return lines;
     }
 }
 

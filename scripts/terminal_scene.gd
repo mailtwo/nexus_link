@@ -8,6 +8,12 @@ extends Control
 @export var terminal_font_size: int = 18
 
 var text_buffer: Array[String] = []
+var world_runtime: Node = null
+var current_node_id: String = ""
+var current_user_key: String = ""
+var current_cwd: String = "/"
+var prompt_user: String = "player"
+var prompt_host: String = "term"
 
 @onready var background: ColorRect = $Background
 @onready var terminal_vbox: VBoxContainer = $VBox
@@ -25,6 +31,8 @@ func _ready() -> void:
 	editor.gui_input.connect(_on_editor_gui_input)
 	editor.shortcut_keys_enabled = true
 	_apply_terminal_theme()
+	_initialize_runtime_bridge()
+	_refresh_prompt()
 	input_line.grab_focus()
 	_append_output("Terminal prototype ready.")
 
@@ -43,14 +51,37 @@ func _on_input_submitted(command_text: String) -> void:
 		input_line.call_deferred("grab_focus")
 		return
 
-	_append_output("%s%s" % [prompt_label.text, trimmed])
-	if trimmed == "vim":
-		_enter_editor_mode()
+	_append_command_echo(trimmed)
+
+	if world_runtime == null:
+		_append_output("error: world runtime singleton '/root/WorldRuntime' not found.")
 		input_line.clear()
+		input_line.call_deferred("grab_focus")
 		return
+
+	if not world_runtime.has_method("ExecuteTerminalCommand"):
+		_append_output("error: runtime bridge method not found: ExecuteTerminalCommand.")
+		input_line.clear()
+		input_line.call_deferred("grab_focus")
+		return
+
+	var response: Dictionary = world_runtime.call(
+		"ExecuteTerminalCommand",
+		current_node_id,
+		current_user_key,
+		current_cwd,
+		trimmed)
+	_apply_systemcall_response(response)
 
 	input_line.clear()
 	input_line.call_deferred("grab_focus")
+
+
+func _append_command_echo(command_text: String) -> void:
+	if text_buffer.size() > 0 and text_buffer[text_buffer.size() - 1] != "":
+		_append_output("")
+
+	_append_output("%s%s" % [prompt_label.text, command_text])
 
 
 func _append_output(line: String) -> void:
@@ -132,3 +163,53 @@ func _on_editor_gui_input(event: InputEvent) -> void:
 	if key_event.ctrl_pressed and key_event.keycode == KEY_S:
 		_exit_editor_mode()
 		editor.accept_event()
+
+
+func _initialize_runtime_bridge() -> void:
+	world_runtime = get_node_or_null("/root/WorldRuntime")
+	if world_runtime == null:
+		_append_output("error: world runtime singleton '/root/WorldRuntime' not found.")
+		return
+
+	if not world_runtime.has_method("GetDefaultTerminalContext"):
+		_append_output("error: runtime bridge method not found: GetDefaultTerminalContext.")
+		world_runtime = null
+		return
+
+	var context: Dictionary = world_runtime.call("GetDefaultTerminalContext", "player")
+	if not bool(context.get("ok", false)):
+		_append_output(str(context.get("error", "error: failed to initialize terminal context.")))
+		world_runtime = null
+		return
+
+	current_node_id = str(context.get("nodeId", ""))
+	current_user_key = str(context.get("userKey", ""))
+	current_cwd = str(context.get("cwd", "/"))
+	prompt_user = str(context.get("promptUser", current_user_key))
+	prompt_host = str(context.get("promptHost", current_node_id))
+
+
+func _apply_systemcall_response(response: Dictionary) -> void:
+	var lines_variant: Variant = response.get("lines", [])
+	if lines_variant is Array:
+		var lines_array: Array = lines_variant
+		for line in lines_array:
+			_append_output(str(line))
+
+	var next_cwd: String = str(response.get("nextCwd", ""))
+	if not next_cwd.is_empty():
+		current_cwd = next_cwd
+
+	_refresh_prompt()
+
+
+func _refresh_prompt() -> void:
+	var display_cwd := current_cwd
+	if display_cwd.is_empty():
+		display_cwd = "/"
+
+	if display_cwd.begins_with("/home/" + prompt_user):
+		var suffix := display_cwd.substr(("/home/" + prompt_user).length())
+		display_cwd = "~" + suffix
+
+	prompt_label.text = "%s@%s:%s $ " % [prompt_user, prompt_host, display_cwd]
