@@ -69,6 +69,10 @@ UserBlueprint
 
 v0에서는 “데몬”을 실제 백그라운드 프로세스라기보다, **서버의 인증 모듈 설정**으로 취급한다.
 
+참고:
+- daemonType/daemonArgs의 런타임 상세 계약(예: `connectionRateLimiter` 인자와 처리 규칙)은  
+  `plans/09_server_node_runtime_schema_v0.md`의 **8) Daemons** 섹션을 참고하면 된다.
+
 ```text
 DaemonBlueprint (OTP)
 - userKey: string                 # OTP로 제어되는 계정 key
