@@ -17,8 +17,11 @@ This project follows context7 principles:
 - If a request conflicts with the `plans/` documents, ask the developer for confirmation before proceeding.
 
 ### Code Documentation Policy
-- For all newly written code, add XML docstrings for each class, member function, and member variable.
-- Keep docstrings concise and practical (purpose, key behavior, and important constraints).
+- Add XML docstrings for all `public`/`protected` classes and members.
+- For `private` members, write docstrings only when the logic is non-obvious or risky.
+- Default to one-line summary docstrings unless extra detail is truly necessary.
+- Use `<inheritdoc/>` when implementing or overriding already-documented members.
+- Prefer grouped docs for related fields over repetitive per-variable docstrings.
 
 ### C# Source Layout Policy
 - Put all C# game-logic code under `src/`.
