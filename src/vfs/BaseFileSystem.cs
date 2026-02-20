@@ -7,17 +7,29 @@ using System.Text;
 namespace Uplink2.Vfs;
 
 /// <summary>VFS entry kind.</summary>
-public enum VfsEntryType
+public enum VfsEntryKind
 {
     File,
     Dir,
+}
+
+/// <summary>VFS file-kind classification for file entries.</summary>
+public enum VfsFileKind
+{
+    Text,
+    Binary,
+    Image,
+    Executable,
 }
 
 /// <summary>Metadata for a single VFS entry.</summary>
 public sealed class VfsEntryMeta
 {
     /// <summary>Entry kind (file or directory).</summary>
-    public VfsEntryType Type { get; }
+    public VfsEntryKind EntryKind { get; }
+
+    /// <summary>File kind for file entries (null for directories).</summary>
+    public VfsFileKind? FileKind { get; }
 
     /// <summary>Blob content id for file entries (empty for directories).</summary>
     public string ContentId { get; }
@@ -25,9 +37,10 @@ public sealed class VfsEntryMeta
     /// <summary>UTF-8 file size in bytes (0 for directories).</summary>
     public long Size { get; }
 
-    private VfsEntryMeta(VfsEntryType type, string contentId, long size)
+    private VfsEntryMeta(VfsEntryKind entryKind, VfsFileKind? fileKind, string contentId, long size)
     {
-        Type = type;
+        EntryKind = entryKind;
+        FileKind = fileKind;
         ContentId = contentId;
         Size = size;
     }
@@ -35,13 +48,25 @@ public sealed class VfsEntryMeta
     /// <summary>Creates directory metadata.</summary>
     public static VfsEntryMeta CreateDir()
     {
-        return new VfsEntryMeta(VfsEntryType.Dir, string.Empty, 0);
+        return new VfsEntryMeta(VfsEntryKind.Dir, null, string.Empty, 0);
     }
 
     /// <summary>Creates file metadata.</summary>
-    public static VfsEntryMeta CreateFile(string contentId, long size)
+    public static VfsEntryMeta CreateFile(string contentId, long size, VfsFileKind fileKind = VfsFileKind.Text)
     {
-        return new VfsEntryMeta(VfsEntryType.File, contentId, size);
+        return new VfsEntryMeta(VfsEntryKind.File, fileKind, contentId, size);
+    }
+
+    /// <summary>Returns true when this entry is directly executable as a command target.</summary>
+    public bool IsDirectExecutable()
+    {
+        return EntryKind == VfsEntryKind.File && FileKind == VfsFileKind.Executable;
+    }
+
+    /// <summary>Returns true when this entry can be passed as a MiniScript source argument.</summary>
+    public bool IsMiniScriptSource()
+    {
+        return EntryKind == VfsEntryKind.File && FileKind == VfsFileKind.Text;
     }
 }
 
@@ -171,7 +196,7 @@ public sealed class BaseFileSystem
         }
 
         var parent = GetParentPath(normalized);
-        if (!baseEntries.TryGetValue(parent, out var parentMeta) || parentMeta.Type != VfsEntryType.Dir)
+        if (!baseEntries.TryGetValue(parent, out var parentMeta) || parentMeta.EntryKind != VfsEntryKind.Dir)
         {
             AddDirectory(parent);
         }
@@ -187,7 +212,7 @@ public sealed class BaseFileSystem
     }
 
     /// <summary>Adds/replaces a base file and stores its payload in blob store.</summary>
-    public string AddFile(string path, string content, bool pinContent = true)
+    public string AddFile(string path, string content, bool pinContent = true, VfsFileKind fileKind = VfsFileKind.Text)
     {
         var normalized = NormalizePath("/", path);
         var parent = GetParentPath(normalized);
@@ -195,7 +220,7 @@ public sealed class BaseFileSystem
 
         var contentId = pinContent ? blobStore.PutPinned(content) : blobStore.Put(content);
         var size = Encoding.UTF8.GetByteCount(content);
-        baseEntries[normalized] = VfsEntryMeta.CreateFile(contentId, size);
+        baseEntries[normalized] = VfsEntryMeta.CreateFile(contentId, size, fileKind);
         baseDirIndex[parent].Add(GetName(normalized));
         return normalized;
     }
@@ -210,7 +235,7 @@ public sealed class BaseFileSystem
     public IReadOnlyCollection<string> ListChildren(string dirPath)
     {
         var normalized = NormalizePath("/", dirPath);
-        if (!baseEntries.TryGetValue(normalized, out var entry) || entry.Type != VfsEntryType.Dir)
+        if (!baseEntries.TryGetValue(normalized, out var entry) || entry.EntryKind != VfsEntryKind.Dir)
         {
             return Array.Empty<string>();
         }
@@ -227,7 +252,7 @@ public sealed class BaseFileSystem
     public IReadOnlyList<string> Find(string startDirPath, string pattern)
     {
         var normalized = NormalizePath("/", startDirPath);
-        if (!baseEntries.TryGetValue(normalized, out var start) || start.Type != VfsEntryType.Dir)
+        if (!baseEntries.TryGetValue(normalized, out var start) || start.EntryKind != VfsEntryKind.Dir)
         {
             return Array.Empty<string>();
         }
@@ -247,7 +272,7 @@ public sealed class BaseFileSystem
                     results.Add(childPath);
                 }
 
-                if (baseEntries.TryGetValue(childPath, out var childEntry) && childEntry.Type == VfsEntryType.Dir)
+                if (baseEntries.TryGetValue(childPath, out var childEntry) && childEntry.EntryKind == VfsEntryKind.Dir)
                 {
                     queue.Enqueue(childPath);
                 }
@@ -261,12 +286,30 @@ public sealed class BaseFileSystem
     public bool TryReadFileText(string path, out string content)
     {
         content = string.Empty;
-        if (!TryResolveEntry(path, out var entry) || entry.Type != VfsEntryType.File || string.IsNullOrEmpty(entry.ContentId))
+        if (!TryResolveEntry(path, out var entry) || entry.EntryKind != VfsEntryKind.File || string.IsNullOrEmpty(entry.ContentId))
         {
             return false;
         }
 
         return blobStore.TryGet(entry.ContentId, out content);
+    }
+
+    /// <summary>Returns true when the target path is directly executable.</summary>
+    public bool CanExecuteFile(string path)
+    {
+        return TryResolveEntry(path, out var entry) && entry.IsDirectExecutable();
+    }
+
+    /// <summary>Returns true when the target path can be used as MiniScript source.</summary>
+    public bool CanUseAsMiniScriptSource(string path)
+    {
+        return TryResolveEntry(path, out var entry) && entry.IsMiniScriptSource();
+    }
+
+    /// <summary>Returns true when miniscript command + scriptPath invocation is valid.</summary>
+    public bool CanRunMiniScript(string interpreterPath, string scriptPath)
+    {
+        return CanExecuteFile(interpreterPath) && CanUseAsMiniScriptSource(scriptPath);
     }
 
     /// <summary>Normalizes path with cwd (supports '.', '..', absolute/relative).</summary>
@@ -433,7 +476,7 @@ public sealed class OverlayFileSystem
     public IReadOnlyList<string> Find(string startDirPath, string pattern)
     {
         var normalized = BaseFileSystem.NormalizePath("/", startDirPath);
-        if (!TryResolveEntry(normalized, out var startEntry) || startEntry.Type != VfsEntryType.Dir)
+        if (!TryResolveEntry(normalized, out var startEntry) || startEntry.EntryKind != VfsEntryKind.Dir)
         {
             return Array.Empty<string>();
         }
@@ -453,7 +496,7 @@ public sealed class OverlayFileSystem
                     results.Add(childPath);
                 }
 
-                if (TryResolveEntry(childPath, out var entry) && entry.Type == VfsEntryType.Dir)
+                if (TryResolveEntry(childPath, out var entry) && entry.EntryKind == VfsEntryKind.Dir)
                 {
                     queue.Enqueue(childPath);
                 }
@@ -473,7 +516,7 @@ public sealed class OverlayFileSystem
         }
 
         var parent = GetParentPath(normalized);
-        if (!TryResolveEntry(parent, out var parentEntry) || parentEntry.Type != VfsEntryType.Dir)
+        if (!TryResolveEntry(parent, out var parentEntry) || parentEntry.EntryKind != VfsEntryKind.Dir)
         {
             throw new InvalidOperationException($"Parent directory does not exist: {parent}");
         }
@@ -484,12 +527,12 @@ public sealed class OverlayFileSystem
         return normalized;
     }
 
-    /// <summary>Writes text file content into overlay space.</summary>
-    public string WriteFile(string path, string content, string cwd = "/")
+    /// <summary>Writes file content into overlay space.</summary>
+    public string WriteFile(string path, string content, string cwd = "/", VfsFileKind fileKind = VfsFileKind.Text)
     {
         var normalized = BaseFileSystem.NormalizePath(cwd, path);
         var parent = GetParentPath(normalized);
-        if (!TryResolveEntry(parent, out var parentEntry) || parentEntry.Type != VfsEntryType.Dir)
+        if (!TryResolveEntry(parent, out var parentEntry) || parentEntry.EntryKind != VfsEntryKind.Dir)
         {
             throw new InvalidOperationException($"Parent directory does not exist: {parent}");
         }
@@ -497,7 +540,7 @@ public sealed class OverlayFileSystem
         tombstones.Remove(normalized);
 
         if (overlayEntries.TryGetValue(normalized, out var existingEntry) &&
-            existingEntry.Type == VfsEntryType.File &&
+            existingEntry.EntryKind == VfsEntryKind.File &&
             !string.IsNullOrEmpty(existingEntry.ContentId))
         {
             blobStore.Release(existingEntry.ContentId);
@@ -505,7 +548,7 @@ public sealed class OverlayFileSystem
 
         var contentId = blobStore.Put(content);
         var size = Encoding.UTF8.GetByteCount(content);
-        overlayEntries[normalized] = VfsEntryMeta.CreateFile(contentId, size);
+        overlayEntries[normalized] = VfsEntryMeta.CreateFile(contentId, size, fileKind);
         ApplyAddChild(parent, GetName(normalized));
         return normalized;
     }
@@ -514,12 +557,30 @@ public sealed class OverlayFileSystem
     public bool TryReadFileText(string path, out string content)
     {
         content = string.Empty;
-        if (!TryResolveEntry(path, out var entry) || entry.Type != VfsEntryType.File || string.IsNullOrEmpty(entry.ContentId))
+        if (!TryResolveEntry(path, out var entry) || entry.EntryKind != VfsEntryKind.File || string.IsNullOrEmpty(entry.ContentId))
         {
             return false;
         }
 
         return blobStore.TryGet(entry.ContentId, out content);
+    }
+
+    /// <summary>Returns true when the merged path is directly executable.</summary>
+    public bool CanExecuteFile(string path)
+    {
+        return TryResolveEntry(path, out var entry) && entry.IsDirectExecutable();
+    }
+
+    /// <summary>Returns true when the merged path can be used as MiniScript source.</summary>
+    public bool CanUseAsMiniScriptSource(string path)
+    {
+        return TryResolveEntry(path, out var entry) && entry.IsMiniScriptSource();
+    }
+
+    /// <summary>Returns true when miniscript command + scriptPath invocation is valid in merged view.</summary>
+    public bool CanRunMiniScript(string interpreterPath, string scriptPath)
+    {
+        return CanExecuteFile(interpreterPath) && CanUseAsMiniScriptSource(scriptPath);
     }
 
     // DirDelta rules (from design doc) to keep delta neutral when possible.

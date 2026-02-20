@@ -55,11 +55,11 @@ public partial class WorldRuntime : Node
         BaseFileSystem.AddDirectory("/home/player");
         BaseFileSystem.AddDirectory("/var/log");
 
-        BaseFileSystem.AddFile("/system.bin", "uplink2-base-system");
-        BaseFileSystem.AddFile("/etc/motd", "Welcome to Uplink2 runtime.");
-        BaseFileSystem.AddFile("/bin/help.ms", "print \"help: ls, cd, cat, vim\"");
-        BaseFileSystem.AddFile("/bin/ls.ms", "print \"ls (base stub)\"");
-        BaseFileSystem.AddFile("/home/player/.profile", "export TERM=uplink2");
+        BaseFileSystem.AddFile("/system.bin", "uplink2-base-system", fileKind: VfsFileKind.Binary);
+        BaseFileSystem.AddFile("/etc/motd", "Welcome to Uplink2 runtime.", fileKind: VfsFileKind.Text);
+        BaseFileSystem.AddFile("/bin/help.ms", "print \"help: ls, cd, cat, vim\"", fileKind: VfsFileKind.Text);
+        BaseFileSystem.AddFile("/bin/ls.ms", "print \"ls (base stub)\"", fileKind: VfsFileKind.Text);
+        BaseFileSystem.AddFile("/home/player/.profile", "export TERM=uplink2", fileKind: VfsFileKind.Text);
     }
 
     /// <summary>Creates initial world state with one workstation server.</summary>

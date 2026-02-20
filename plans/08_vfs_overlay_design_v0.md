@@ -57,13 +57,23 @@
 ## 3) 엔트리 모델(EntryMeta)
 
 `EntryMeta` 최소 필드:
-- `type: File | Dir`
+- `entryKind: File | Dir`
+- `fileKind` (File일 때): `Text | Binary | Image | Executable`
 - `contentId` (File일 때)
 - (선택) `size`, `mtime`, `owner`, `perms`
 
 디렉토리 표현:
 - “숨김 파일(dir_entry)” 없음
-- 빈 디렉토리를 유지하려면 `EntryMeta(type=Dir)`로 명시적으로 만든다(`mkdir`).
+- 빈 디렉토리를 유지하려면 `EntryMeta(entryKind=Dir)`로 명시적으로 만든다(`mkdir`).
+
+파일 실행 가능성 규칙(v0):
+- 직접 실행(`helloWorld.ms`처럼 파일 경로를 바로 명령으로 실행)은 `fileKind == Executable`에서만 허용
+- `fileKind == Text`는 **직접 실행 불가**
+- MiniScript 스크립트 실행은 `miniscript <scriptPath>` 형태로만 허용
+  - `miniscript` 실행 파일(또는 동일 역할 커맨드)이 실행 가능 상태여야 함
+  - `<scriptPath>`는 `fileKind == Text`이면 확장자와 무관하게 실행 시도 가능
+  - 스크립트가 MiniScript 문법/런타임 조건을 만족하지 않으면 인터프리터 오류 반환
+- 확장자(예: `.ms`)는 실행 가능성 판정 키가 아니라 표시/편의용 메타데이터로만 취급
 
 ---
 
@@ -142,8 +152,10 @@
 - `filePath = Normalize(cwd, input)`
 - `tombstones.remove(filePath)` (있으면 복구)
 - `contentId = BlobStore.Put(content)` (refCount++)
+- `fileKind` 입력이 없으면 기본값 `Text`로 저장
+- 바이너리/이미지/실행 파일 업로드 경로에서는 `fileKind`를 명시적으로 지정
 - 기존 overlay 파일이 있으면 old contentId refCount-- 후 교체
-- `overlayEntries[filePath] = FileEntryMeta(contentId=...)`
+- `overlayEntries[filePath] = FileEntryMeta(fileKind=..., contentId=...)`
 - `ApplyAddChild(parent, name)`
 
 ### 6.3 rm(filePath)
