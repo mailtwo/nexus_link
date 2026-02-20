@@ -1,0 +1,35 @@
+---
+ServerSpec:
+  easyServer:
+    - initialStatus: online
+    - initialReason: OK
+    - hostname: easy_server
+    - users:
+        easyUser1:
+          userId: root
+          passwd: AUTO:dictionary
+          authMode: static
+          privilege:
+            read: true
+            write: true
+            execute: true
+Scenario:
+  easyScenario:
+    servers:
+      easyScenario/easyServer:
+        specId: easyServer
+        role: terminal
+        interfaces:
+          - internet:
+              initiallyExposed: true
+  events:
+    easyScenarioWinEvent:
+      conditionType: privilegeAcquire
+      conditionArgs:
+        nodeId: easyScenario/easyServer
+        userId: root
+        privilege: execute
+      actions:
+        - actionType: print
+          actionArgs:
+            text: You passed [Easy] scenario!

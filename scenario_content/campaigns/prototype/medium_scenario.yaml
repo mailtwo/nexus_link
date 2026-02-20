@@ -1,0 +1,74 @@
+---
+ServerSpec:
+  mediumMainServer:
+    - initialStatus: online
+    - initialReason: OK
+    - hostname: medium_server
+    - users:
+        mediumMainUser1:
+          userId: root
+          passwd: null
+          authMode: OTP
+          privilege:
+            read: true
+            write: true
+            execute: true
+    - daemons:
+        OTP:
+          userKey: mediumMainUser1
+          stepMs: 1000
+          allowedDriftSteps: 1
+          otpPariId: X2BW6QOI53QNUHBXCBYN6XADEQFPR5FJ
+  mediumOTPIssuerServer:
+    - initialStatus: online
+    - initialReason: OK
+    - hostname: medium_otp
+    - users:
+        mediumOTPUser1:
+          userId: root
+          passwd: null
+          authMode: none
+          privilege:
+            read: true
+            write: true
+            execute: true
+    - diskOverlay:
+        overlayEntries:
+          /opt/bin/optgen:
+            entryKind: File
+            contentId: res://scenario_resource/resources/bin/mediumOTPIssuerServerOtpgen.bin
+            fileKind: Executable
+Scenario:
+  mediumScenario:
+    servers:
+      mediumScenario/mediumMainServer:
+        specId: mediumMainServer
+        role: terminal
+        interfaces:
+          - internet: 
+              initiallyExposed: true
+          - mediumSubnet:
+              initiallyExposed: true
+      mediumScenario/mediumOTPIssuerServer:
+        specId: mediumOTPIssuerServer
+        role: OTP
+        interfaces:
+          - mediumSubnet:
+              initiallyExposed: true
+  subnetTopology:
+    mediumSubnet:
+      addressPlan: 10.0.0.0/24
+      links:
+      - a: mediumScenario/mediumMainServer
+        b: mediumScenario/mediumOTPIssuerServer
+  events:
+    mediumScenarioWinEvent:
+      conditionType: privilegeAcquire
+      conditionArgs:
+        nodeId: mediumScenario/mediumMainServer
+        userId: root
+        privilege: execute
+      actions:
+        - actionType: print
+          actionArgs:
+            text: You passed [Medium] scenario!
