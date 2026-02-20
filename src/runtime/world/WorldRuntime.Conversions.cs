@@ -180,22 +180,13 @@ public partial class WorldRuntime
         return false;
     }
 
-    /// <summary>Parses cN_base64 or Ncbase64 policy forms and extracts requested length.</summary>
+    /// <summary>Parses cN_base64 policy form and extracts requested length.</summary>
     private static bool TryReadBase64LengthPolicy(string policy, out int length)
     {
         if (policy.StartsWith("c", StringComparison.OrdinalIgnoreCase) &&
             policy.EndsWith("_base64", StringComparison.OrdinalIgnoreCase))
         {
             var numericPart = policy[1..^7];
-            if (int.TryParse(numericPart, out length) && length > 0)
-            {
-                return true;
-            }
-        }
-
-        if (policy.EndsWith("cbase64", StringComparison.OrdinalIgnoreCase))
-        {
-            var numericPart = policy[..^7];
             if (int.TryParse(numericPart, out length) && length > 0)
             {
                 return true;

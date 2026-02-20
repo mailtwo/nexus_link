@@ -50,7 +50,7 @@ UserBlueprint
 - userId: string                  # 로그인에 사용되는 실제 표시 ID
     - "AUTO:<policy>" 지원 (예: "AUTO:casual")
 - passwd: Optional<string>         # authMode에 따라 None 가능
-    - "AUTO:<policy>" 지원 (예: "AUTO:5cbase64")
+    - "AUTO:<policy>" 지원 (예: "AUTO:c5_base64")
 - authMode: ENUM { none, static, otp, ... }
     - none: 비밀번호 검사 없음 (로그인 비밀번호 입력을 무시)
     - static: passwd 일치 검사
