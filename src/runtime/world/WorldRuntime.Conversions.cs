@@ -149,8 +149,14 @@ public partial class WorldRuntime
 
         if (string.Equals(policy, "dictionary", StringComparison.OrdinalIgnoreCase))
         {
-            var index = CreateDeterministicIndex($"{nodeId}:{userKey}:dictionary", DictionaryPasswordPool.Length);
-            return DictionaryPasswordPool[index];
+            if (dictionaryPasswordPool.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    "Dictionary password pool is empty. Ensure LoadDictionaryPasswordPool runs before world initialization.");
+            }
+
+            var index = CreateDeterministicIndex($"{nodeId}:{userKey}:dictionary", dictionaryPasswordPool.Length);
+            return dictionaryPasswordPool[index];
         }
 
         if (TryReadBase64LengthPolicy(policy, out var length))

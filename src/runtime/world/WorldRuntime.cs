@@ -12,20 +12,12 @@ public partial class WorldRuntime : Node
     private const string InternetNetId = "internet";
     private const string DefaultBlueprintDirectory = "res://scenario_content/campaigns/prototype";
     private const string DefaultStartupCampaignId = "prototypeCampaign";
+    private const string DefaultDictionaryPasswordFile = "res://scenario_content/resources/text/leaked_password.txt";
     private const string DefaultInternetAddressPlan = "10.255.0.0/16";
     private const uint DefaultHostStart = 10;
     private const string Base64Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     private const string LowercaseAlphaNumericAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-    private static readonly string[] DictionaryPasswordPool =
-    {
-        "orchid",
-        "blue_owl",
-        "vault42",
-        "moonlight",
-        "admin123",
-        "rootme",
-        "citrus",
-    };
+    private static string[] dictionaryPasswordPool = Array.Empty<string>();
 
     /// <summary>Blueprint YAML directory used when creating a fresh world.</summary>
     [Export]
@@ -38,6 +30,10 @@ public partial class WorldRuntime : Node
     /// <summary>Optional explicit startup scenario id (overrides campaign selection).</summary>
     [Export]
     public string StartupScenarioId { get; set; } = string.Empty;
+
+    /// <summary>Password dictionary source file used by AUTO:dictionary policy.</summary>
+    [Export]
+    public string DictionaryPasswordFile { get; set; } = DefaultDictionaryPasswordFile;
 
     /// <summary>Global runtime instance.</summary>
     public static WorldRuntime Instance { get; private set; }
@@ -87,6 +83,7 @@ public partial class WorldRuntime : Node
         BlobStore = new BlobStore();
         BaseFileSystem = new BaseFileSystem(BlobStore);
         BuildBaseOsImage();
+        LoadDictionaryPasswordPool();
         BuildInitialWorldFromBlueprint();
     }
 }

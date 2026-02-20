@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using Uplink2.Blueprint;
 using Uplink2.Vfs;
 
@@ -48,6 +49,33 @@ public partial class WorldRuntime
 
         PlayerWorkstationServer = ResolvePlayerWorkstation(serversByNodeId.Values);
         GD.Print($"WorldRuntime initialized scenario '{ActiveScenarioId}' ({ServerList.Count} servers).");
+    }
+
+    /// <summary>Loads dictionary password pool from configured resource file.</summary>
+    private void LoadDictionaryPasswordPool()
+    {
+        var dictionaryFile = string.IsNullOrWhiteSpace(DictionaryPasswordFile)
+            ? DefaultDictionaryPasswordFile
+            : DictionaryPasswordFile.Trim();
+        var absolutePath = ProjectSettings.GlobalizePath(dictionaryFile);
+        if (!File.Exists(absolutePath))
+        {
+            throw new FileNotFoundException($"Dictionary password file not found: {dictionaryFile}", absolutePath);
+        }
+
+        var loadedPool = File.ReadLines(absolutePath, Encoding.UTF8)
+            .Select(static line => line.Trim())
+            .Where(static line => !string.IsNullOrWhiteSpace(line))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        if (loadedPool.Length == 0)
+        {
+            throw new InvalidDataException(
+                $"Dictionary password file '{dictionaryFile}' must contain at least one non-empty line.");
+        }
+
+        dictionaryPasswordPool = loadedPool;
     }
 
     /// <summary>Loads all blueprint YAML documents from configured directory.</summary>
