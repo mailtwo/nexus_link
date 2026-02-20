@@ -96,7 +96,7 @@ ProcessStruct
 
 ### 3.1 `serverList`
 - 타입: `Dictionary<string /*nodeId*/, ServerStruct>`
-- 키: `nodeId` (유일)
+- 키: `nodeId` (게임 전체에 대해 유일)
 
 ### 3.2 ServerStruct 필드
 ```text
@@ -116,11 +116,14 @@ ServerStruct
     InterfaceRuntime
     - netId: string
     - ip: IP
-    - initiallyExposed: bool
 
 - subnetMembership: HashSet<string /*netId*/>
 - isExposedByNet: Dictionary<string /*netId*/, bool>
     - 의미: 해당 netId에서 이 서버가 현재 플레이어에게 노출(known) 상태인지
+    - 초기 노출 시드(`interfaces[].initiallyExposed`)는 시나리오 로딩 시 계산에만 사용하고,
+      런타임 `interfaces`에는 저장하지 않는다.
+- lanNeighbors: List<string /*nodeId*/>
+    - 의미: 현재 서버 기준 직접 이동 가능한 이웃 서버의 내부 참조 목록
 ```
 
 ---
@@ -135,6 +138,9 @@ UserConfig
 - userId: string                     # 표시/로그인 텍스트용 id (AUTO 결과 포함)
 - userPasswd: Optional<string>       # static이면 실제 값, none이면 생략 가능
 - authMode: ENUM { none, static, otp, 기타 }
+    - none: password를 검사하지 않음
+    - static: userPasswd와 일치 검사
+    - otp: OTP 검증(아래 OTP 데몬 설정과 결합)
 - privilege: PrivilegeConfig
     - read: bool
     - write: bool
@@ -160,7 +166,9 @@ SessionConfig
 
 ---
 
-## 5) Network: subnetMembership / isExposedByNet / lanNeighbors / ports
+## 5) Network: ServerStruct 네트워크 필드 상세(subnetMembership / isExposedByNet / lanNeighbors / ports)
+
+> 이 섹션의 항목은 전역 필드가 아니라, `3.2 ServerStruct`에 포함되는 네트워크 필드의 상세 규칙이다.
 
 ### 5.1 subnetMembership
 - 타입: `HashSet<string /*netId*/>`
@@ -279,6 +287,7 @@ LogStruct
 
 - [ ] `serverList(nodeId key)`, `ipIndex`, `processList` 전역 컨테이너 구현
 - [ ] 서버 생성 시 `primaryIp/interfaces/subnetMembership/isExposedByNet` 초기화
+- [ ] `interfaces[].initiallyExposed` 입력으로 초기 `KnownNodes/isExposedByNet`을 계산한 뒤 런타임에는 저장하지 않음
 - [ ] `users`를 `userKey` 키로 관리하고 `UserConfig.userId`를 필수값으로 저장
 - [ ] 세션/프로세스 내부 참조는 `userKey`, 표시/로그는 `userId` 사용
 - [ ] `lanNeighbors`를 nodeId 기반으로 유지하고 `net.scan("lan")`은 IP 목록 반환

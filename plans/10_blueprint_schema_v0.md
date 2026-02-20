@@ -34,7 +34,7 @@ ServerSpecBlueprint
 - initialStatus: ENUM { online, offline }
 - initialReason: ENUM { OK, reboot, disabled, crashed }
 - hostname: string
-- users: Dictionary<string /*userKey*/, UserBlueprint>
+- users: Dictionary<string /*userKey*/, UserBlueprint> # userKey는 게임 전체에 대해 유일
 - ports: Dictionary<int /*portNum*/, PortConfig>
 - daemons: Dictionary<daemonType, DaemonBlueprint>
 - diskOverlay:
@@ -96,7 +96,7 @@ ScenarioBlueprint
 
 ```text
 ServerSpawnBlueprint
-- nodeId: string
+- nodeId: string                      # 게임 전체에 대해 유일
 - specId: string                      # ServerSpecBlueprint.specId 참조
 - hostname?: string                   # 있으면 spec.hostname override
 - initialStatus?: ENUM                # 있으면 spec.initialStatus override
@@ -349,7 +349,7 @@ CampaignBlueprint
 ### serverList를 nodeId 키로 전환
 - `serverList: Dictionary<string /*nodeId*/, ServerStruct>`
 - `ipIndex: Dictionary<IP, string /*nodeId*/>` 추가
-- ServerStruct에 `interfaces: List<{ netId, ip, initiallyExposed }>` 포함
+- ServerStruct에 `interfaces: List<{ netId, ip }>` 포함
 - ServerStruct에 `primaryIp: Optional<IP>` 포함
   - 규칙: `interfaces` 중 `netId="internet"`이 있으면 해당 IP
   - 없으면 `None`
@@ -364,6 +364,9 @@ CampaignBlueprint
 - `lanNeighbors`는 유지하되 내부 타입은 `List<nodeId>`
 - `net.scan("lan")` 결과는 기존 UX 유지 차원에서 IP 목록 반환
 - 런타임은 서버별로 `subnetMembership` / `isExposedByNet`을 보유
+- `initiallyExposed`는 `InterfaceBlueprint` 입력(섹션 2.2 / 섹션 6 규칙)으로만 사용한다.
+- 월드 생성 시 `initiallyExposed`로 초기 `KnownNodes/isExposedByNet`을 계산하고,
+  계산 이후 런타임 `ServerStruct.interfaces`에는 저장하지 않는다.
 
 ### OTP 참조 규칙 통일
 - OTP 제어 계정 참조는 `userKey`만 사용(`userId` 참조 금지)
