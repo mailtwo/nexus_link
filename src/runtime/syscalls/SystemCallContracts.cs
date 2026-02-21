@@ -26,8 +26,8 @@ public sealed class SystemCallRequest
     /// <summary>Target server node id.</summary>
     public string NodeId { get; set; } = string.Empty;
 
-    /// <summary>Executing account key on the target server.</summary>
-    public string UserKey { get; set; } = string.Empty;
+    /// <summary>Executing account id text on the target server (user-facing identifier).</summary>
+    public string UserId { get; set; } = string.Empty;
 
     /// <summary>Current working directory of the caller.</summary>
     public string Cwd { get; set; } = "/";
@@ -166,7 +166,7 @@ internal sealed class TerminalContextTransition
 {
     internal string NextNodeId { get; init; } = string.Empty;
 
-    internal string NextUserKey { get; init; } = string.Empty;
+    internal string NextUserId { get; init; } = string.Empty;
 
     internal string NextPromptUser { get; init; } = string.Empty;
 

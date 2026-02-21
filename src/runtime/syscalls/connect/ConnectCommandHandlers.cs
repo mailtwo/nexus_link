@@ -45,9 +45,9 @@ internal sealed class ConnectCommandHandler : ISystemCallHandler
             return SystemCallResultFactory.Failure(SystemCallErrorCode.PermissionDenied, $"port exposure denied: {parsed.Port}");
         }
 
-        if (!targetServer.Users.TryGetValue(parsed.UserKey, out var targetUser))
+        if (!context.World.TryResolveUserByUserId(targetServer, parsed.UserId, out var targetUserKey, out var targetUser))
         {
-            return SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"user not found: {parsed.UserKey}");
+            return SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"user not found: {parsed.UserId}");
         }
 
         if (!IsAuthenticationSuccessful(targetUser, parsed.Password, out var authFailureResult))
@@ -60,7 +60,7 @@ internal sealed class ConnectCommandHandler : ISystemCallHandler
         var remoteIp = context.World.ResolveRemoteIpForSession(context.Server, targetServer);
         targetServer.UpsertSession(sessionId, new SessionConfig
         {
-            UserKey = parsed.UserKey,
+            UserKey = targetUserKey,
             RemoteIp = remoteIp,
             Cwd = "/",
         });
@@ -78,8 +78,8 @@ internal sealed class ConnectCommandHandler : ISystemCallHandler
         var transition = new TerminalContextTransition
         {
             NextNodeId = targetServer.NodeId,
-            NextUserKey = parsed.UserKey,
-            NextPromptUser = context.World.ResolvePromptUser(targetServer, parsed.UserKey),
+            NextUserId = context.World.ResolvePromptUser(targetServer, targetUserKey),
+            NextPromptUser = context.World.ResolvePromptUser(targetServer, targetUserKey),
             NextPromptHost = context.World.ResolvePromptHost(targetServer),
             NextCwd = "/",
         };
@@ -134,7 +134,7 @@ internal sealed class ConnectCommandHandler : ISystemCallHandler
         }
 
         var hostOrIp = arguments[index].Trim();
-        var userKey = arguments[index + 1].Trim();
+        var userId = arguments[index + 1].Trim();
         var password = arguments[index + 2];
         if (string.IsNullOrWhiteSpace(hostOrIp))
         {
@@ -142,13 +142,13 @@ internal sealed class ConnectCommandHandler : ISystemCallHandler
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(userKey))
+        if (string.IsNullOrWhiteSpace(userId))
         {
             result = SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, "user is required.");
             return false;
         }
 
-        parsed = new ParsedConnectArguments(hostOrIp, userKey, password, port);
+        parsed = new ParsedConnectArguments(hostOrIp, userId, password, port);
         return true;
     }
 
@@ -202,7 +202,7 @@ internal sealed class ConnectCommandHandler : ISystemCallHandler
         return false;
     }
 
-    private readonly record struct ParsedConnectArguments(string HostOrIp, string UserKey, string Password, int Port);
+    private readonly record struct ParsedConnectArguments(string HostOrIp, string UserId, string Password, int Port);
 }
 
 internal sealed class DisconnectCommandHandler : ISystemCallHandler
@@ -224,15 +224,296 @@ internal sealed class DisconnectCommandHandler : ISystemCallHandler
 
         context.World.RemoveTerminalRemoteSession(frame.SessionNodeId, frame.SessionId);
 
+        var previousUserId = frame.PreviousPromptUser;
+        if (context.World.TryGetServer(frame.PreviousNodeId, out var previousServer))
+        {
+            previousUserId = context.World.ResolvePromptUser(previousServer, frame.PreviousUserKey);
+        }
+
         var transition = new TerminalContextTransition
         {
             NextNodeId = frame.PreviousNodeId,
-            NextUserKey = frame.PreviousUserKey,
+            NextUserId = previousUserId,
             NextPromptUser = frame.PreviousPromptUser,
             NextPromptHost = frame.PreviousPromptHost,
             NextCwd = frame.PreviousCwd,
         };
 
         return SystemCallResultFactory.Success(nextCwd: transition.NextCwd, data: transition);
+    }
+}
+
+internal sealed class KnownCommandHandler : ISystemCallHandler
+{
+    private const string InternetNetId = "internet";
+    private const string EmptyKnownMessage = "No known public IPs found.";
+
+    public string Command => "known";
+
+    public SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count != 0)
+        {
+            return SystemCallResultFactory.Usage("known");
+        }
+
+        var knownNodesByNet = context.World.KnownNodesByNet;
+        if (knownNodesByNet is null ||
+            !knownNodesByNet.TryGetValue(InternetNetId, out var knownNodeIds) ||
+            knownNodeIds.Count == 0)
+        {
+            return SystemCallResultFactory.Success(lines: new[] { EmptyKnownMessage });
+        }
+
+        var rows = new List<KnownHostRow>(knownNodeIds.Count);
+        foreach (var nodeId in knownNodeIds)
+        {
+            if (!context.World.TryGetServer(nodeId, out var server))
+            {
+                continue;
+            }
+
+            if (!TryGetInterfaceIp(server, InternetNetId, out var publicIp))
+            {
+                continue;
+            }
+
+            var hostname = context.World.ResolvePromptHost(server);
+            rows.Add(new KnownHostRow(hostname, publicIp));
+        }
+
+        if (rows.Count == 0)
+        {
+            return SystemCallResultFactory.Success(lines: new[] { EmptyKnownMessage });
+        }
+
+        rows.Sort(static (a, b) =>
+        {
+            var ipCompare = StringComparer.Ordinal.Compare(a.Ip, b.Ip);
+            return ipCompare != 0 ? ipCompare : StringComparer.Ordinal.Compare(a.Hostname, b.Hostname);
+        });
+
+        var hostnameWidth = "HOSTNAME".Length;
+        foreach (var row in rows)
+        {
+            if (row.Hostname.Length > hostnameWidth)
+            {
+                hostnameWidth = row.Hostname.Length;
+            }
+        }
+
+        var lines = new List<string>(rows.Count + 1)
+        {
+            $"{"HOSTNAME".PadRight(hostnameWidth)}  IP",
+        };
+
+        foreach (var row in rows)
+        {
+            lines.Add($"{row.Hostname.PadRight(hostnameWidth)}  {row.Ip}");
+        }
+
+        return SystemCallResultFactory.Success(lines: lines);
+    }
+
+    private static bool TryGetInterfaceIp(ServerNodeRuntime server, string netId, out string ip)
+    {
+        foreach (var iface in server.Interfaces)
+        {
+            if (!string.Equals(iface.NetId, netId, StringComparison.Ordinal) ||
+                string.IsNullOrWhiteSpace(iface.Ip))
+            {
+                continue;
+            }
+
+            ip = iface.Ip;
+            return true;
+        }
+
+        ip = string.Empty;
+        return false;
+    }
+
+    private readonly record struct KnownHostRow(string Hostname, string Ip);
+}
+
+internal sealed class ScanCommandHandler : ISystemCallHandler
+{
+    private const string InternetNetId = "internet";
+    private const string PermissionDeniedMessage = "scan: permission denied";
+    private const string NoNeighborMessage =
+        "No adjacent servers found (this server is not connected to a subnet or is the player workstation).";
+
+    public string Command => "scan";
+
+    public SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count != 0)
+        {
+            return SystemCallResultFactory.Usage("scan");
+        }
+
+        if (!context.User.Privilege.Execute)
+        {
+            return SystemCallResultFactory.Failure(SystemCallErrorCode.PermissionDenied, PermissionDeniedMessage);
+        }
+
+        if (IsPlayerWorkstation(context) || !HasNonInternetInterface(context.Server))
+        {
+            return SystemCallResultFactory.Success(lines: new[] { NoNeighborMessage });
+        }
+
+        var neighborIps = new List<string>();
+        var seenNeighborIps = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var neighborNodeId in context.Server.LanNeighbors)
+        {
+            if (!context.World.TryGetServer(neighborNodeId, out var neighborServer))
+            {
+                continue;
+            }
+
+            var neighborIp = ResolveNeighborIp(context.Server, neighborServer);
+            if (string.IsNullOrWhiteSpace(neighborIp) || !seenNeighborIps.Add(neighborIp))
+            {
+                continue;
+            }
+
+            neighborIps.Add(neighborIp);
+        }
+
+        if (neighborIps.Count == 0)
+        {
+            return SystemCallResultFactory.Success(lines: new[] { NoNeighborMessage });
+        }
+
+        neighborIps.Sort(StringComparer.Ordinal);
+
+        var currentIp = ResolveCurrentSubnetIp(context.Server);
+        if (string.IsNullOrWhiteSpace(currentIp))
+        {
+            currentIp = context.Server.PrimaryIp ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(currentIp))
+        {
+            return SystemCallResultFactory.Success(lines: neighborIps);
+        }
+
+        var prefix = currentIp + " - ";
+        var lines = new List<string>(neighborIps.Count)
+        {
+            prefix + neighborIps[0],
+        };
+
+        if (neighborIps.Count > 1)
+        {
+            var indent = new string(' ', prefix.Length);
+            for (var index = 1; index < neighborIps.Count; index++)
+            {
+                lines.Add(indent + neighborIps[index]);
+            }
+        }
+
+        return SystemCallResultFactory.Success(lines: lines);
+    }
+
+    private static bool IsPlayerWorkstation(SystemCallExecutionContext context)
+    {
+        var workstation = context.World.PlayerWorkstationServer;
+        return workstation is not null &&
+               string.Equals(workstation.NodeId, context.Server.NodeId, StringComparison.Ordinal);
+    }
+
+    private static bool HasNonInternetInterface(ServerNodeRuntime server)
+    {
+        foreach (var iface in server.Interfaces)
+        {
+            if (!string.IsNullOrWhiteSpace(iface.Ip) &&
+                !string.Equals(iface.NetId, InternetNetId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string ResolveCurrentSubnetIp(ServerNodeRuntime server)
+    {
+        foreach (var iface in server.Interfaces)
+        {
+            if (!string.IsNullOrWhiteSpace(iface.Ip) &&
+                !string.Equals(iface.NetId, InternetNetId, StringComparison.Ordinal))
+            {
+                return iface.Ip;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string ResolveNeighborIp(ServerNodeRuntime source, ServerNodeRuntime neighbor)
+    {
+        foreach (var sourceInterface in source.Interfaces)
+        {
+            if (string.Equals(sourceInterface.NetId, InternetNetId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (TryGetInterfaceIp(neighbor, sourceInterface.NetId, out var neighborIp))
+            {
+                return neighborIp;
+            }
+        }
+
+        foreach (var sourceInterface in source.Interfaces)
+        {
+            if (TryGetInterfaceIp(neighbor, sourceInterface.NetId, out var neighborIp))
+            {
+                return neighborIp;
+            }
+        }
+
+        foreach (var neighborInterface in neighbor.Interfaces)
+        {
+            if (!string.IsNullOrWhiteSpace(neighborInterface.Ip) &&
+                !string.Equals(neighborInterface.NetId, InternetNetId, StringComparison.Ordinal))
+            {
+                return neighborInterface.Ip;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(neighbor.PrimaryIp))
+        {
+            return neighbor.PrimaryIp;
+        }
+
+        foreach (var neighborInterface in neighbor.Interfaces)
+        {
+            if (!string.IsNullOrWhiteSpace(neighborInterface.Ip))
+            {
+                return neighborInterface.Ip;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static bool TryGetInterfaceIp(ServerNodeRuntime server, string netId, out string ip)
+    {
+        foreach (var iface in server.Interfaces)
+        {
+            if (!string.Equals(iface.NetId, netId, StringComparison.Ordinal) ||
+                string.IsNullOrWhiteSpace(iface.Ip))
+            {
+                continue;
+            }
+
+            ip = iface.Ip;
+            return true;
+        }
+
+        ip = string.Empty;
+        return false;
     }
 }

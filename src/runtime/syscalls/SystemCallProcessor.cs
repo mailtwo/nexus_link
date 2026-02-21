@@ -91,15 +91,15 @@ internal sealed class SystemCallProcessor
             return SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"server not found: {request.NodeId.Trim()}");
         }
 
-        if (string.IsNullOrWhiteSpace(request.UserKey))
+        if (string.IsNullOrWhiteSpace(request.UserId))
         {
-            return SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, "userKey is required.");
+            return SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, "userId is required.");
         }
 
-        var userKey = request.UserKey.Trim();
-        if (!server.Users.TryGetValue(userKey, out var user))
+        var userId = request.UserId.Trim();
+        if (!world.TryResolveUserByUserId(server, userId, out var userKey, out var user))
         {
-            return SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"user not found: {userKey}");
+            return SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"user not found: {userId}");
         }
 
         var normalizedCwd = BaseFileSystem.NormalizePath("/", request.Cwd);

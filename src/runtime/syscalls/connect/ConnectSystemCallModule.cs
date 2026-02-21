@@ -6,5 +6,7 @@ internal sealed class ConnectSystemCallModule : ISystemCallModule
     {
         registry.Register(new ConnectCommandHandler());
         registry.Register(new DisconnectCommandHandler());
+        registry.Register(new KnownCommandHandler());
+        registry.Register(new ScanCommandHandler());
     }
 }

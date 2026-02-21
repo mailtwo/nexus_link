@@ -32,14 +32,15 @@ public partial class WorldRuntime
         ResetRuntimeState();
 
         BlueprintCatalog = LoadBlueprintCatalog();
-        var scenario = ResolveStartupScenario(BlueprintCatalog);
-        ActiveScenarioId = scenario.ScenarioId;
+        var startupScenarios = ResolveStartupScenarios(BlueprintCatalog);
+        var worldScenario = BuildWorldScenarioBundle(startupScenarios);
+        ActiveScenarioId = worldScenario.ScenarioId;
 
-        var spawnByNodeId = BuildSpawnIndex(scenario);
-        var assignedInterfacesByNodeId = AllocateScenarioInterfaces(scenario, spawnByNodeId);
-        var serversByNodeId = BuildServerRuntimes(scenario, spawnByNodeId, assignedInterfacesByNodeId);
+        var spawnByNodeId = BuildSpawnIndex(worldScenario);
+        var assignedInterfacesByNodeId = AllocateScenarioInterfaces(worldScenario, spawnByNodeId);
+        var serversByNodeId = BuildServerRuntimes(worldScenario, spawnByNodeId, assignedInterfacesByNodeId);
 
-        BuildLanNeighborCache(serversByNodeId, scenario, assignedInterfacesByNodeId);
+        BuildLanNeighborCache(serversByNodeId, worldScenario, assignedInterfacesByNodeId);
         InitializeVisibilityState(serversByNodeId, assignedInterfacesByNodeId);
 
         foreach (var server in serversByNodeId.Values.OrderBy(static server => server.NodeId, StringComparer.Ordinal))
@@ -48,8 +49,9 @@ public partial class WorldRuntime
         }
 
         PlayerWorkstationServer = ResolvePlayerWorkstation(serversByNodeId.Values);
-        InitializeEventRuntime(scenario);
-        GD.Print($"WorldRuntime initialized scenario '{ActiveScenarioId}' ({ServerList.Count} servers).");
+        InitializeEventRuntime(startupScenarios);
+        GD.Print(
+            $"WorldRuntime initialized scenario bundle '{ActiveScenarioId}' ({ServerList.Count} servers, {startupScenarios.Count} source scenario(s)).");
     }
 
     /// <summary>Loads dictionary password pool from configured resource file.</summary>
@@ -87,17 +89,17 @@ public partial class WorldRuntime
             : BlueprintDirectory.Trim();
         var absoluteDirectory = ProjectSettings.GlobalizePath(directory);
         var yamlReader = new BlueprintYamlReader(static warning => GD.PushWarning(warning));
-        return yamlReader.ReadDirectory(absoluteDirectory, "*.yaml", SearchOption.TopDirectoryOnly);
+        return yamlReader.ReadDirectory(absoluteDirectory, "*.yaml", SearchOption.AllDirectories);
     }
 
-    /// <summary>Resolves startup scenario from explicit scenario id or configured campaign.</summary>
-    private ScenarioBlueprint ResolveStartupScenario(BlueprintCatalog catalog)
+    /// <summary>Resolves startup scenarios from explicit scenario id or configured campaign tree.</summary>
+    private IReadOnlyList<ScenarioBlueprint> ResolveStartupScenarios(BlueprintCatalog catalog)
     {
         if (!string.IsNullOrWhiteSpace(StartupScenarioId))
         {
             if (catalog.Scenarios.TryGetValue(StartupScenarioId, out var scenario))
             {
-                return scenario;
+                return new[] { scenario };
             }
 
             throw new InvalidDataException($"Startup scenario '{StartupScenarioId}' was not found in loaded blueprints.");
@@ -105,16 +107,13 @@ public partial class WorldRuntime
 
         if (!string.IsNullOrWhiteSpace(StartupCampaignId))
         {
-            if (catalog.Campaigns.TryGetValue(StartupCampaignId, out var campaign))
+            if (TryResolveScenariosFromCampaign(catalog, StartupCampaignId, out var campaignScenarios))
             {
-                foreach (var scenarioId in campaign.Scenarios)
-                {
-                    if (catalog.Scenarios.TryGetValue(scenarioId, out var campaignScenario))
-                    {
-                        return campaignScenario;
-                    }
-                }
+                return campaignScenarios;
+            }
 
+            if (catalog.Campaigns.ContainsKey(StartupCampaignId))
+            {
                 GD.PushWarning($"Campaign '{StartupCampaignId}' does not contain a resolvable scenario. Falling back to first scenario.");
             }
             else
@@ -129,7 +128,126 @@ public partial class WorldRuntime
         }
 
         var firstScenarioId = catalog.Scenarios.Keys.OrderBy(static key => key, StringComparer.Ordinal).First();
-        return catalog.Scenarios[firstScenarioId];
+        return new[] { catalog.Scenarios[firstScenarioId] };
+    }
+
+    /// <summary>Resolves all available scenarios by traversing campaign and childCampaign tree in order.</summary>
+    private static bool TryResolveScenariosFromCampaign(
+        BlueprintCatalog catalog,
+        string rootCampaignId,
+        out IReadOnlyList<ScenarioBlueprint> scenarios)
+    {
+        scenarios = Array.Empty<ScenarioBlueprint>();
+        if (string.IsNullOrWhiteSpace(rootCampaignId))
+        {
+            return false;
+        }
+
+        var orderedScenarios = new List<ScenarioBlueprint>();
+        var visitedCampaigns = new HashSet<string>(StringComparer.Ordinal);
+        var seenScenarioIds = new HashSet<string>(StringComparer.Ordinal);
+        CollectCampaignScenariosRecursive(catalog, rootCampaignId, orderedScenarios, visitedCampaigns, seenScenarioIds);
+
+        if (orderedScenarios.Count == 0)
+        {
+            return false;
+        }
+
+        scenarios = orderedScenarios;
+        return true;
+    }
+
+    /// <summary>Collects scenarios in preorder: current campaign scenarios first, then child campaigns recursively.</summary>
+    private static void CollectCampaignScenariosRecursive(
+        BlueprintCatalog catalog,
+        string campaignId,
+        List<ScenarioBlueprint> orderedScenarios,
+        HashSet<string> visitedCampaigns,
+        HashSet<string> seenScenarioIds)
+    {
+        if (string.IsNullOrWhiteSpace(campaignId) ||
+            !visitedCampaigns.Add(campaignId) ||
+            !catalog.Campaigns.TryGetValue(campaignId, out var campaign))
+        {
+            return;
+        }
+
+        foreach (var scenarioId in campaign.Scenarios)
+        {
+            if (string.IsNullOrWhiteSpace(scenarioId) ||
+                !seenScenarioIds.Add(scenarioId) ||
+                !catalog.Scenarios.TryGetValue(scenarioId, out var scenario))
+            {
+                continue;
+            }
+
+            orderedScenarios.Add(scenario);
+        }
+
+        foreach (var childCampaignId in campaign.ChildCampaigns)
+        {
+            CollectCampaignScenariosRecursive(catalog, childCampaignId, orderedScenarios, visitedCampaigns, seenScenarioIds);
+        }
+    }
+
+    /// <summary>Merges startup scenarios into one runtime world bundle while preserving per-scenario event registration.</summary>
+    private ScenarioBlueprint BuildWorldScenarioBundle(IReadOnlyList<ScenarioBlueprint> scenarios)
+    {
+        if (scenarios.Count == 0)
+        {
+            throw new InvalidDataException("Startup scenario bundle is empty.");
+        }
+
+        if (scenarios.Count == 1)
+        {
+            return scenarios[0];
+        }
+
+        var bundleId = string.IsNullOrWhiteSpace(StartupCampaignId)
+            ? "scenarioBundle"
+            : $"campaign:{StartupCampaignId}";
+
+        var bundle = new ScenarioBlueprint
+        {
+            ScenarioId = bundleId,
+        };
+
+        foreach (var scenario in scenarios)
+        {
+            foreach (var spawn in scenario.Servers)
+            {
+                bundle.Servers.Add(spawn);
+            }
+
+            foreach (var subnetPair in scenario.SubnetTopology)
+            {
+                if (!bundle.SubnetTopology.TryAdd(subnetPair.Key, subnetPair.Value))
+                {
+                    throw new InvalidDataException(
+                        $"Duplicate subnetId '{subnetPair.Key}' while building startup scenario bundle from campaign '{StartupCampaignId}'.");
+                }
+            }
+
+            foreach (var scriptPair in scenario.Scripts)
+            {
+                if (!bundle.Scripts.TryAdd(scriptPair.Key, scriptPair.Value))
+                {
+                    throw new InvalidDataException(
+                        $"Duplicate script id '{scriptPair.Key}' while building startup scenario bundle from campaign '{StartupCampaignId}'.");
+                }
+            }
+
+            foreach (var eventPair in scenario.Events)
+            {
+                if (!bundle.Events.TryAdd(eventPair.Key, eventPair.Value))
+                {
+                    throw new InvalidDataException(
+                        $"Duplicate event id '{eventPair.Key}' while building startup scenario bundle from campaign '{StartupCampaignId}'.");
+                }
+            }
+        }
+
+        return bundle;
     }
 
     /// <summary>Builds node-id index from scenario server spawns.</summary>

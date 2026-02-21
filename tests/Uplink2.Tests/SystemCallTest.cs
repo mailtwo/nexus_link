@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -244,6 +245,23 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => line.Contains("Hello world!", StringComparison.Ordinal));
     }
 
+    /// <summary>Ensures processor context creation requires userId and rejects unknown user ids.</summary>
+    [Fact]
+    public void Execute_ContextCreation_UsesUserIdLookup()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+
+        var missingUserId = Execute(harness, "known", userId: string.Empty, terminalSessionId: "ts-missing-userid");
+        Assert.False(missingUserId.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, missingUserId.Code);
+        Assert.Contains("userId is required", missingUserId.Lines[0], StringComparison.Ordinal);
+
+        var unknownUserId = Execute(harness, "known", userId: "nope", terminalSessionId: "ts-unknown-userid");
+        Assert.False(unknownUserId.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFound, unknownUserId.Code);
+        Assert.Contains("user not found: nope", unknownUserId.Lines[0], StringComparison.Ordinal);
+    }
+
     /// <summary>Ensures connect validates usage and strict port syntax.</summary>
     [Theory]
     [InlineData("connect -p", "usage: connect")]
@@ -339,6 +357,53 @@ public sealed class SystemCallTest
         Assert.Single(remote.Sessions);
         var session = Assert.Single(remote.Sessions);
         Assert.Equal("guest", session.Value.UserKey);
+    }
+
+    /// <summary>Ensures connect resolves login target by userId while preserving internal session userKey.</summary>
+    [Fact]
+    public void Execute_Connect_UsesUserIdForLogin_AndStoresResolvedUserKey()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(
+            harness,
+            "node-2",
+            "remote",
+            "10.0.1.20",
+            AuthMode.Static,
+            "pw",
+            userKey: "internalRoot",
+            userId: "root");
+
+        var result = Execute(harness, "connect 10.0.1.20 root pw", terminalSessionId: "ts-userid-login");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Single(remote.Sessions);
+        var session = Assert.Single(remote.Sessions);
+        Assert.Equal("internalRoot", session.Value.UserKey);
+    }
+
+    /// <summary>Ensures connect does not accept userKey text when it differs from userId.</summary>
+    [Fact]
+    public void Execute_Connect_Fails_WhenInputMatchesUserKeyButNotUserId()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(
+            harness,
+            "node-2",
+            "remote",
+            "10.0.1.20",
+            AuthMode.Static,
+            "pw",
+            userKey: "internalRoot",
+            userId: "root");
+
+        var result = Execute(harness, "connect 10.0.1.20 internalRoot pw", terminalSessionId: "ts-userkey-login");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFound, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Contains("user not found: internalRoot", result.Lines[0], StringComparison.Ordinal);
     }
 
     /// <summary>Ensures connect succeeds when target account auth mode is none.</summary>
@@ -501,6 +566,140 @@ public sealed class SystemCallTest
         Assert.Contains("not supported", result.Lines[0], StringComparison.Ordinal);
     }
 
+    /// <summary>Ensures known prints a hostname/IP table using internet-known nodes only.</summary>
+    [Fact]
+    public void Execute_Known_PrintsPublicKnownTable()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var internetRemote = AddRemoteServer(harness, "node-2", "remote-inet", "10.0.1.20", AuthMode.Static, "pw");
+        AddRemoteServer(harness, "node-3", "remote-lan", "10.1.0.30", AuthMode.Static, "pw", netId: "alpha");
+
+        var knownNodesByNet = GetAutoPropertyBackingField<Dictionary<string, HashSet<string>>>(harness.World, "KnownNodesByNet");
+        knownNodesByNet["internet"] = new HashSet<string>(StringComparer.Ordinal)
+        {
+            harness.Server.NodeId,
+            internetRemote.NodeId,
+            "node-3",
+        };
+
+        var result = Execute(harness, "known", terminalSessionId: "ts-known");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.NotEmpty(result.Lines);
+        Assert.Contains("HOSTNAME", result.Lines[0], StringComparison.Ordinal);
+        Assert.Contains("IP", result.Lines[0], StringComparison.Ordinal);
+        Assert.Contains(result.Lines, static line => line.Contains("node-1", StringComparison.Ordinal) &&
+                                                     line.Contains("10.0.0.10", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => line.Contains("remote-inet", StringComparison.Ordinal) &&
+                                                     line.Contains("10.0.1.20", StringComparison.Ordinal));
+        Assert.DoesNotContain(result.Lines, static line => line.Contains("node-3", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures scan prints current-subnet to neighbor IP list with aligned continuation lines.</summary>
+    [Fact]
+    public void Execute_Scan_PrintsAlignedNeighborIps()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        harness.Server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "alpha",
+                Ip = "10.1.0.10",
+            },
+        });
+
+        var remoteA = AddRemoteServer(harness, "node-2", "remote-a", "10.1.0.20", AuthMode.Static, "pw", netId: "alpha");
+        AddRemoteServer(harness, "node-3", "remote-b", "10.1.0.30", AuthMode.Static, "pw", netId: "alpha");
+        harness.Server.LanNeighbors.Add("node-3");
+        harness.Server.LanNeighbors.Add("node-2");
+
+        SetAutoPropertyBackingField(harness.World, "PlayerWorkstationServer", remoteA);
+
+        var result = Execute(harness, "scan", terminalSessionId: "ts-scan");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Equal(2, result.Lines.Count);
+        Assert.Equal("10.1.0.10 - 10.1.0.20", result.Lines[0]);
+        Assert.Equal(new string(' ', "10.1.0.10 - ".Length) + "10.1.0.30", result.Lines[1]);
+    }
+
+    /// <summary>Ensures scan prints no-neighbor message for player workstation context.</summary>
+    [Fact]
+    public void Execute_Scan_PlayerWorkstation_PrintsNoNeighborMessage()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+
+        var result = Execute(harness, "scan", terminalSessionId: "ts-scan-workstation");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Contains("No adjacent servers found", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures scan prints no-neighbor message when server has no subnet interfaces.</summary>
+    [Fact]
+    public void Execute_Scan_NoSubnet_PrintsNoNeighborMessage()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var workstation = AddRemoteServer(harness, "node-work", "workstation", "10.0.9.9", AuthMode.None, "ignored");
+        SetAutoPropertyBackingField(harness.World, "PlayerWorkstationServer", workstation);
+
+        var result = Execute(harness, "scan", terminalSessionId: "ts-scan-nosubnet");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Contains("No adjacent servers found", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures scan requires execute privilege and returns a linux-like permission denied message.</summary>
+    [Fact]
+    public void Execute_Scan_Fails_WhenExecutePrivilegeIsMissing()
+    {
+        var harness = CreateHarness(
+            includeVfsModule: false,
+            includeConnectModule: true,
+            privilege: new PrivilegeConfig
+            {
+                Read = true,
+                Write = true,
+                Execute = false,
+            });
+
+        harness.Server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "alpha",
+                Ip = "10.1.0.10",
+            },
+        });
+
+        var workstation = AddRemoteServer(harness, "node-work", "workstation", "10.0.9.9", AuthMode.None, "ignored");
+        SetAutoPropertyBackingField(harness.World, "PlayerWorkstationServer", workstation);
+
+        var result = Execute(harness, "scan", terminalSessionId: "ts-scan-noexec");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Contains("scan: permission denied", result.Lines[0], StringComparison.Ordinal);
+    }
+
     /// <summary>Ensures disconnect restores prior context and removes created server session.</summary>
     [Fact]
     public void Execute_Disconnect_Succeeds_AndRemovesSession()
@@ -539,7 +738,7 @@ public sealed class SystemCallTest
     {
         var transition = CreateInternalInstance("Uplink2.Runtime.Syscalls.TerminalContextTransition", Array.Empty<object?>());
         SetAutoPropertyBackingField(transition, "NextNodeId", "node-2");
-        SetAutoPropertyBackingField(transition, "NextUserKey", "guest");
+        SetAutoPropertyBackingField(transition, "NextUserId", "guest");
         SetAutoPropertyBackingField(transition, "NextPromptUser", "guest");
         SetAutoPropertyBackingField(transition, "NextPromptHost", "remote");
         SetAutoPropertyBackingField(transition, "NextCwd", "/");
@@ -548,7 +747,8 @@ public sealed class SystemCallTest
         var transitionPayload = BuildTerminalCommandResponsePayload(transitionResult);
 
         Assert.Equal("node-2", transitionPayload["nextNodeId"]);
-        Assert.Equal("guest", transitionPayload["nextUserKey"]);
+        Assert.Equal("guest", transitionPayload["nextUserId"]);
+        Assert.False(transitionPayload.ContainsKey("nextUserKey"));
         Assert.Equal("guest", transitionPayload["nextPromptUser"]);
         Assert.Equal("remote", transitionPayload["nextPromptHost"]);
         Assert.Equal("/", transitionPayload["nextCwd"]);
@@ -556,6 +756,72 @@ public sealed class SystemCallTest
         var cwdResult = SystemCallResult.Success(nextCwd: "/work");
         var cwdPayload = BuildTerminalCommandResponsePayload(cwdResult);
         Assert.Equal("/work", cwdPayload["nextCwd"]);
+    }
+
+    /// <summary>Ensures default terminal-context API surface uses userId and does not expose userKey keys.</summary>
+    [Fact]
+    public void GetDefaultTerminalContext_UsesUserIdKey()
+    {
+        var method = typeof(WorldRuntime).GetMethod("GetDefaultTerminalContext", BindingFlags.Instance | BindingFlags.Public);
+        Assert.NotNull(method);
+        var parameters = method!.GetParameters();
+        Assert.Single(parameters);
+        Assert.Equal("preferredUserId", parameters[0].Name);
+
+        var literals = ExtractStringLiterals((MethodInfo)method);
+        Assert.Contains("userId", literals);
+        Assert.DoesNotContain("userKey", literals);
+    }
+
+    /// <summary>Ensures terminal event filtering maps internal userKey lines into userId values at API boundary.</summary>
+    [Fact]
+    public void ResolveUserIdForTerminalEventLine_MapsUserKeyToUserId()
+    {
+        var harness = CreateHarness(includeVfsModule: false);
+        harness.Server.Users["adminKey"] = new UserConfig
+        {
+            UserId = "admin",
+            AuthMode = AuthMode.None,
+            Privilege = PrivilegeConfig.FullAccess(),
+        };
+
+        var line = CreateInternalInstance(
+            "Uplink2.Runtime.Events.TerminalEventLine",
+            new object?[] { harness.Server.NodeId, "adminKey", "admin-line" });
+        var resolveMethod = typeof(WorldRuntime).GetMethod(
+            "ResolveUserIdForTerminalEventLine",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(resolveMethod);
+        var resolvedUserId = (string)resolveMethod!.Invoke(harness.World, new[] { line })!;
+        Assert.Equal("admin", resolvedUserId);
+    }
+
+    /// <summary>Ensures server user map rejects duplicate userId values during blueprint apply.</summary>
+    [Fact]
+    public void ApplyUsers_Throws_OnDuplicateUserIdPerServer()
+    {
+        var blobStore = new BlobStore();
+        var baseFileSystem = new BaseFileSystem(blobStore);
+        var server = new ServerNodeRuntime("node-dup", "dup", ServerRole.Terminal, baseFileSystem, blobStore);
+        var users = new Dictionary<string, UserBlueprint>
+        {
+            ["keyA"] = new UserBlueprint
+            {
+                UserId = "root",
+            },
+            ["keyB"] = new UserBlueprint
+            {
+                UserId = "root",
+            },
+        };
+
+        var applyUsers = typeof(WorldRuntime).GetMethod("ApplyUsers", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(applyUsers);
+        var ex = Assert.Throws<TargetInvocationException>(() =>
+            applyUsers!.Invoke(null, new object?[] { server, users, "node-dup" }));
+        Assert.IsType<InvalidDataException>(ex.InnerException);
+        Assert.Contains("node-dup", ex.InnerException!.Message, StringComparison.Ordinal);
+        Assert.Contains("root", ex.InnerException.Message, StringComparison.Ordinal);
     }
 
     private static SystemCallHarness CreateHarness(
@@ -611,14 +877,16 @@ public sealed class SystemCallTest
         string password,
         PortType portType = PortType.Ssh,
         PortExposure exposure = PortExposure.Public,
-        string netId = "internet")
+        string netId = "internet",
+        string userKey = "guest",
+        string userId = "guest")
     {
         var blobStore = new BlobStore();
         var baseFileSystem = new BaseFileSystem(blobStore);
         var server = new ServerNodeRuntime(nodeId, name, ServerRole.Terminal, baseFileSystem, blobStore);
-        server.Users["guest"] = new UserConfig
+        server.Users[userKey] = new UserConfig
         {
-            UserId = "guest",
+            UserId = userId,
             UserPasswd = password,
             AuthMode = authMode,
             Privilege = PrivilegeConfig.FullAccess(),
@@ -672,6 +940,26 @@ public sealed class SystemCallTest
             "ServerList",
             serverList);
         SetAutoPropertyBackingField(world, "IpIndex", ipIndex);
+
+        var visibleNets = new HashSet<string>(StringComparer.Ordinal) { "internet" };
+        var knownNodesByNet = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
+        {
+            ["internet"] = new HashSet<string>(StringComparer.Ordinal),
+        };
+
+        foreach (var server in servers)
+        {
+            foreach (var iface in server.Interfaces)
+            {
+                if (string.Equals(iface.NetId, "internet", StringComparison.Ordinal))
+                {
+                    knownNodesByNet["internet"].Add(server.NodeId);
+                }
+            }
+        }
+
+        SetAutoPropertyBackingField(world, "VisibleNets", visibleNets);
+        SetAutoPropertyBackingField(world, "KnownNodesByNet", knownNodesByNet);
         SetAutoPropertyBackingField(world, "PlayerWorkstationServer", servers[0]);
         return world;
     }
@@ -748,7 +1036,7 @@ public sealed class SystemCallTest
         SystemCallHarness harness,
         string commandLine,
         string? nodeId = null,
-        string? userKey = null,
+        string? userId = null,
         string? cwd = null,
         string? terminalSessionId = null)
     {
@@ -757,7 +1045,7 @@ public sealed class SystemCallTest
         var request = new SystemCallRequest
         {
             NodeId = nodeId ?? harness.Server.NodeId,
-            UserKey = userKey ?? harness.UserKey,
+            UserId = userId ?? harness.UserId,
             Cwd = cwd ?? harness.Cwd,
             CommandLine = commandLine,
             TerminalSessionId = terminalSessionId ?? string.Empty,
@@ -817,11 +1105,48 @@ public sealed class SystemCallTest
         return methods;
     }
 
+    private static IReadOnlyList<string> ExtractStringLiterals(MethodInfo method)
+    {
+        var ilBytes = method.GetMethodBody()?.GetILAsByteArray();
+        if (ilBytes is null || ilBytes.Length == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var literals = new List<string>();
+        for (var index = 0; index <= ilBytes.Length - 5; index++)
+        {
+            // ldstr
+            if (ilBytes[index] != 0x72)
+            {
+                continue;
+            }
+
+            var token = BitConverter.ToInt32(ilBytes, index + 1);
+            try
+            {
+                var value = method.Module.ResolveString(token);
+                if (!string.IsNullOrEmpty(value))
+                {
+                    literals.Add(value);
+                }
+            }
+            catch (ArgumentException)
+            {
+            }
+            catch (BadImageFormatException)
+            {
+            }
+        }
+
+        return literals;
+    }
+
     private sealed record SystemCallHarness(
         WorldRuntime World,
         ServerNodeRuntime Server,
         BaseFileSystem BaseFileSystem,
         object Processor,
-        string UserKey,
+        string UserId,
         string Cwd);
 }

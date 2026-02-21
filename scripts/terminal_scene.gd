@@ -11,7 +11,7 @@ extends Control
 var text_buffer: Array[String] = []
 var world_runtime: Node = null
 var current_node_id: String = ""
-var current_user_key: String = ""
+var current_user_id: String = ""
 var current_cwd: String = "/"
 var current_terminal_session_id: String = ""
 var prompt_user: String = "player"
@@ -59,7 +59,7 @@ func _process(delta: float) -> void:
 		return
 
 	event_poll_elapsed = 0.0
-	var lines_variant: Variant = world_runtime.call("DrainTerminalEventLines", current_node_id, current_user_key)
+	var lines_variant: Variant = world_runtime.call("DrainTerminalEventLines", current_node_id, current_user_id)
 	if lines_variant is Array:
 		var lines_array: Array = lines_variant
 		for line in lines_array:
@@ -90,7 +90,7 @@ func _on_input_submitted(command_text: String) -> void:
 	var response: Dictionary = world_runtime.call(
 		"ExecuteTerminalCommand",
 		current_node_id,
-		current_user_key,
+		current_user_id,
 		current_cwd,
 		trimmed,
 		current_terminal_session_id)
@@ -206,10 +206,10 @@ func _initialize_runtime_bridge() -> void:
 		return
 
 	current_node_id = str(context.get("nodeId", ""))
-	current_user_key = str(context.get("userKey", ""))
+	current_user_id = str(context.get("userId", ""))
 	current_cwd = str(context.get("cwd", "/"))
 	current_terminal_session_id = str(context.get("terminalSessionId", ""))
-	prompt_user = str(context.get("promptUser", current_user_key))
+	prompt_user = str(context.get("promptUser", current_user_id))
 	prompt_host = str(context.get("promptHost", current_node_id))
 
 
@@ -226,9 +226,9 @@ func _apply_systemcall_response(response: Dictionary) -> void:
 	var next_node_id: String = str(response.get("nextNodeId", ""))
 	if not next_node_id.is_empty():
 		current_node_id = next_node_id
-	var next_user_key: String = str(response.get("nextUserKey", ""))
-	if not next_user_key.is_empty():
-		current_user_key = next_user_key
+	var next_user_id: String = str(response.get("nextUserId", ""))
+	if not next_user_id.is_empty():
+		current_user_id = next_user_id
 	var next_prompt_user: String = str(response.get("nextPromptUser", ""))
 	if not next_prompt_user.is_empty():
 		prompt_user = next_prompt_user

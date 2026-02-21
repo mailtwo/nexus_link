@@ -37,7 +37,7 @@ ServerSpec:
         /opt/bin/optgen:
           entryKind: File
           contentId: res://scenario_content/resources/bin/mediumOTPIssuerServerOtpgen.bin
-          fileKind: ExectuableScript
+          fileKind: ExecutableScript
 Scenario:
   mediumScenario:
     servers:

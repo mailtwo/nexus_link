@@ -45,6 +45,7 @@ public partial class WorldRuntime
         IReadOnlyDictionary<string, UserBlueprint> users,
         string nodeId)
     {
+        var userIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var userPair in users)
         {
             var userKey = userPair.Key;
@@ -55,6 +56,12 @@ public partial class WorldRuntime
             if (string.IsNullOrWhiteSpace(resolvedUserId))
             {
                 resolvedUserId = userKey;
+            }
+
+            if (!userIds.Add(resolvedUserId))
+            {
+                throw new InvalidDataException(
+                    $"Server '{nodeId}' declares duplicate userId '{resolvedUserId}'. userId must be unique per server.");
             }
 
             server.Users[userKey] = new UserConfig

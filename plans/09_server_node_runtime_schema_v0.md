@@ -40,6 +40,13 @@ Codex는 이 문서만 보고 런타임 모델(월드 `serverList`, `ipIndex`, `
 - 내부 참조/검증 키: `nodeId`, `userKey`
 - 표시/로그 텍스트: `userId`, `IP 문자열`
 
+### 0.6 공개 API 경계 규칙(필수)
+- 플레이어 입력, 터미널 시스템콜 요청, Godot 공개 메서드 요청/응답에서는 **`userId`만 사용**한다.
+- `userKey`는 내부 런타임(세션/이벤트/권한 검사/데이터 참조) 전용으로 유지하며 외부에 노출하지 않는다.
+- 공개 응답 컨텍스트 전환 필드는 `nextUserId`를 사용하고 `nextUserKey`는 사용하지 않는다.
+- `connect` 명령의 `<user>` 인자는 `userId` 기준으로 계정을 식별한다.
+- 서버 단위로 `userId`는 유일해야 하며, 중복이면 월드 로딩을 실패시켜야 한다.
+
 ---
 
 ## 1) 공통 Struct: EntryMeta (VFS 오버레이용)
@@ -216,6 +223,21 @@ PortConfig
 2) 각 nodeId를 현재 컨텍스트(netId) 기준 IP로 변환한다.
 3) 최종 결과를 IP 문자열 리스트로 반환한다(기존 UX 유지).
 
+터미널 시스템콜 출력 규칙(v0.2):
+- `known`
+  - 데이터 소스: `KnownNodesByNet["internet"]`
+  - 필터: `internet` 인터페이스 IP를 가진 노드만 포함
+  - 출력: `hostname` / `IP` 2열 테이블(행당 1노드)
+- `scan`
+  - 데이터 소스: 현재 서버의 `lanNeighbors`
+  - 권한: 현재 접속 계정의 `privilege.execute=true` 필요
+  - 출력:
+    1) 첫 줄: `현재IP - 연결IP1`
+    2) 후속 줄: `연결IPn`만 출력하되 첫 줄의 연결 IP 컬럼에 세로 정렬
+  - 권한 부족 시: `scan: permission denied` 에러를 반환
+  - 예외: player workstation이거나 subnet 미연결(또는 이웃 없음)이면
+    "인접 서버를 찾을 수 없음" 안내 문장 1줄 출력
+
 ---
 
 ## 6) Disk: diskOverlay (서버별 VFS 델타)
@@ -346,6 +368,8 @@ LogStruct
 - [ ] `users`를 `userKey` 키로 관리하고 `UserConfig.userId`를 필수값으로 저장
 - [ ] 세션/프로세스 내부 참조는 `userKey`, 표시/로그는 `userId` 사용
 - [ ] `lanNeighbors`를 nodeId 기반으로 유지하고 `net.scan("lan")`은 IP 목록 반환
+- [ ] 시스템콜 `known`: `KnownNodesByNet["internet"]` 기반 public IP 테이블 출력
+- [ ] 시스템콜 `scan`: `execute` 권한 필요 + `현재IP - 연결IP` 형식 + 후속 IP 컬럼 정렬 + no-neighbor 안내 문장
 - [ ] 서버 생성 시 기본 포트(`22:SSH/public`, `21:FTP/public`)를 시드하고 overlay로 덮어쓰기/삭제를 반영
 - [ ] `portType=NONE`을 비할당 포트로 취급하고 해당 포트의 `exposure`를 무시
 - [ ] OTP daemon 참조를 `userKey` 기준으로 검증

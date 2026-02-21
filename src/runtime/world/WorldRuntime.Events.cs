@@ -124,7 +124,7 @@ public partial class WorldRuntime
     }
 
     /// <summary>Drains queued event-print lines targeting the current terminal context.</summary>
-    public Godot.Collections.Array<string> DrainTerminalEventLines(string nodeId, string userKey)
+    public Godot.Collections.Array<string> DrainTerminalEventLines(string nodeId, string userId)
     {
         var drainedLines = new Godot.Collections.Array<string>();
         if (terminalEventLines.Count == 0)
@@ -133,13 +133,14 @@ public partial class WorldRuntime
         }
 
         var normalizedNodeId = nodeId?.Trim() ?? string.Empty;
-        var normalizedUserKey = userKey?.Trim() ?? string.Empty;
+        var normalizedUserId = userId?.Trim() ?? string.Empty;
         var retained = new Queue<TerminalEventLine>();
         while (terminalEventLines.Count > 0)
         {
             var line = terminalEventLines.Dequeue();
             var matchNode = string.IsNullOrEmpty(normalizedNodeId) || string.Equals(line.NodeId, normalizedNodeId, StringComparison.Ordinal);
-            var matchUser = string.IsNullOrEmpty(normalizedUserKey) || string.Equals(line.UserKey, normalizedUserKey, StringComparison.Ordinal);
+            var lineUserId = ResolveUserIdForTerminalEventLine(line);
+            var matchUser = string.IsNullOrEmpty(normalizedUserId) || string.Equals(lineUserId, normalizedUserId, StringComparison.Ordinal);
             if (matchNode && matchUser)
             {
                 drainedLines.Add(line.Text);
@@ -157,12 +158,29 @@ public partial class WorldRuntime
         return drainedLines;
     }
 
+    private string ResolveUserIdForTerminalEventLine(TerminalEventLine line)
+    {
+        if (TryGetServer(line.NodeId, out var server) &&
+            server.Users.TryGetValue(line.UserKey, out var user) &&
+            !string.IsNullOrWhiteSpace(user.UserId))
+        {
+            return user.UserId;
+        }
+
+        return line.UserKey ?? string.Empty;
+    }
+
     internal void QueueTerminalEventLine(TerminalEventLine line)
     {
         terminalEventLines.Enqueue(line);
     }
 
     internal void InitializeEventRuntime(ScenarioBlueprint scenario)
+    {
+        InitializeEventRuntime(new[] { scenario });
+    }
+
+    internal void InitializeEventRuntime(IEnumerable<ScenarioBlueprint> scenarios)
     {
         EnsureEventRuntimeServices();
         eventQueue.Clear();
@@ -171,10 +189,13 @@ public partial class WorldRuntime
         ScenarioFlags.Clear();
         eventIndex.Clear();
 
-        foreach (var eventPair in scenario.Events.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+        foreach (var scenario in scenarios)
         {
-            var descriptor = BuildEventHandlerDescriptor(scenario, eventPair.Key, eventPair.Value);
-            eventIndex.Add(descriptor);
+            foreach (var eventPair in scenario.Events.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+            {
+                var descriptor = BuildEventHandlerDescriptor(scenario, eventPair.Key, eventPair.Value);
+                eventIndex.Add(descriptor);
+            }
         }
 
         processScheduler.RebuildFrom(ProcessList);

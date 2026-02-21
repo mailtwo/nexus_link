@@ -64,6 +64,7 @@ UserBlueprint
 **참조 규칙(중요)**
 - 블루프린트에서 특정 계정을 가리킬 때는 `userId`가 아니라 **`userKey`** 를 사용한다.  
   (`userId`는 AUTO로 변할 수 있으나 `userKey`는 항상 고정이기 때문)
+- 단, 플레이어 입력/시스템콜/공개 API 경계에서는 `userId`만 사용하고 `userKey`는 외부에 노출하지 않는다.
 
 ### 1.2 PortConfig
 

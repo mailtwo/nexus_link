@@ -89,6 +89,20 @@
 - 외부 반환: 플레이어 UX 유지를 위해 IP 문자열 리스트 반환
 - 변환: nodeId -> (현재 netId 컨텍스트의 ip)
 
+터미널 명령 매핑(v0.2):
+- `known`
+  - 의미: 현재 플레이어가 획득한 known 노드 중 `netId="internet"`에 해당하는 public IP만 출력
+  - 출력: `hostname` + `IP` 2열 테이블(한 줄에 1호스트)
+- `scan`
+  - 의미: 현재 접속 서버의 `lanNeighbors`를 IP 목록으로 출력
+  - 권한: 현재 접속 계정의 `execute=true` 필요
+  - 출력:
+    - 첫 줄: `현재IP - 연결IP1`
+    - 다음 줄들: `연결IPn`만 표시하되 첫 줄의 `-` 뒤 컬럼에 정렬
+  - 권한 부족 시: 리눅스 스타일에 가깝게 `scan: permission denied` 에러 출력
+  - 예외: 현재 서버가 player workstation이거나 subnet 미연결(또는 이웃 없음)이면
+    "인접 서버를 찾을 수 없음" 안내 문장 1줄 출력
+
 ### 3.2 fw (방화벽/ACL)
 - `fw.list(device)`
 - `fw.addRule(device, rule)` / `fw.removeRule(device, ruleId)` (관리 권한 필요)
@@ -112,6 +126,11 @@
 - `session.disconnect()` (현재 세션 연결 종료)
 - `session.whoami()` (선택)
 - `session.tokens()` (선택: 토큰 스코프 확인)
+
+식별자 경계 규칙(v0.2):
+- `ssh.connect(..., user, ...)`의 `user` 인자는 항상 **userId(플레이어 노출 식별자)** 로 해석한다.
+- `userKey`는 엔진 내부 참조 전용 키이며, 플레이어 입력/시스템콜 요청/공개 API 응답에 노출하지 않는다.
+- 내부 런타임은 `userId -> userKey` 매핑 후 권한/세션 로직을 수행한다.
 
 로그인 host 해석 규칙(v0.2):
 - `ssh.connect(hostOrIp, ...)`의 `hostOrIp`는 host 문자열 또는 IP를 받는다.

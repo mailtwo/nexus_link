@@ -49,7 +49,7 @@ public partial class WorldRuntime
     }
 
     /// <summary>Returns a default terminal execution context for UI bootstrap.</summary>
-    public Godot.Collections.Dictionary GetDefaultTerminalContext(string preferredUserKey = "player")
+    public Godot.Collections.Dictionary GetDefaultTerminalContext(string preferredUserId = "player")
     {
         var result = new Godot.Collections.Dictionary();
         if (PlayerWorkstationServer is null)
@@ -59,15 +59,17 @@ public partial class WorldRuntime
             return result;
         }
 
-        var userKey = preferredUserKey;
-        if (string.IsNullOrWhiteSpace(userKey) || !PlayerWorkstationServer.Users.ContainsKey(userKey))
+        var userId = preferredUserId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(userId) ||
+            !TryResolveUserKeyByUserId(PlayerWorkstationServer, userId, out var userKey))
         {
             userKey = PlayerWorkstationServer.Users.Keys
                 .OrderBy(static key => key, StringComparer.Ordinal)
                 .FirstOrDefault() ?? string.Empty;
+            userId = ResolvePromptUser(PlayerWorkstationServer, userKey);
         }
 
-        if (string.IsNullOrWhiteSpace(userKey))
+        if (string.IsNullOrWhiteSpace(userId))
         {
             result["ok"] = false;
             result["error"] = "error: no available user on player workstation.";
@@ -86,7 +88,7 @@ public partial class WorldRuntime
 
         result["ok"] = true;
         result["nodeId"] = PlayerWorkstationServer.NodeId;
-        result["userKey"] = userKey;
+        result["userId"] = userId;
         result["cwd"] = "/";
         result["promptUser"] = promptUser;
         result["promptHost"] = promptHost;
@@ -97,17 +99,17 @@ public partial class WorldRuntime
     /// <summary>Executes one terminal command and returns a GDScript-friendly dictionary payload.</summary>
     public Godot.Collections.Dictionary ExecuteTerminalCommand(
         string nodeId,
-        string userKey,
+        string userId,
         string cwd,
         string commandLine)
     {
-        return ExecuteTerminalCommand(nodeId, userKey, cwd, commandLine, string.Empty);
+        return ExecuteTerminalCommand(nodeId, userId, cwd, commandLine, string.Empty);
     }
 
     /// <summary>Executes one terminal command and returns a GDScript-friendly dictionary payload.</summary>
     public Godot.Collections.Dictionary ExecuteTerminalCommand(
         string nodeId,
-        string userKey,
+        string userId,
         string cwd,
         string commandLine,
         string terminalSessionId)
@@ -115,7 +117,7 @@ public partial class WorldRuntime
         var result = ExecuteSystemCall(new SystemCallRequest
         {
             NodeId = nodeId ?? string.Empty,
-            UserKey = userKey ?? string.Empty,
+            UserId = userId ?? string.Empty,
             Cwd = cwd ?? "/",
             CommandLine = commandLine ?? string.Empty,
             TerminalSessionId = terminalSessionId ?? string.Empty,
@@ -135,7 +137,7 @@ public partial class WorldRuntime
             ["lines"] = lines,
             ["nextCwd"] = (string)responsePayload["nextCwd"],
             ["nextNodeId"] = (string)responsePayload["nextNodeId"],
-            ["nextUserKey"] = (string)responsePayload["nextUserKey"],
+            ["nextUserId"] = (string)responsePayload["nextUserId"],
             ["nextPromptUser"] = (string)responsePayload["nextPromptUser"],
             ["nextPromptHost"] = (string)responsePayload["nextPromptHost"],
         };
@@ -158,7 +160,7 @@ public partial class WorldRuntime
             ["lines"] = lines,
             ["nextCwd"] = result.NextCwd ?? string.Empty,
             ["nextNodeId"] = string.Empty,
-            ["nextUserKey"] = string.Empty,
+            ["nextUserId"] = string.Empty,
             ["nextPromptUser"] = string.Empty,
             ["nextPromptHost"] = string.Empty,
         };
@@ -169,7 +171,7 @@ public partial class WorldRuntime
         }
 
         payload["nextNodeId"] = transition.NextNodeId;
-        payload["nextUserKey"] = transition.NextUserKey;
+        payload["nextUserId"] = transition.NextUserId;
         payload["nextPromptUser"] = transition.NextPromptUser;
         payload["nextPromptHost"] = transition.NextPromptHost;
         if (string.IsNullOrWhiteSpace((string)payload["nextCwd"]) &&
@@ -266,6 +268,53 @@ public partial class WorldRuntime
         }
 
         return userKey;
+    }
+
+    internal bool TryResolveUserKeyByUserId(ServerNodeRuntime server, string userId, out string userKey)
+    {
+        userKey = string.Empty;
+        if (server is null)
+        {
+            return false;
+        }
+
+        var normalizedUserId = userId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedUserId))
+        {
+            return false;
+        }
+
+        foreach (var userPair in server.Users)
+        {
+            if (!string.Equals(userPair.Value.UserId, normalizedUserId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            userKey = userPair.Key;
+            return true;
+        }
+
+        return false;
+    }
+
+    internal bool TryResolveUserByUserId(
+        ServerNodeRuntime server,
+        string userId,
+        out string userKey,
+        out UserConfig user)
+    {
+        userKey = string.Empty;
+        user = null!;
+        if (!TryResolveUserKeyByUserId(server, userId, out var resolvedUserKey) ||
+            !server.Users.TryGetValue(resolvedUserKey, out var resolvedUser))
+        {
+            return false;
+        }
+
+        userKey = resolvedUserKey;
+        user = resolvedUser;
+        return true;
     }
 
     internal string ResolvePromptHost(ServerNodeRuntime server)

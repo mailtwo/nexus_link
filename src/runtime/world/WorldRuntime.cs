@@ -11,8 +11,8 @@ namespace Uplink2.Runtime;
 public partial class WorldRuntime : Node
 {
     private const string InternetNetId = "internet";
-    private const string DefaultBlueprintDirectory = "res://scenario_content/campaigns/prototype";
-    private const string DefaultStartupCampaignId = "prototypeCampaign";
+    private const string DefaultBlueprintDirectory = "res://scenario_content/campaigns";
+    private const string DefaultStartupCampaignId = "gameCampaign";
     private const string DefaultDictionaryPasswordFile = "res://scenario_content/resources/text/leaked_password.txt";
     private const string DefaultInternetAddressPlan = "10.255.0.0/16";
     private const uint DefaultHostStart = 10;

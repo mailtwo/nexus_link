@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Uplink2.Blueprint;
 using Uplink2.Runtime;
 using Uplink2.Vfs;
 using Xunit;
@@ -136,6 +137,64 @@ public sealed class WorldRuntimeEventFlowTest
             static called => string.Equals(called.DeclaringType?.FullName, "Uplink2.Blueprint.BlueprintYamlReader", StringComparison.Ordinal) &&
                              string.Equals(called.Name, ".ctor", StringComparison.Ordinal) &&
                              called.GetParameters().Length == 1);
+    }
+
+    /// <summary>Ensures startup scenario resolution loads campaign scenarios first, then child campaigns recursively.</summary>
+    [Fact]
+    public void ResolveStartupScenarios_TraversesCampaignTreeInOrder()
+    {
+        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        SetAutoProperty(world, "StartupScenarioId", string.Empty);
+        SetAutoProperty(world, "StartupCampaignId", "gameCampaign");
+
+        var catalog = new BlueprintCatalog();
+        catalog.Scenarios["rootA"] = new ScenarioBlueprint
+        {
+            ScenarioId = "rootA",
+        };
+        catalog.Scenarios["rootB"] = new ScenarioBlueprint
+        {
+            ScenarioId = "rootB",
+        };
+        catalog.Scenarios["childA"] = new ScenarioBlueprint
+        {
+            ScenarioId = "childA",
+        };
+        catalog.Scenarios["grandA"] = new ScenarioBlueprint
+        {
+            ScenarioId = "grandA",
+        };
+
+        var rootCampaign = new CampaignBlueprint
+        {
+            CampaignId = "gameCampaign",
+        };
+        rootCampaign.Scenarios.Add("rootA");
+        rootCampaign.Scenarios.Add("rootB");
+        rootCampaign.ChildCampaigns.Add("prototypeCampaign");
+        catalog.Campaigns["gameCampaign"] = rootCampaign;
+
+        var childCampaign = new CampaignBlueprint
+        {
+            CampaignId = "prototypeCampaign",
+        };
+        childCampaign.Scenarios.Add("childA");
+        childCampaign.ChildCampaigns.Add("grandCampaign");
+        catalog.Campaigns["prototypeCampaign"] = childCampaign;
+
+        var grandCampaign = new CampaignBlueprint
+        {
+            CampaignId = "grandCampaign",
+        };
+        grandCampaign.Scenarios.Add("grandA");
+        catalog.Campaigns["grandCampaign"] = grandCampaign;
+
+        var scenarios = (IReadOnlyList<ScenarioBlueprint>)Invoke(world, "ResolveStartupScenarios", catalog);
+        Assert.Equal(4, scenarios.Count);
+        Assert.Equal("rootA", scenarios[0].ScenarioId);
+        Assert.Equal("rootB", scenarios[1].ScenarioId);
+        Assert.Equal("childA", scenarios[2].ScenarioId);
+        Assert.Equal("grandA", scenarios[3].ScenarioId);
     }
 
     private static WorldRuntime CreateEventWorldStub()
