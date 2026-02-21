@@ -8,6 +8,9 @@ extends Control
 @export var terminal_font_size: int = 18
 @export var event_poll_interval_seconds: float = 0.10
 
+const EDITOR_HELP_TEXT := "Ctrl+S: save | Esc: exit"
+const EDITOR_STATUS_TIMEOUT_SECONDS: float = 3.0
+
 var text_buffer: Array[String] = []
 var world_runtime: Node = null
 var current_node_id: String = ""
@@ -21,6 +24,7 @@ var current_editor_path: String = ""
 var current_editor_read_only: bool = false
 var current_editor_display_mode: String = "text"
 var current_editor_path_exists: bool = false
+var editor_status_revision: int = 0
 
 @onready var background: ColorRect = $Background
 @onready var terminal_vbox: VBoxContainer = $VBox
@@ -29,7 +33,8 @@ var current_editor_path_exists: bool = false
 @onready var prompt_label: Label = $VBox/InputRow/Prompt
 @onready var input_line: LineEdit = $VBox/InputRow/Input
 @onready var editor_overlay: Control = $EditorOverlay
-@onready var editor: CodeEdit = $EditorOverlay/Editor
+@onready var editor: CodeEdit = $EditorOverlay/EditorLayout/Editor
+@onready var editor_status_label: Label = $EditorOverlay/EditorLayout/EditorStatus
 
 
 func _ready() -> void:
@@ -139,11 +144,13 @@ func _apply_terminal_theme() -> void:
 	editor.add_theme_color_override("caret_color", terminal_caret_color)
 	editor.add_theme_color_override("selection_color", terminal_selection_color)
 	editor.add_theme_color_override("background_color", terminal_background_color)
+	editor_status_label.add_theme_color_override("font_color", terminal_text_color)
 
 	output_label.add_theme_font_size_override("font_size", terminal_font_size)
 	prompt_label.add_theme_font_size_override("font_size", terminal_font_size)
 	input_line.add_theme_font_size_override("font_size", terminal_font_size)
 	editor.add_theme_font_size_override("font_size", terminal_font_size)
+	editor_status_label.add_theme_font_size_override("font_size", terminal_font_size)
 
 	var shared_font: Font = input_line.get_theme_font("font")
 	if shared_font:
@@ -151,6 +158,7 @@ func _apply_terminal_theme() -> void:
 		prompt_label.add_theme_font_override("font", shared_font)
 		input_line.add_theme_font_override("font", shared_font)
 		editor.add_theme_font_override("font", shared_font)
+		editor_status_label.add_theme_font_override("font", shared_font)
 
 
 func _enter_editor_mode() -> void:
@@ -175,9 +183,11 @@ func _open_editor_mode(
 	editor.set_caret_line(0)
 	editor.set_caret_column(0)
 	_enter_editor_mode()
+	_show_editor_status_persistent(EDITOR_HELP_TEXT)
 
 
 func _exit_editor_mode() -> void:
+	_clear_editor_status()
 	editor_overlay.visible = false
 	terminal_vbox.visible = true
 	input_line.editable = true
@@ -208,15 +218,15 @@ func _on_editor_gui_input(event: InputEvent) -> void:
 
 func _save_editor_content() -> void:
 	if world_runtime == null:
-		_append_output("error: world runtime singleton '/root/WorldRuntime' not found.")
+		_show_editor_status_temporary("error: world runtime singleton '/root/WorldRuntime' not found.")
 		return
 
 	if current_editor_read_only and current_editor_display_mode == "hex":
-		_append_output("error: read-only buffer.")
+		_show_editor_status_temporary("error: read-only buffer.")
 		return
 
 	if not world_runtime.has_method("SaveEditorContent"):
-		_append_output("error: runtime bridge method not found: SaveEditorContent.")
+		_show_editor_status_temporary("error: runtime bridge method not found: SaveEditorContent.")
 		return
 
 	var response: Dictionary = world_runtime.call(
@@ -227,17 +237,52 @@ func _save_editor_content() -> void:
 		current_editor_path,
 		editor.text)
 
-	var lines_variant: Variant = response.get("lines", [])
-	if lines_variant is Array:
-		var lines_array: Array = lines_variant
-		for line in lines_array:
-			_append_output(str(line))
-
 	if bool(response.get("ok", false)):
 		var saved_path: String = str(response.get("savedPath", ""))
 		if not saved_path.is_empty():
 			current_editor_path = saved_path
 		current_editor_path_exists = true
+		var success_message := "saved."
+		if not saved_path.is_empty():
+			success_message = "saved: %s" % saved_path
+		_show_editor_status_temporary(success_message)
+		return
+
+	var failure_message := _resolve_editor_save_message(response, "error: failed to save.")
+	_show_editor_status_temporary(failure_message)
+
+
+func _show_editor_status_persistent(message: String) -> void:
+	editor_status_revision += 1
+	editor_status_label.text = message
+
+
+func _show_editor_status_temporary(message: String) -> void:
+	editor_status_revision += 1
+	var revision := editor_status_revision
+	editor_status_label.text = message
+	var timer := get_tree().create_timer(EDITOR_STATUS_TIMEOUT_SECONDS)
+	timer.timeout.connect(func() -> void:
+		if revision != editor_status_revision:
+			return
+		editor_status_label.text = "")
+
+
+func _clear_editor_status() -> void:
+	editor_status_revision += 1
+	editor_status_label.text = ""
+
+
+func _resolve_editor_save_message(response: Dictionary, fallback: String) -> String:
+	var lines_variant: Variant = response.get("lines", [])
+	if lines_variant is Array:
+		var lines_array: Array = lines_variant
+		for line in lines_array:
+			var message := str(line)
+			if not message.is_empty():
+				return message
+
+	return fallback
 
 
 func _initialize_runtime_bridge() -> void:

@@ -19,3 +19,5 @@ mono_crash.*.json
 **/bin/
 **/obj/
 TestResults/
+
+TODO.md

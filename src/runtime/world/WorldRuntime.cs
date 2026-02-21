@@ -13,6 +13,7 @@ public partial class WorldRuntime : Node
     private const string InternetNetId = "internet";
     private const string DefaultBlueprintDirectory = "res://scenario_content/campaigns";
     private const string DefaultStartupCampaignId = "gameCampaign";
+    private const string DefaultStartupServerNodeId = "startScenario/myWorkstation";
     private const string DefaultDictionaryPasswordFile = "res://scenario_content/resources/text/leaked_password.txt";
     private const string DefaultInternetAddressPlan = "10.255.0.0/16";
     private const uint DefaultHostStart = 10;
@@ -31,6 +32,10 @@ public partial class WorldRuntime : Node
     /// <summary>Optional explicit startup scenario id (overrides campaign selection).</summary>
     [Export]
     public string StartupScenarioId { get; set; } = string.Empty;
+
+    /// <summary>Node id used to select the initial player workstation server.</summary>
+    [Export]
+    public string StartupServerNodeId { get; set; } = DefaultStartupServerNodeId;
 
     /// <summary>Password dictionary source file used by AUTO:dictionary policy.</summary>
     [Export]

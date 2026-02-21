@@ -252,14 +252,26 @@ public partial class WorldRuntime
     }
 
     /// <summary>Resolves player workstation runtime server for the active scenario.</summary>
-    private static ServerNodeRuntime ResolvePlayerWorkstation(IEnumerable<ServerNodeRuntime> servers)
+    private ServerNodeRuntime ResolvePlayerWorkstation(IReadOnlyDictionary<string, ServerNodeRuntime> serversByNodeId)
     {
-        var ordered = servers.OrderBy(static server => server.NodeId, StringComparer.Ordinal).ToList();
-        if (ordered.Count == 0)
+        if (serversByNodeId.Count == 0)
         {
             throw new InvalidDataException("No servers were instantiated for the active scenario.");
         }
 
+        var configuredNodeId = StartupServerNodeId?.Trim() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(configuredNodeId))
+        {
+            if (serversByNodeId.TryGetValue(configuredNodeId, out var configuredServer))
+            {
+                return configuredServer;
+            }
+
+            throw new InvalidDataException(
+                $"Startup server node '{configuredNodeId}' was not found in the active scenario bundle '{ActiveScenarioId}'.");
+        }
+
+        var ordered = serversByNodeId.Values.OrderBy(static server => server.NodeId, StringComparer.Ordinal).ToList();
         var internetTerminal = ordered.FirstOrDefault(static server =>
             server.Role == ServerRole.Terminal &&
             server.SubnetMembership.Contains(InternetNetId));

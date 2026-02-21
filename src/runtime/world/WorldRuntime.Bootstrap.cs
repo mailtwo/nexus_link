@@ -48,7 +48,7 @@ public partial class WorldRuntime
             RegisterServer(server);
         }
 
-        PlayerWorkstationServer = ResolvePlayerWorkstation(serversByNodeId.Values);
+        PlayerWorkstationServer = ResolvePlayerWorkstation(serversByNodeId);
         InitializeEventRuntime(startupScenarios);
         GD.Print(
             $"WorldRuntime initialized scenario bundle '{ActiveScenarioId}' ({ServerList.Count} servers, {startupScenarios.Count} source scenario(s)).");
