@@ -245,6 +245,40 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => line.Contains("Hello world!", StringComparison.Ordinal));
     }
 
+    /// <summary>Ensures edit opens editor mode payload with the target file path and text content.</summary>
+    [Fact]
+    public void Execute_Edit_ReturnsEditorOpenPayload()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddDirectory("/notes");
+        harness.BaseFileSystem.AddFile("/notes/todo.txt", "line-1\nline-2", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "edit /notes/todo.txt");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        var payload = BuildTerminalCommandResponsePayload(result);
+        Assert.Equal(true, payload["openEditor"]);
+        Assert.Equal("/notes/todo.txt", payload["editorPath"]);
+        Assert.Equal("line-1\nline-2", payload["editorContent"]);
+    }
+
+    /// <summary>Ensures renamed editor command no longer accepts legacy vim command text.</summary>
+    [Fact]
+    public void Execute_VimCommand_ReturnsUnknownCommand()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddDirectory("/notes");
+        harness.BaseFileSystem.AddFile("/notes/todo.txt", "line-1\nline-2", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "vim /notes/todo.txt");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.UnknownCommand, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Contains("unknown command: vim", result.Lines[0], StringComparison.Ordinal);
+    }
+
     /// <summary>Ensures ssh.connect intrinsic returns a session DTO and ssh.disconnect is idempotent.</summary>
     [Fact]
     public void Execute_Miniscript_SshConnect_ReturnsSessionDto_AndDisconnectIsIdempotent()
@@ -875,10 +909,14 @@ public sealed class SystemCallTest
         Assert.Equal("guest", transitionPayload["nextPromptUser"]);
         Assert.Equal("remote", transitionPayload["nextPromptHost"]);
         Assert.Equal("/", transitionPayload["nextCwd"]);
+        Assert.Equal(false, transitionPayload["openEditor"]);
+        Assert.Equal(string.Empty, transitionPayload["editorPath"]);
+        Assert.Equal(string.Empty, transitionPayload["editorContent"]);
 
         var cwdResult = SystemCallResult.Success(nextCwd: "/work");
         var cwdPayload = BuildTerminalCommandResponsePayload(cwdResult);
         Assert.Equal("/work", cwdPayload["nextCwd"]);
+        Assert.Equal(false, cwdPayload["openEditor"]);
     }
 
     /// <summary>Ensures default terminal-context API surface uses userId and does not expose userKey keys.</summary>

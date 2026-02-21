@@ -140,6 +140,9 @@ public partial class WorldRuntime
             ["nextUserId"] = (string)responsePayload["nextUserId"],
             ["nextPromptUser"] = (string)responsePayload["nextPromptUser"],
             ["nextPromptHost"] = (string)responsePayload["nextPromptHost"],
+            ["openEditor"] = (bool)responsePayload["openEditor"],
+            ["editorPath"] = (string)responsePayload["editorPath"],
+            ["editorContent"] = (string)responsePayload["editorContent"],
         };
 
         return response;
@@ -163,7 +166,18 @@ public partial class WorldRuntime
             ["nextUserId"] = string.Empty,
             ["nextPromptUser"] = string.Empty,
             ["nextPromptHost"] = string.Empty,
+            ["openEditor"] = false,
+            ["editorPath"] = string.Empty,
+            ["editorContent"] = string.Empty,
         };
+
+        if (result.Data is EditorOpenTransition editorOpen)
+        {
+            payload["openEditor"] = true;
+            payload["editorPath"] = editorOpen.TargetPath;
+            payload["editorContent"] = editorOpen.Content;
+            return payload;
+        }
 
         if (result.Data is not TerminalContextTransition transition)
         {

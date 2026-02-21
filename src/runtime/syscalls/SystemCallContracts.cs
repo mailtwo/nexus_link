@@ -175,6 +175,14 @@ internal sealed class TerminalContextTransition
     internal string NextCwd { get; init; } = "/";
 }
 
+/// <summary>Editor-open payload returned by system calls that enter text editor mode.</summary>
+internal sealed class EditorOpenTransition
+{
+    internal string TargetPath { get; init; } = string.Empty;
+
+    internal string Content { get; init; } = string.Empty;
+}
+
 internal interface ISystemCallHandler
 {
     string Command { get; }

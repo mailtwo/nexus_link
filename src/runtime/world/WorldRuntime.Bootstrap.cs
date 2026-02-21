@@ -21,7 +21,7 @@ public partial class WorldRuntime
 
         BaseFileSystem.AddFile("/system.bin", "uplink2-base-system", fileKind: VfsFileKind.Binary);
         BaseFileSystem.AddFile("/etc/motd", "Welcome to Uplink2 runtime.", fileKind: VfsFileKind.Text);
-        BaseFileSystem.AddFile("/bin/help.ms", "print \"help: ls, cd, cat, vim\"", fileKind: VfsFileKind.Text);
+        BaseFileSystem.AddFile("/bin/help.ms", "print \"help: ls, cd, cat, edit\"", fileKind: VfsFileKind.Text);
         BaseFileSystem.AddFile("/bin/ls.ms", "print \"ls (base stub)\"", fileKind: VfsFileKind.Text);
         BaseFileSystem.AddFile("/home/player/.profile", "export TERM=uplink2", fileKind: VfsFileKind.Text);
     }

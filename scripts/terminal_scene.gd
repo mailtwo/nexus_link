@@ -17,6 +17,7 @@ var current_terminal_session_id: String = ""
 var prompt_user: String = "player"
 var prompt_host: String = "term"
 var event_poll_elapsed: float = 0.0
+var current_editor_path: String = ""
 
 @onready var background: ColorRect = $Background
 @onready var terminal_vbox: VBoxContainer = $VBox
@@ -97,7 +98,8 @@ func _on_input_submitted(command_text: String) -> void:
 	_apply_systemcall_response(response)
 
 	input_line.clear()
-	input_line.call_deferred("grab_focus")
+	if not editor_overlay.visible:
+		input_line.call_deferred("grab_focus")
 
 
 func _append_command_echo(command_text: String) -> void:
@@ -155,17 +157,19 @@ func _enter_editor_mode() -> void:
 	editor.grab_focus()
 
 
+func _open_editor_mode(target_path: String, content: String) -> void:
+	current_editor_path = target_path
+	editor.text = content
+	editor.set_caret_line(0)
+	editor.set_caret_column(0)
+	_enter_editor_mode()
+
+
 func _exit_editor_mode() -> void:
 	editor_overlay.visible = false
 	terminal_vbox.visible = true
 	input_line.editable = true
-	_append_output(_to_oneline_string(editor.text))
 	input_line.call_deferred("grab_focus")
-
-
-func _to_oneline_string(multiline_text: String) -> String:
-	var normalized: String = multiline_text.replace("\r\n", "\n").replace("\r", "\n")
-	return normalized.replace("\n", "\\n")
 
 
 func _on_editor_gui_input(event: InputEvent) -> void:
@@ -237,6 +241,12 @@ func _apply_systemcall_response(response: Dictionary) -> void:
 		prompt_host = next_prompt_host
 
 	_refresh_prompt()
+
+	var should_open_editor: bool = bool(response.get("openEditor", false))
+	if should_open_editor:
+		var editor_path: String = str(response.get("editorPath", ""))
+		var editor_content: String = str(response.get("editorContent", ""))
+		_open_editor_mode(editor_path, editor_content)
 
 
 func _refresh_prompt() -> void:

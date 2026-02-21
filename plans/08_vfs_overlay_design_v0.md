@@ -83,7 +83,7 @@
   - 프로젝트 `DEBUG` 옵션이 켜진 경우에 한해 `DEBUG_miniscript <scriptPath>` 시스템콜을 임시 허용할 수 있다
 - 확장자(예: `.ms`)는 실행 가능성 판정 키가 아니라 표시/편의용 메타데이터로만 취급
 - 실행계열 파일(`ExecutableScript`, `ExecutableHardcode`)은 바이너리처럼 취급:
-  - `cat`/`vim`/`edit` 대상에서 차단
+  - `cat`/`edit` 대상에서 차단
   - 권장 오류 문구: `error: cannot read executable file: <path>`
 
 ---
@@ -263,5 +263,5 @@
 - [ ] BlobStore(refCount) 기본 동작 + overlay 파일 교체/삭제 시 refCount 감소
 - [ ] `fileKind` 확장 반영(`ExecutableScript`, `ExecutableHardcode`)
 - [ ] 시스템콜 미일치 시 프로그램 fallback + `PATH=/opt/bin` + 상대경로 실행 확인
-- [ ] 실행계열 파일 `cat`/`vim`/`edit` 차단 규칙 적용
+- [ ] 실행계열 파일 `cat`/`edit` 차단 규칙 적용
 - [ ] `ExecutableHardcode` 미등록 ID 시 사용자 `unknown command` 유지 + DEBUG warning 로그 출력

@@ -15,6 +15,7 @@ internal sealed class VfsSystemCallModule : ISystemCallModule
         registry.Register(new LsCommandHandler());
         registry.Register(new CdCommandHandler());
         registry.Register(new CatCommandHandler());
+        registry.Register(new EditCommandHandler());
         registry.Register(new MkdirCommandHandler());
         if (enableDebugCommands)
         {

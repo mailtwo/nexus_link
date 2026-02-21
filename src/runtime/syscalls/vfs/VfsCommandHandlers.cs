@@ -270,6 +270,52 @@ internal sealed class CatCommandHandler : VfsCommandHandlerBase
     }
 }
 
+internal sealed class EditCommandHandler : VfsCommandHandlerBase
+{
+    public override string Command => "edit";
+
+    public override SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count != 1)
+        {
+            return SystemCallResultFactory.Usage("edit <file>");
+        }
+
+        if (!RequireRead(context, Command, out var permissionResult))
+        {
+            return permissionResult;
+        }
+
+        var targetPath = NormalizePath(context, arguments[0]);
+        if (!context.Server.DiskOverlay.TryResolveEntry(targetPath, out var entry))
+        {
+            return SystemCallResultFactory.NotFound(targetPath);
+        }
+
+        if (entry.EntryKind != VfsEntryKind.File)
+        {
+            return SystemCallResultFactory.NotFile(targetPath);
+        }
+
+        if (!IsEditorReadableFile(entry))
+        {
+            return ExecutableReadDenied(targetPath);
+        }
+
+        if (!context.Server.DiskOverlay.TryReadFileText(targetPath, out var content))
+        {
+            return SystemCallResultFactory.NotFile(targetPath);
+        }
+
+        return SystemCallResultFactory.Success(
+            data: new EditorOpenTransition
+            {
+                TargetPath = targetPath,
+                Content = content,
+            });
+    }
+}
+
 internal sealed class MkdirCommandHandler : VfsCommandHandlerBase
 {
     public override string Command => "mkdir";
