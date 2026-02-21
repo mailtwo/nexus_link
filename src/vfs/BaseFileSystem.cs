@@ -431,7 +431,7 @@ public sealed class OverlayFileSystem
     public bool TryResolveEntry(string path, out VfsEntryMeta entry)
     {
         var normalized = BaseFileSystem.NormalizePath("/", path);
-        if (tombstones.Contains(normalized))
+        if (IsPathTombstoned(normalized))
         {
             entry = VfsEntryMeta.CreateDir();
             return false;
@@ -562,14 +562,8 @@ public sealed class OverlayFileSystem
             throw new InvalidOperationException("Cannot tombstone root directory.");
         }
 
-        if (overlayEntries.TryGetValue(normalized, out var existingEntry) &&
-            existingEntry.EntryKind == VfsEntryKind.File &&
-            !string.IsNullOrEmpty(existingEntry.ContentId))
-        {
-            blobStore.Release(existingEntry.ContentId);
-        }
+        RemoveOverlayEntryAndDescendants(normalized);
 
-        overlayEntries.Remove(normalized);
         tombstones.Add(normalized);
         ApplyRemoveChild(GetParentPath(normalized), GetName(normalized));
         return normalized;
@@ -701,5 +695,54 @@ public sealed class OverlayFileSystem
 
         var idx = path.LastIndexOf('/');
         return idx < 0 ? path : path[(idx + 1)..];
+    }
+
+    private bool IsPathTombstoned(string normalizedPath)
+    {
+        if (tombstones.Contains(normalizedPath))
+        {
+            return true;
+        }
+
+        var current = normalizedPath;
+        while (current != "/")
+        {
+            current = GetParentPath(current);
+            if (tombstones.Contains(current))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void RemoveOverlayEntryAndDescendants(string normalizedPath)
+    {
+        var candidates = overlayEntries.Keys
+            .Where(path => path == normalizedPath || IsDescendantOf(path, normalizedPath))
+            .ToArray();
+
+        foreach (var candidatePath in candidates)
+        {
+            if (overlayEntries.TryGetValue(candidatePath, out var entry) &&
+                entry.EntryKind == VfsEntryKind.File &&
+                !string.IsNullOrEmpty(entry.ContentId))
+            {
+                blobStore.Release(entry.ContentId);
+            }
+
+            overlayEntries.Remove(candidatePath);
+        }
+    }
+
+    private static bool IsDescendantOf(string candidatePath, string ancestorPath)
+    {
+        if (ancestorPath == "/")
+        {
+            return candidatePath != "/";
+        }
+
+        return candidatePath.StartsWith(ancestorPath + "/", StringComparison.Ordinal);
     }
 }
