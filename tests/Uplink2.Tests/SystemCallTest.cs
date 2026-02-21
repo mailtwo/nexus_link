@@ -245,6 +245,80 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => line.Contains("Hello world!", StringComparison.Ordinal));
     }
 
+    /// <summary>Ensures ssh.connect intrinsic returns a session DTO and ssh.disconnect is idempotent.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshConnect_ReturnsSessionDto_AndDisconnectIsIdempotent()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_ok.ms",
+            """
+            result = ssh.connect("10.0.1.20", "guest", "pw")
+            print "ok=" + str(result.ok)
+            print "code=" + result.code
+            print "kind=" + result.session.kind
+            print "sessionNodeId=" + result.session.sessionNodeId
+            print "userId=" + result.session.userId
+            print "hasUserKey=" + str(hasIndex(result.session, "userKey"))
+            d1 = ssh.disconnect(result.session)
+            d2 = ssh.disconnect(result.session)
+            print "d1=" + str(d1.disconnected)
+            print "d2=" + str(d2.disconnected)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_ok.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "kind=sshSession", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "sessionNodeId=node-2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "userId=guest", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "hasUserKey=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d1=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d2=0", StringComparison.Ordinal));
+        Assert.Empty(remote.Sessions);
+
+        var events = DrainQueuedGameEvents(harness.World);
+        var privilegeEvents = events
+            .Where(static gameEvent => string.Equals((string)GetPropertyValue(gameEvent, "EventType"), "privilegeAcquire", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(3, privilegeEvents.Count);
+        var payloads = privilegeEvents.Select(static gameEvent => GetPropertyValue(gameEvent, "Payload")).ToList();
+        Assert.All(payloads, payload => Assert.Equal("ssh.connect", (string?)GetPropertyValue(payload, "Via")));
+    }
+
+    /// <summary>Ensures ssh.connect intrinsic returns structured failure map on connection failure.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshConnect_ReturnsStructuredFailure()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_fail.ms",
+            """
+            result = ssh.connect("10.0.1.99", "guest", "pw")
+            print "ok=" + str(result.ok)
+            print "code=" + result.code
+            print "sessionNull=" + str(result.session == null)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_fail.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=NotFound", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "sessionNull=1", StringComparison.Ordinal));
+        var events = DrainQueuedGameEvents(harness.World);
+        Assert.Empty(events);
+    }
+
     /// <summary>Ensures processor context creation requires userId and rejects unknown user ids.</summary>
     [Fact]
     public void Execute_ContextCreation_UsesUserIdLookup()
@@ -357,6 +431,55 @@ public sealed class SystemCallTest
         Assert.Single(remote.Sessions);
         var session = Assert.Single(remote.Sessions);
         Assert.Equal("guest", session.Value.UserKey);
+    }
+
+    /// <summary>Ensures connect success emits privilegeAcquire events for all granted privileges with via='connect'.</summary>
+    [Fact]
+    public void Execute_Connect_Success_EmitsPrivilegeAcquireEvents()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(
+            harness,
+            "node-2",
+            "remote",
+            "10.0.1.20",
+            AuthMode.Static,
+            "pw",
+            userKey: "rootKey",
+            userId: "root");
+
+        var result = Execute(harness, "connect 10.0.1.20 root pw", terminalSessionId: "ts-event-connect");
+
+        Assert.True(result.Ok);
+        var events = DrainQueuedGameEvents(harness.World);
+        var privilegeEvents = events
+            .Where(static gameEvent => string.Equals((string)GetPropertyValue(gameEvent, "EventType"), "privilegeAcquire", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(3, privilegeEvents.Count);
+
+        var payloads = privilegeEvents.Select(static gameEvent => GetPropertyValue(gameEvent, "Payload")).ToList();
+        var privilegeSet = payloads
+            .Select(static payload => (string)GetPropertyValue(payload, "Privilege"))
+            .OrderBy(static value => value, StringComparer.Ordinal)
+            .ToList();
+        Assert.Equal(new[] { "execute", "read", "write" }, privilegeSet);
+        Assert.All(payloads, payload => Assert.Equal(remote.NodeId, (string)GetPropertyValue(payload, "NodeId")));
+        Assert.All(payloads, payload => Assert.Equal("rootKey", (string)GetPropertyValue(payload, "UserKey")));
+        Assert.All(payloads, payload => Assert.Equal("connect", (string?)GetPropertyValue(payload, "Via")));
+    }
+
+    /// <summary>Ensures connect failure does not emit privilegeAcquire events.</summary>
+    [Fact]
+    public void Execute_Connect_Failure_DoesNotEmitPrivilegeAcquireEvents()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var result = Execute(harness, "connect 10.0.1.20 guest wrong", terminalSessionId: "ts-event-connect-fail");
+
+        Assert.False(result.Ok);
+        var events = DrainQueuedGameEvents(harness.World);
+        Assert.Empty(events);
     }
 
     /// <summary>Ensures connect resolves login target by userId while preserving internal session userKey.</summary>
@@ -923,6 +1046,7 @@ public sealed class SystemCallTest
 
         var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
         SetAutoPropertyBackingField(world, "DebugOption", debugOption);
+        SetAutoPropertyBackingField(world, "ScenarioFlags", new Dictionary<string, object>(StringComparer.Ordinal));
 
         var serverList = new Dictionary<string, ServerNodeRuntime>(StringComparer.Ordinal);
         var ipIndex = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -961,6 +1085,18 @@ public sealed class SystemCallTest
         SetAutoPropertyBackingField(world, "VisibleNets", visibleNets);
         SetAutoPropertyBackingField(world, "KnownNodesByNet", knownNodesByNet);
         SetAutoPropertyBackingField(world, "PlayerWorkstationServer", servers[0]);
+
+        SetPrivateField(world, "eventQueue", CreateInternalInstance("Uplink2.Runtime.Events.EventQueue", Array.Empty<object?>()));
+        SetPrivateField(world, "firedHandlerIds", new HashSet<string>(StringComparer.Ordinal));
+        var terminalEventLineType = RequireRuntimeType("Uplink2.Runtime.Events.TerminalEventLine");
+        var terminalQueueType = typeof(Queue<>).MakeGenericType(terminalEventLineType);
+        var terminalQueue = Activator.CreateInstance(terminalQueueType);
+        Assert.NotNull(terminalQueue);
+        SetPrivateField(world, "terminalEventLines", terminalQueue!);
+        SetPrivateField(world, "initiallyExposedNodesByNet", new Dictionary<string, HashSet<string>>(StringComparer.Ordinal));
+        SetPrivateField(world, "scheduledProcessEndAtById", new Dictionary<int, long>());
+        SetPrivateField(world, "eventIndex", CreateInternalInstance("Uplink2.Runtime.Events.EventIndex", Array.Empty<object?>()));
+        SetPrivateField(world, "processScheduler", CreateInternalInstance("Uplink2.Runtime.Events.ProcessScheduler", Array.Empty<object?>()));
         return world;
     }
 
@@ -1054,6 +1190,44 @@ public sealed class SystemCallTest
         var result = executeMethod!.Invoke(harness.Processor, new object?[] { request }) as SystemCallResult;
         Assert.NotNull(result);
         return result!;
+    }
+
+    private static IReadOnlyList<object> DrainQueuedGameEvents(WorldRuntime world)
+    {
+        var eventQueue = GetPrivateField(world, "eventQueue");
+        var tryDequeue = eventQueue.GetType().GetMethod("TryDequeue", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(tryDequeue);
+
+        var gameEvents = new List<object>();
+        while (true)
+        {
+            object?[] args = { null };
+            var dequeued = (bool)tryDequeue!.Invoke(eventQueue, args)!;
+            if (!dequeued)
+            {
+                break;
+            }
+
+            gameEvents.Add(args[0]!);
+        }
+
+        return gameEvents;
+    }
+
+    private static object GetPrivateField(object target, string fieldName)
+    {
+        var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return field!.GetValue(target)!;
+    }
+
+    private static object? GetPropertyValue(object target, string propertyName)
+    {
+        var property = target.GetType().GetProperty(
+            propertyName,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        Assert.NotNull(property);
+        return property!.GetValue(target);
     }
 
     private static Dictionary<string, object> BuildTerminalCommandResponsePayload(SystemCallResult result)

@@ -359,7 +359,7 @@ internal sealed class DebugMiniScriptCommandHandler : VfsCommandHandlerBase
             return SystemCallResultFactory.NotFile(scriptPath);
         }
 
-        return MiniScriptExecutionRunner.ExecuteScript(scriptSource);
+        return MiniScriptExecutionRunner.ExecuteScript(scriptSource, context);
     }
 }
 
@@ -368,7 +368,9 @@ internal static class MiniScriptExecutionRunner
     private const double TimeSliceSeconds = 0.01;
     private const double MaxRuntimeSeconds = 2.0;
 
-    internal static SystemCallResult ExecuteScript(string scriptSource)
+    internal static SystemCallResult ExecuteScript(
+        string scriptSource,
+        SystemCallExecutionContext executionContext = null)
     {
         var standardOutput = new ScriptOutputCollector();
         var errorOutput = new ScriptOutputCollector();
@@ -381,6 +383,7 @@ internal static class MiniScriptExecutionRunner
             };
 
             MiniScriptCryptoIntrinsics.InjectCryptoModule(interpreter);
+            MiniScriptSshIntrinsics.InjectSshModule(interpreter, executionContext);
             var deadlineUtc = DateTime.UtcNow.AddSeconds(MaxRuntimeSeconds);
             while (!interpreter.done)
             {

@@ -248,15 +248,28 @@ public partial class WorldRuntime
 
     internal void RemoveTerminalRemoteSession(string nodeId, int sessionId)
     {
+        _ = TryRemoveRemoteSession(nodeId, sessionId);
+    }
+
+    internal bool TryRemoveRemoteSession(string nodeId, int sessionId)
+    {
         if (sessionId < 1 || string.IsNullOrWhiteSpace(nodeId))
         {
-            return;
+            return false;
         }
 
-        if (TryGetServer(nodeId, out var server))
+        if (!TryGetServer(nodeId, out var server))
         {
-            server.RemoveSession(sessionId);
+            return false;
         }
+
+        if (!server.Sessions.ContainsKey(sessionId))
+        {
+            return false;
+        }
+
+        server.RemoveSession(sessionId);
+        return true;
     }
 
     internal string ResolvePromptUser(ServerNodeRuntime server, string userKey)
@@ -315,6 +328,149 @@ public partial class WorldRuntime
         userKey = resolvedUserKey;
         user = resolvedUser;
         return true;
+    }
+
+    internal bool TryOpenSshSession(
+        ServerNodeRuntime sourceServer,
+        string hostOrIp,
+        string userId,
+        string password,
+        int port,
+        string via,
+        out SshSessionOpenResult openResult,
+        out SystemCallResult failureResult)
+    {
+        openResult = null!;
+        failureResult = SystemCallResultFactory.Success();
+
+        var normalizedHostOrIp = hostOrIp?.Trim() ?? string.Empty;
+        if (!TryResolveServerByHostOrIp(normalizedHostOrIp, out var targetServer))
+        {
+            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"host not found: {normalizedHostOrIp}");
+            return false;
+        }
+
+        if (targetServer.Status != ServerStatus.Online)
+        {
+            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"server offline: {targetServer.NodeId}");
+            return false;
+        }
+
+        if (!targetServer.Ports.TryGetValue(port, out var targetPort) ||
+            targetPort.PortType == PortType.None)
+        {
+            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"port not available: {port}");
+            return false;
+        }
+
+        if (targetPort.PortType != PortType.Ssh)
+        {
+            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, $"port {port} is not ssh.");
+            return false;
+        }
+
+        if (!IsPortExposureAllowed(sourceServer, targetServer, targetPort.Exposure))
+        {
+            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.PermissionDenied, $"port exposure denied: {port}");
+            return false;
+        }
+
+        if (!TryResolveUserByUserId(targetServer, userId, out var targetUserKey, out var targetUser))
+        {
+            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"user not found: {userId}");
+            return false;
+        }
+
+        if (!IsAuthenticationSuccessful(targetUser, password, out failureResult))
+        {
+            return false;
+        }
+
+        var sessionId = AllocateTerminalRemoteSessionId();
+        var remoteIp = ResolveRemoteIpForSession(sourceServer, targetServer);
+        targetServer.UpsertSession(sessionId, new SessionConfig
+        {
+            UserKey = targetUserKey,
+            RemoteIp = remoteIp,
+            Cwd = "/",
+        });
+
+        EmitPrivilegeAcquireForLogin(targetServer.NodeId, targetUserKey, via);
+        openResult = new SshSessionOpenResult
+        {
+            TargetServer = targetServer,
+            TargetNodeId = targetServer.NodeId,
+            TargetUserKey = targetUserKey,
+            TargetUserId = ResolvePromptUser(targetServer, targetUserKey),
+            SessionId = sessionId,
+            RemoteIp = remoteIp,
+            HostOrIp = normalizedHostOrIp,
+        };
+        return true;
+    }
+
+    private static bool IsPortExposureAllowed(ServerNodeRuntime source, ServerNodeRuntime target, PortExposure exposure)
+    {
+        return exposure switch
+        {
+            PortExposure.Public => true,
+            PortExposure.Lan => source.SubnetMembership.Overlaps(target.SubnetMembership),
+            PortExposure.Localhost => string.Equals(source.NodeId, target.NodeId, StringComparison.Ordinal),
+            _ => false,
+        };
+    }
+
+    private static bool IsAuthenticationSuccessful(
+        UserConfig targetUser,
+        string password,
+        out SystemCallResult failureResult)
+    {
+        failureResult = SystemCallResultFactory.Success();
+
+        if (targetUser.AuthMode == AuthMode.None)
+        {
+            return true;
+        }
+
+        if (targetUser.AuthMode == AuthMode.Static)
+        {
+            if (string.Equals(targetUser.UserPasswd, password, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.PermissionDenied, "authentication failed.");
+            return false;
+        }
+
+        failureResult = SystemCallResultFactory.Failure(
+            SystemCallErrorCode.PermissionDenied,
+            $"authentication mode not supported: {targetUser.AuthMode}.");
+        return false;
+    }
+
+    internal void EmitPrivilegeAcquireForLogin(string nodeId, string userKey, string via)
+    {
+        if (!TryGetServer(nodeId, out var server) ||
+            !server.Users.TryGetValue(userKey, out var user))
+        {
+            return;
+        }
+
+        if (user.Privilege.Read)
+        {
+            EmitPrivilegeAcquire(nodeId, userKey, "read", via: via, emitWhenAlreadyGranted: true);
+        }
+
+        if (user.Privilege.Write)
+        {
+            EmitPrivilegeAcquire(nodeId, userKey, "write", via: via, emitWhenAlreadyGranted: true);
+        }
+
+        if (user.Privilege.Execute)
+        {
+            EmitPrivilegeAcquire(nodeId, userKey, "execute", via: via, emitWhenAlreadyGranted: true);
+        }
     }
 
     internal string ResolvePromptHost(ServerNodeRuntime server)
@@ -436,5 +592,22 @@ public partial class WorldRuntime
         internal string SessionNodeId { get; init; } = string.Empty;
 
         internal int SessionId { get; init; }
+    }
+
+    internal sealed class SshSessionOpenResult
+    {
+        internal ServerNodeRuntime TargetServer { get; init; } = null!;
+
+        internal string TargetNodeId { get; init; } = string.Empty;
+
+        internal string TargetUserKey { get; init; } = string.Empty;
+
+        internal string TargetUserId { get; init; } = string.Empty;
+
+        internal int SessionId { get; init; }
+
+        internal string RemoteIp { get; init; } = string.Empty;
+
+        internal string HostOrIp { get; init; } = string.Empty;
     }
 }

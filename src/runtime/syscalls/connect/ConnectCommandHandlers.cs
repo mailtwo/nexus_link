@@ -19,51 +19,20 @@ internal sealed class ConnectCommandHandler : ISystemCallHandler
             return parseResult!;
         }
 
-        if (!context.World.TryResolveServerByHostOrIp(parsed.HostOrIp, out var targetServer))
+        if (!context.World.TryOpenSshSession(
+                context.Server,
+                parsed.HostOrIp,
+                parsed.UserId,
+                parsed.Password,
+                parsed.Port,
+                via: "connect",
+                out var openResult,
+                out var failureResult))
         {
-            return SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"host not found: {parsed.HostOrIp}");
-        }
-
-        if (targetServer.Status != ServerStatus.Online)
-        {
-            return SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"server offline: {targetServer.NodeId}");
-        }
-
-        if (!targetServer.Ports.TryGetValue(parsed.Port, out var targetPort) ||
-            targetPort.PortType == PortType.None)
-        {
-            return SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"port not available: {parsed.Port}");
-        }
-
-        if (targetPort.PortType != PortType.Ssh)
-        {
-            return SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, $"port {parsed.Port} is not ssh.");
-        }
-
-        if (!IsPortExposureAllowed(context.Server, targetServer, targetPort.Exposure))
-        {
-            return SystemCallResultFactory.Failure(SystemCallErrorCode.PermissionDenied, $"port exposure denied: {parsed.Port}");
-        }
-
-        if (!context.World.TryResolveUserByUserId(targetServer, parsed.UserId, out var targetUserKey, out var targetUser))
-        {
-            return SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"user not found: {parsed.UserId}");
-        }
-
-        if (!IsAuthenticationSuccessful(targetUser, parsed.Password, out var authFailureResult))
-        {
-            return authFailureResult!;
+            return failureResult;
         }
 
         var terminalSessionId = context.World.NormalizeTerminalSessionId(context.TerminalSessionId);
-        var sessionId = context.World.AllocateTerminalRemoteSessionId();
-        var remoteIp = context.World.ResolveRemoteIpForSession(context.Server, targetServer);
-        targetServer.UpsertSession(sessionId, new SessionConfig
-        {
-            UserKey = targetUserKey,
-            RemoteIp = remoteIp,
-            Cwd = "/",
-        });
 
         context.World.PushTerminalConnectionFrame(
             terminalSessionId,
@@ -72,15 +41,15 @@ internal sealed class ConnectCommandHandler : ISystemCallHandler
             context.Cwd,
             context.World.ResolvePromptUser(context.Server, context.UserKey),
             context.World.ResolvePromptHost(context.Server),
-            targetServer.NodeId,
-            sessionId);
+            openResult.TargetNodeId,
+            openResult.SessionId);
 
         var transition = new TerminalContextTransition
         {
-            NextNodeId = targetServer.NodeId,
-            NextUserId = context.World.ResolvePromptUser(targetServer, targetUserKey),
-            NextPromptUser = context.World.ResolvePromptUser(targetServer, targetUserKey),
-            NextPromptHost = context.World.ResolvePromptHost(targetServer),
+            NextNodeId = openResult.TargetNodeId,
+            NextUserId = openResult.TargetUserId,
+            NextPromptUser = openResult.TargetUserId,
+            NextPromptHost = context.World.ResolvePromptHost(openResult.TargetServer),
             NextCwd = "/",
         };
 
@@ -160,46 +129,6 @@ internal sealed class ConnectCommandHandler : ISystemCallHandler
         }
 
         return port is >= 1 and <= 65535;
-    }
-
-    private static bool IsPortExposureAllowed(ServerNodeRuntime source, ServerNodeRuntime target, PortExposure exposure)
-    {
-        return exposure switch
-        {
-            PortExposure.Public => true,
-            PortExposure.Lan => source.SubnetMembership.Overlaps(target.SubnetMembership),
-            PortExposure.Localhost => string.Equals(source.NodeId, target.NodeId, StringComparison.Ordinal),
-            _ => false,
-        };
-    }
-
-    private static bool IsAuthenticationSuccessful(
-        UserConfig targetUser,
-        string password,
-        out SystemCallResult? failureResult)
-    {
-        failureResult = null;
-
-        if (targetUser.AuthMode == AuthMode.None)
-        {
-            return true;
-        }
-
-        if (targetUser.AuthMode == AuthMode.Static)
-        {
-            if (string.Equals(targetUser.UserPasswd, password, StringComparison.Ordinal))
-            {
-                return true;
-            }
-
-            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.PermissionDenied, "authentication failed.");
-            return false;
-        }
-
-        failureResult = SystemCallResultFactory.Failure(
-            SystemCallErrorCode.PermissionDenied,
-            $"authentication mode not supported: {targetUser.AuthMode}.");
-        return false;
     }
 
     private readonly record struct ParsedConnectArguments(string HostOrIp, string UserId, string Password, int Port);

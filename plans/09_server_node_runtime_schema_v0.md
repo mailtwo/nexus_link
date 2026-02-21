@@ -46,6 +46,8 @@ Codex는 이 문서만 보고 런타임 모델(월드 `serverList`, `ipIndex`, `
 - 공개 응답 컨텍스트 전환 필드는 `nextUserId`를 사용하고 `nextUserKey`는 사용하지 않는다.
 - `connect` 명령의 `<user>` 인자는 `userId` 기준으로 계정을 식별한다.
 - 서버 단위로 `userId`는 유일해야 하며, 중복이면 월드 로딩을 실패시켜야 한다.
+- MiniScript `ssh.connect`/`ssh.disconnect(session)`도 동일한 `userId` 외부 규칙을 따른다.
+- `ssh.connect`의 SessionHandler DTO에는 `userKey`를 포함하지 않는다.
 
 ---
 
@@ -237,6 +239,13 @@ PortConfig
   - 권한 부족 시: `scan: permission denied` 에러를 반환
   - 예외: player workstation이거나 subnet 미연결(또는 이웃 없음)이면
     "인접 서버를 찾을 수 없음" 안내 문장 1줄 출력
+
+접속 성공 이벤트 규칙(v0.2):
+- `connect` 및 MiniScript `ssh.connect`가 성공하면 `privilegeAcquire` 이벤트를 발행한다.
+- 발행 대상 privilege는 로그인 계정이 이미 보유한 granted flag(`read/write/execute`) 각각이다.
+- `PrivilegeAcquireDto.via`는 호출 경로를 구분해 기록한다:
+  - 터미널 시스템콜 경로: `connect`
+  - MiniScript intrinsic 경로: `ssh.connect`
 
 ---
 

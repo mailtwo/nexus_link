@@ -101,7 +101,7 @@ public sealed record PrivilegeAcquireDto(
     long acquiredAtMs,
 
     // 선택(디버그/가드용)
-    string? via,             // "ssh.connect" | "otp" | "exploit" | "script" ...
+    string? via,             // "connect" | "ssh.connect" | "otp" | "exploit" | "script" ...
     List<string>? unlockedNetIds // privilege=="execute"로 인해 새로 Visible 된 netId들(선택)
 );
 ```

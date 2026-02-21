@@ -78,6 +78,7 @@ public partial class WorldRuntime : Node
 
     // Runtime allocators/state.
     private int nextProcessId = 1;
+    private int physicsTicksPerSecond = 60;
 
     /// <inheritdoc/>
     public override void _EnterTree()
@@ -88,6 +89,7 @@ public partial class WorldRuntime : Node
     /// <inheritdoc/>
     public override void _Ready()
     {
+        physicsTicksPerSecond = Math.Max(1, Engine.PhysicsTicksPerSecond);
         BlobStore = new BlobStore();
         BaseFileSystem = new BaseFileSystem(BlobStore);
         BuildBaseOsImage();

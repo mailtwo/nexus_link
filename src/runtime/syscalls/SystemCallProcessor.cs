@@ -220,7 +220,7 @@ internal sealed class SystemCallProcessor
             return true;
         }
 
-        result = MiniScriptExecutionRunner.ExecuteScript(scriptSource);
+        result = MiniScriptExecutionRunner.ExecuteScript(scriptSource, context);
         return true;
     }
 
@@ -314,6 +314,6 @@ internal sealed class SystemCallProcessor
             return SystemCallResultFactory.NotFile(scriptPath);
         }
 
-        return MiniScriptExecutionRunner.ExecuteScript(scriptSource);
+        return MiniScriptExecutionRunner.ExecuteScript(scriptSource, context);
     }
 }

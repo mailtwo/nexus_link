@@ -42,7 +42,8 @@ public partial class WorldRuntime
         string userKey,
         string privilege,
         string? via = null,
-        IEnumerable<string>? unlockedNetIds = null)
+        IEnumerable<string>? unlockedNetIds = null,
+        bool emitWhenAlreadyGranted = false)
     {
         EnsureEventRuntimeServices();
         if (string.IsNullOrWhiteSpace(nodeId) ||
@@ -75,7 +76,10 @@ public partial class WorldRuntime
 
         if (!granted)
         {
-            return;
+            if (!emitWhenAlreadyGranted)
+            {
+                return;
+            }
         }
 
         EnqueueGameEvent(
@@ -506,7 +510,7 @@ public partial class WorldRuntime
 
     private long GetCurrentWorldTimeMs()
     {
-        var ticksPerSecond = Math.Max(1, Engine.PhysicsTicksPerSecond);
+        var ticksPerSecond = physicsTicksPerSecond > 0 ? physicsTicksPerSecond : 60;
         return (worldTickIndex * 1000L) / ticksPerSecond;
     }
 

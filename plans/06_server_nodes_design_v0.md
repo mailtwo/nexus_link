@@ -26,8 +26,13 @@
 - 모든 노드는 필요 시 `22/tcp`에 `ssh` 서비스를 가진다.
 - 최소 API:
   - `ssh.connect(hostOrIp, user, password, port=22)` -> `SessionHandler`
-  - `session.disconnect()`
+  - `ssh.disconnect(session)`
   - (선택) `session.exec(cmd)`
+
+SessionHandler 반환 규칙(v0.2):
+- `ssh.connect`는 `{ ok, code, err, session }` 구조를 반환한다.
+- `session`은 최소 `{ kind, sessionId, sessionNodeId, userId, hostOrIp, remoteIp }`를 포함한다.
+- `ssh.disconnect(session)`은 `{ ok, code, err, disconnected }`를 반환하고 idempotent 하게 동작한다.
 - 권한:
   - `guest`: 제한
   - `root`: 전체

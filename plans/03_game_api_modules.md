@@ -123,9 +123,15 @@
 
 ### 4.1 ssh (로그인/세션)
 - `ssh.connect(hostOrIp, user, password, port=22)` → `SessionHandler`
-- `session.disconnect()` (현재 세션 연결 종료)
+- `ssh.disconnect(session)` (명시적 세션 핸들 해제)
 - `session.whoami()` (선택)
 - `session.tokens()` (선택: 토큰 스코프 확인)
+
+SessionHandler DTO(v0.2):
+- `ssh.connect` 성공 반환은 `{ ok, code, err, session }` 맵을 사용한다.
+- `session`은 `{ kind, sessionId, sessionNodeId, userId, hostOrIp, remoteIp }`를 포함한다.
+- `ssh.connect` 실패 시 예외 대신 구조화 실패 맵(`ok=0`)을 반환한다.
+- `ssh.disconnect(session)` 반환은 `{ ok, code, err, disconnected }`이며 idempotent 동작(`1/0`)을 보장한다.
 
 식별자 경계 규칙(v0.2):
 - `ssh.connect(..., user, ...)`의 `user` 인자는 항상 **userId(플레이어 노출 식별자)** 로 해석한다.
