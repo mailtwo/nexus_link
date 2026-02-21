@@ -1,0 +1,39 @@
+---
+ServerSpec:
+  testServer:
+    initialStatus: online
+    initialReason: OK
+    hostname: test_server
+    users:
+      testUser1:
+        userId: root
+        passwd: root
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
+    ports:
+      22:
+        portType: SSH
+        exposure: public
+Scenario:
+  testScenario:
+    servers:
+      testScenario/testServer:
+        specId: testServer
+        role: terminal
+        interfaces:
+          - netId: internet
+            initiallyExposed: true
+    events:
+      testScenarioWinEvent:
+        conditionType: privilegeAcquire
+        conditionArgs:
+          nodeId: testScenario/testServer
+          userKey: testUser1
+          privilege: execute
+        actions:
+          - actionType: print
+            actionArgs:
+              text: You passed [test] scenario!

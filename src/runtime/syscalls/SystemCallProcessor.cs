@@ -119,7 +119,8 @@ internal sealed class SystemCallProcessor
             user,
             request.NodeId.Trim(),
             userKey,
-            normalizedCwd);
+            normalizedCwd,
+            request.TerminalSessionId?.Trim() ?? string.Empty);
         return SystemCallResultFactory.Success();
     }
 

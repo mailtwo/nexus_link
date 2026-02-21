@@ -306,6 +306,7 @@ public sealed class VFSTest
                 typeof(string),
                 typeof(string),
                 typeof(string),
+                typeof(string),
             },
             modifiers: null);
 
@@ -318,6 +319,7 @@ public sealed class VFSTest
             server.NodeId,
             userKey,
             cwd,
+            string.Empty,
         });
     }
 

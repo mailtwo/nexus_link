@@ -7,3 +7,4 @@ campaigns:
       - easyScenario
       - mediumScenario
       - hardScenario
+      - testScenario

@@ -34,6 +34,9 @@ public sealed class SystemCallRequest
 
     /// <summary>Raw command line entered by the user.</summary>
     public string CommandLine { get; set; } = string.Empty;
+
+    /// <summary>Terminal session id used to track connect/disconnect stack state.</summary>
+    public string TerminalSessionId { get; set; } = string.Empty;
 }
 
 /// <summary>Execution result returned by the system-call processor.</summary>
@@ -131,7 +134,8 @@ internal sealed class SystemCallExecutionContext
         UserConfig user,
         string nodeId,
         string userKey,
-        string cwd)
+        string cwd,
+        string terminalSessionId)
     {
         World = world;
         Server = server;
@@ -139,6 +143,7 @@ internal sealed class SystemCallExecutionContext
         NodeId = nodeId;
         UserKey = userKey;
         Cwd = cwd;
+        TerminalSessionId = terminalSessionId;
     }
 
     internal WorldRuntime World { get; }
@@ -152,6 +157,22 @@ internal sealed class SystemCallExecutionContext
     internal string UserKey { get; }
 
     internal string Cwd { get; }
+
+    internal string TerminalSessionId { get; }
+}
+
+/// <summary>Context transition payload returned by system calls that switch terminal target.</summary>
+internal sealed class TerminalContextTransition
+{
+    internal string NextNodeId { get; init; } = string.Empty;
+
+    internal string NextUserKey { get; init; } = string.Empty;
+
+    internal string NextPromptUser { get; init; } = string.Empty;
+
+    internal string NextPromptHost { get; init; } = string.Empty;
+
+    internal string NextCwd { get; init; } = "/";
 }
 
 internal interface ISystemCallHandler

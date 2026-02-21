@@ -243,8 +243,225 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => line.Contains("Hello world!", StringComparison.Ordinal));
     }
 
+    /// <summary>Ensures connect validates usage and strict port syntax.</summary>
+    [Theory]
+    [InlineData("connect -p", "usage: connect")]
+    [InlineData("connect --port 70000 10.0.1.20 guest pw", "invalid port")]
+    [InlineData("connect -x 10.0.1.20 guest pw", "usage: connect")]
+    [InlineData("connect 10.0.1.20 guest", "usage: connect")]
+    public void Execute_Connect_UsageAndPortValidation(string commandLine, string expectedMessage)
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var result = Execute(harness, commandLine, terminalSessionId: "ts-usage");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Contains(expectedMessage, result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures connect succeeds with static auth and creates server session entry.</summary>
+    [Fact]
+    public void Execute_Connect_Succeeds_WithStaticAuth()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var result = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-static");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Single(remote.Sessions);
+        var session = Assert.Single(remote.Sessions);
+        Assert.Equal("guest", session.Value.UserKey);
+    }
+
+    /// <summary>Ensures connect succeeds when target account auth mode is none.</summary>
+    [Fact]
+    public void Execute_Connect_Succeeds_WithNoneAuth()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.None, "ignored");
+
+        var result = Execute(harness, "connect 10.0.1.20 guest anything", terminalSessionId: "ts-none");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Single(remote.Sessions);
+    }
+
+    /// <summary>Ensures connect fails on wrong static password.</summary>
+    [Fact]
+    public void Execute_Connect_Fails_OnWrongPassword()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var result = Execute(harness, "connect 10.0.1.20 guest wrong", terminalSessionId: "ts-authfail");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Contains("authentication failed", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures connect fails when target host or user does not exist.</summary>
+    [Fact]
+    public void Execute_Connect_Fails_OnMissingTargetOrUser()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var missingHost = Execute(harness, "connect 10.0.1.99 guest pw", terminalSessionId: "ts-missing-host");
+        Assert.False(missingHost.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFound, missingHost.Code);
+        Assert.Contains("host not found", missingHost.Lines[0], StringComparison.Ordinal);
+
+        var missingUser = Execute(harness, "connect 10.0.1.20 admin pw", terminalSessionId: "ts-missing-user");
+        Assert.False(missingUser.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFound, missingUser.Code);
+        Assert.Contains("user not found", missingUser.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures connect fails when target server is offline.</summary>
+    [Fact]
+    public void Execute_Connect_Fails_WhenTargetOffline()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.SetOffline(ServerReason.Disabled);
+
+        var result = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-offline");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFound, result.Code);
+        Assert.Contains("server offline", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures connect fails when strict port validation does not find target port.</summary>
+    [Fact]
+    public void Execute_Connect_Fails_WhenPortIsNotDefined()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.Ports.Clear();
+
+        var result = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-nonport");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFound, result.Code);
+        Assert.Contains("port not available", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures connect fails when target port protocol is not ssh.</summary>
+    [Fact]
+    public void Execute_Connect_Fails_WhenPortTypeIsNotSsh()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw", portType: PortType.Http);
+
+        var result = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-porttype");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("is not ssh", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures connect enforces lan/localhost exposure rules.</summary>
+    [Theory]
+    [InlineData(PortExposure.Lan)]
+    [InlineData(PortExposure.Localhost)]
+    public void Execute_Connect_Fails_OnExposureViolation(PortExposure exposure)
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var netId = exposure == PortExposure.Lan ? "alpha" : "internet";
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw", exposure: exposure, netId: netId);
+
+        var result = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-exposure");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Contains("port exposure denied", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures unsupported auth modes return failure.</summary>
+    [Theory]
+    [InlineData(AuthMode.Otp)]
+    [InlineData(AuthMode.Other)]
+    public void Execute_Connect_Fails_OnUnsupportedAuthMode(AuthMode authMode)
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", authMode, "pw");
+
+        var result = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-authmode");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Contains("not supported", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures disconnect restores prior context and removes created server session.</summary>
+    [Fact]
+    public void Execute_Disconnect_Succeeds_AndRemovesSession()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var connect = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-disconnect");
+        Assert.True(connect.Ok);
+        Assert.Single(remote.Sessions);
+
+        var disconnect = Execute(harness, "disconnect", terminalSessionId: "ts-disconnect");
+
+        Assert.True(disconnect.Ok);
+        Assert.Equal("/work", disconnect.NextCwd);
+        Assert.Empty(remote.Sessions);
+    }
+
+    /// <summary>Ensures disconnect fails when session stack has no active connection.</summary>
+    [Fact]
+    public void Execute_Disconnect_Fails_WhenNotConnected()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+
+        var result = Execute(harness, "disconnect", terminalSessionId: "ts-empty");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("not connected", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures terminal-command bridge projects transition fields and preserves nextCwd behavior.</summary>
+    [Fact]
+    public void ExecuteTerminalCommand_ProjectsTransitionFields_AndPreservesNextCwd()
+    {
+        var transition = CreateInternalInstance("Uplink2.Runtime.Syscalls.TerminalContextTransition", Array.Empty<object?>());
+        SetAutoPropertyBackingField(transition, "NextNodeId", "node-2");
+        SetAutoPropertyBackingField(transition, "NextUserKey", "guest");
+        SetAutoPropertyBackingField(transition, "NextPromptUser", "guest");
+        SetAutoPropertyBackingField(transition, "NextPromptHost", "remote");
+        SetAutoPropertyBackingField(transition, "NextCwd", "/");
+
+        var transitionResult = SystemCallResult.Success(nextCwd: string.Empty, data: transition);
+        var transitionPayload = BuildTerminalCommandResponsePayload(transitionResult);
+
+        Assert.Equal("node-2", transitionPayload["nextNodeId"]);
+        Assert.Equal("guest", transitionPayload["nextUserKey"]);
+        Assert.Equal("guest", transitionPayload["nextPromptUser"]);
+        Assert.Equal("remote", transitionPayload["nextPromptHost"]);
+        Assert.Equal("/", transitionPayload["nextCwd"]);
+
+        var cwdResult = SystemCallResult.Success(nextCwd: "/work");
+        var cwdPayload = BuildTerminalCommandResponsePayload(cwdResult);
+        Assert.Equal("/work", cwdPayload["nextCwd"]);
+    }
+
     private static SystemCallHarness CreateHarness(
         bool includeVfsModule,
+        bool includeConnectModule = false,
         string cwd = "/",
         PrivilegeConfig? privilege = null,
         bool worldDebugOption = false)
@@ -260,26 +477,103 @@ public sealed class SystemCallTest
             AuthMode = AuthMode.None,
             Privilege = privilege ?? PrivilegeConfig.FullAccess(),
         };
+        server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+        });
 
         var world = CreateHeadlessWorld(worldDebugOption, server);
-        var modules = includeVfsModule
-            ? new[] { CreateInternalInstance("Uplink2.Runtime.Syscalls.VfsSystemCallModule", new object?[] { false }) }
-            : Array.Empty<object>();
+        var modules = new List<object>();
+        if (includeVfsModule)
+        {
+            modules.Add(CreateInternalInstance("Uplink2.Runtime.Syscalls.VfsSystemCallModule", new object?[] { false }));
+        }
+
+        if (includeConnectModule)
+        {
+            modules.Add(CreateInternalInstance("Uplink2.Runtime.Syscalls.ConnectSystemCallModule", Array.Empty<object?>()));
+        }
+
         var processor = CreateSystemCallProcessor(world, modules);
+        SetPrivateField(world, "systemCallProcessor", processor);
         return new SystemCallHarness(world, server, baseFileSystem, processor, "guest", cwd);
     }
 
-    private static WorldRuntime CreateHeadlessWorld(bool debugOption, ServerNodeRuntime server)
+    private static ServerNodeRuntime AddRemoteServer(
+        SystemCallHarness harness,
+        string nodeId,
+        string name,
+        string ip,
+        AuthMode authMode,
+        string password,
+        PortType portType = PortType.Ssh,
+        PortExposure exposure = PortExposure.Public,
+        string netId = "internet")
     {
+        var blobStore = new BlobStore();
+        var baseFileSystem = new BaseFileSystem(blobStore);
+        var server = new ServerNodeRuntime(nodeId, name, ServerRole.Terminal, baseFileSystem, blobStore);
+        server.Users["guest"] = new UserConfig
+        {
+            UserId = "guest",
+            UserPasswd = password,
+            AuthMode = authMode,
+            Privilege = PrivilegeConfig.FullAccess(),
+        };
+        server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = netId,
+                Ip = ip,
+            },
+        });
+        server.Ports[22] = new PortConfig
+        {
+            PortType = portType,
+            Exposure = exposure,
+        };
+
+        var serverList = GetAutoPropertyBackingField<Dictionary<string, ServerNodeRuntime>>(harness.World, "ServerList");
+        serverList[server.NodeId] = server;
+
+        var ipIndex = GetAutoPropertyBackingField<Dictionary<string, string>>(harness.World, "IpIndex");
+        foreach (var iface in server.Interfaces)
+        {
+            ipIndex[iface.Ip] = server.NodeId;
+        }
+
+        return server;
+    }
+
+    private static WorldRuntime CreateHeadlessWorld(bool debugOption, params ServerNodeRuntime[] servers)
+    {
+        Assert.NotEmpty(servers);
+
         var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
         SetAutoPropertyBackingField(world, "DebugOption", debugOption);
+
+        var serverList = new Dictionary<string, ServerNodeRuntime>(StringComparer.Ordinal);
+        var ipIndex = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var server in servers)
+        {
+            serverList[server.NodeId] = server;
+            foreach (var iface in server.Interfaces)
+            {
+                ipIndex[iface.Ip] = server.NodeId;
+            }
+        }
+
         SetAutoPropertyBackingField(
             world,
             "ServerList",
-            new Dictionary<string, ServerNodeRuntime>(StringComparer.Ordinal)
-            {
-                [server.NodeId] = server,
-            });
+            serverList);
+        SetAutoPropertyBackingField(world, "IpIndex", ipIndex);
+        SetAutoPropertyBackingField(world, "PlayerWorkstationServer", servers[0]);
         return world;
     }
 
@@ -288,6 +582,22 @@ public sealed class SystemCallTest
         var field = target.GetType().GetField(
             $"<{propertyName}>k__BackingField",
             BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        field!.SetValue(target, value);
+    }
+
+    private static T GetAutoPropertyBackingField<T>(object target, string propertyName)
+    {
+        var field = target.GetType().GetField(
+            $"<{propertyName}>k__BackingField",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return (T)field!.GetValue(target)!;
+    }
+
+    private static void SetPrivateField(object target, string fieldName, object value)
+    {
+        var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         field!.SetValue(target, value);
     }
@@ -335,21 +645,40 @@ public sealed class SystemCallTest
         return type!;
     }
 
-    private static SystemCallResult Execute(SystemCallHarness harness, string commandLine)
+    private static SystemCallResult Execute(
+        SystemCallHarness harness,
+        string commandLine,
+        string? nodeId = null,
+        string? userKey = null,
+        string? cwd = null,
+        string? terminalSessionId = null)
     {
         var executeMethod = harness.Processor.GetType().GetMethod("Execute", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(executeMethod);
         var request = new SystemCallRequest
         {
-            NodeId = harness.Server.NodeId,
-            UserKey = harness.UserKey,
-            Cwd = harness.Cwd,
+            NodeId = nodeId ?? harness.Server.NodeId,
+            UserKey = userKey ?? harness.UserKey,
+            Cwd = cwd ?? harness.Cwd,
             CommandLine = commandLine,
+            TerminalSessionId = terminalSessionId ?? string.Empty,
         };
 
         var result = executeMethod!.Invoke(harness.Processor, new object?[] { request }) as SystemCallResult;
         Assert.NotNull(result);
         return result!;
+    }
+
+    private static Dictionary<string, object> BuildTerminalCommandResponsePayload(SystemCallResult result)
+    {
+        var method = typeof(WorldRuntime).GetMethod(
+            "BuildTerminalCommandResponsePayload",
+            BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+        Assert.NotNull(method);
+
+        var payload = method!.Invoke(null, new object?[] { result }) as Dictionary<string, object>;
+        Assert.NotNull(payload);
+        return payload!;
     }
 
     private static IReadOnlyList<MethodBase> ExtractCalledMethods(MethodInfo method)

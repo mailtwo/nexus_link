@@ -157,6 +157,7 @@ public partial class WorldRuntime
         KnownNodesByNet.Clear();
         ActiveScenarioId = string.Empty;
         nextProcessId = 1;
+        ResetTerminalSessionState();
         ResetEventRuntimeState();
     }
 

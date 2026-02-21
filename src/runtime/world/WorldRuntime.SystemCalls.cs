@@ -1,18 +1,30 @@
 using Godot;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Uplink2.Runtime.Syscalls;
+
+#nullable enable
 
 namespace Uplink2.Runtime;
 
 public partial class WorldRuntime
 {
+    private const string DefaultTerminalSessionKey = "default";
+
+    private Dictionary<string, Stack<TerminalConnectionFrame>>? terminalConnectionFramesBySessionId =
+        new(StringComparer.Ordinal);
+
+    private int nextTerminalSessionSerial = 1;
+    private int nextTerminalRemoteSessionId = 1;
+
     /// <summary>Initializes system-call modules and command dispatch processor.</summary>
     private void InitializeSystemCalls()
     {
         ISystemCallModule[] modules =
         {
             new VfsSystemCallModule(enableDebugCommands: DebugOption),
+            new ConnectSystemCallModule(),
         };
 
         systemCallProcessor = new SystemCallProcessor(this, modules);
@@ -69,6 +81,8 @@ public partial class WorldRuntime
         var promptHost = string.IsNullOrWhiteSpace(PlayerWorkstationServer.Name)
             ? PlayerWorkstationServer.NodeId
             : PlayerWorkstationServer.Name;
+        var terminalSessionId = AllocateTerminalSessionId();
+        GetOrCreateTerminalSessionStack(terminalSessionId).Clear();
 
         result["ok"] = true;
         result["nodeId"] = PlayerWorkstationServer.NodeId;
@@ -76,6 +90,7 @@ public partial class WorldRuntime
         result["cwd"] = "/";
         result["promptUser"] = promptUser;
         result["promptHost"] = promptHost;
+        result["terminalSessionId"] = terminalSessionId;
         return result;
     }
 
@@ -86,28 +101,291 @@ public partial class WorldRuntime
         string cwd,
         string commandLine)
     {
+        return ExecuteTerminalCommand(nodeId, userKey, cwd, commandLine, string.Empty);
+    }
+
+    /// <summary>Executes one terminal command and returns a GDScript-friendly dictionary payload.</summary>
+    public Godot.Collections.Dictionary ExecuteTerminalCommand(
+        string nodeId,
+        string userKey,
+        string cwd,
+        string commandLine,
+        string terminalSessionId)
+    {
         var result = ExecuteSystemCall(new SystemCallRequest
         {
             NodeId = nodeId ?? string.Empty,
             UserKey = userKey ?? string.Empty,
             Cwd = cwd ?? "/",
             CommandLine = commandLine ?? string.Empty,
+            TerminalSessionId = terminalSessionId ?? string.Empty,
         });
 
+        var responsePayload = BuildTerminalCommandResponsePayload(result);
         var lines = new Godot.Collections.Array<string>();
+        foreach (var line in (IReadOnlyList<string>)responsePayload["lines"])
+        {
+            lines.Add(line);
+        }
+
+        var response = new Godot.Collections.Dictionary
+        {
+            ["ok"] = (bool)responsePayload["ok"],
+            ["code"] = (string)responsePayload["code"],
+            ["lines"] = lines,
+            ["nextCwd"] = (string)responsePayload["nextCwd"],
+            ["nextNodeId"] = (string)responsePayload["nextNodeId"],
+            ["nextUserKey"] = (string)responsePayload["nextUserKey"],
+            ["nextPromptUser"] = (string)responsePayload["nextPromptUser"],
+            ["nextPromptHost"] = (string)responsePayload["nextPromptHost"],
+        };
+
+        return response;
+    }
+
+    internal static Dictionary<string, object> BuildTerminalCommandResponsePayload(SystemCallResult result)
+    {
+        var lines = new List<string>();
         foreach (var line in result.Lines)
         {
             lines.Add(line ?? string.Empty);
         }
 
-        var response = new Godot.Collections.Dictionary
+        var payload = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             ["ok"] = result.Ok,
             ["code"] = result.Code.ToString(),
             ["lines"] = lines,
             ["nextCwd"] = result.NextCwd ?? string.Empty,
+            ["nextNodeId"] = string.Empty,
+            ["nextUserKey"] = string.Empty,
+            ["nextPromptUser"] = string.Empty,
+            ["nextPromptHost"] = string.Empty,
         };
 
-        return response;
+        if (result.Data is not TerminalContextTransition transition)
+        {
+            return payload;
+        }
+
+        payload["nextNodeId"] = transition.NextNodeId;
+        payload["nextUserKey"] = transition.NextUserKey;
+        payload["nextPromptUser"] = transition.NextPromptUser;
+        payload["nextPromptHost"] = transition.NextPromptHost;
+        if (string.IsNullOrWhiteSpace((string)payload["nextCwd"]) &&
+            !string.IsNullOrWhiteSpace(transition.NextCwd))
+        {
+            payload["nextCwd"] = transition.NextCwd;
+        }
+
+        return payload;
+    }
+
+    internal string NormalizeTerminalSessionId(string? terminalSessionId)
+    {
+        var normalized = terminalSessionId?.Trim() ?? string.Empty;
+        return string.IsNullOrWhiteSpace(normalized) ? DefaultTerminalSessionKey : normalized;
+    }
+
+    internal string AllocateTerminalSessionId()
+    {
+        EnsureTerminalConnectionStorage();
+
+        string terminalSessionId;
+        do
+        {
+            terminalSessionId = $"terminal-{nextTerminalSessionSerial++:D6}";
+        }
+        while (terminalConnectionFramesBySessionId!.ContainsKey(terminalSessionId));
+
+        terminalConnectionFramesBySessionId[terminalSessionId] = new Stack<TerminalConnectionFrame>();
+        return terminalSessionId;
+    }
+
+    internal int AllocateTerminalRemoteSessionId()
+    {
+        EnsureTerminalConnectionStorage();
+        return nextTerminalRemoteSessionId++;
+    }
+
+    internal void PushTerminalConnectionFrame(
+        string terminalSessionId,
+        string previousNodeId,
+        string previousUserKey,
+        string previousCwd,
+        string previousPromptUser,
+        string previousPromptHost,
+        string sessionNodeId,
+        int sessionId)
+    {
+        var stack = GetOrCreateTerminalSessionStack(terminalSessionId);
+        stack.Push(new TerminalConnectionFrame
+        {
+            PreviousNodeId = previousNodeId,
+            PreviousUserKey = previousUserKey,
+            PreviousCwd = previousCwd,
+            PreviousPromptUser = previousPromptUser,
+            PreviousPromptHost = previousPromptHost,
+            SessionNodeId = sessionNodeId,
+            SessionId = sessionId,
+        });
+    }
+
+    internal bool TryPopTerminalConnectionFrame(string terminalSessionId, out TerminalConnectionFrame frame)
+    {
+        var stack = GetOrCreateTerminalSessionStack(terminalSessionId);
+        if (stack.Count == 0)
+        {
+            frame = null!;
+            return false;
+        }
+
+        frame = stack.Pop();
+        return true;
+    }
+
+    internal void RemoveTerminalRemoteSession(string nodeId, int sessionId)
+    {
+        if (sessionId < 1 || string.IsNullOrWhiteSpace(nodeId))
+        {
+            return;
+        }
+
+        if (TryGetServer(nodeId, out var server))
+        {
+            server.RemoveSession(sessionId);
+        }
+    }
+
+    internal string ResolvePromptUser(ServerNodeRuntime server, string userKey)
+    {
+        if (server.Users.TryGetValue(userKey, out var userConfig) &&
+            !string.IsNullOrWhiteSpace(userConfig.UserId))
+        {
+            return userConfig.UserId;
+        }
+
+        return userKey;
+    }
+
+    internal string ResolvePromptHost(ServerNodeRuntime server)
+    {
+        return string.IsNullOrWhiteSpace(server.Name)
+            ? server.NodeId
+            : server.Name;
+    }
+
+    internal string ResolveRemoteIpForSession(ServerNodeRuntime source, ServerNodeRuntime target)
+    {
+        if (string.Equals(source.NodeId, target.NodeId, StringComparison.Ordinal))
+        {
+            return "127.0.0.1";
+        }
+
+        foreach (var iface in source.Interfaces)
+        {
+            if (target.SubnetMembership.Contains(iface.NetId) && !string.IsNullOrWhiteSpace(iface.Ip))
+            {
+                return iface.Ip;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.PrimaryIp))
+        {
+            return source.PrimaryIp;
+        }
+
+        foreach (var iface in source.Interfaces)
+        {
+            if (!string.IsNullOrWhiteSpace(iface.Ip))
+            {
+                return iface.Ip;
+            }
+        }
+
+        return "127.0.0.1";
+    }
+
+    internal bool TryResolveServerByHostOrIp(string hostOrIp, out ServerNodeRuntime server)
+    {
+        server = null!;
+        var normalizedHost = hostOrIp?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedHost))
+        {
+            return false;
+        }
+
+        if (TryGetServerByIp(normalizedHost, out server))
+        {
+            return true;
+        }
+
+        if (TryGetServer(normalizedHost, out server))
+        {
+            return true;
+        }
+
+        if (ServerList is null || ServerList.Count == 0)
+        {
+            return false;
+        }
+
+        server = ServerList.Values
+            .Where(value => string.Equals(value.Name, normalizedHost, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(value => value.NodeId, StringComparer.Ordinal)
+            .FirstOrDefault()!;
+        return server is not null;
+    }
+
+    internal void ResetTerminalSessionState()
+    {
+        EnsureTerminalConnectionStorage();
+        terminalConnectionFramesBySessionId!.Clear();
+        nextTerminalSessionSerial = 1;
+        nextTerminalRemoteSessionId = 1;
+    }
+
+    private void EnsureTerminalConnectionStorage()
+    {
+        terminalConnectionFramesBySessionId ??= new Dictionary<string, Stack<TerminalConnectionFrame>>(StringComparer.Ordinal);
+        if (nextTerminalSessionSerial < 1)
+        {
+            nextTerminalSessionSerial = 1;
+        }
+
+        if (nextTerminalRemoteSessionId < 1)
+        {
+            nextTerminalRemoteSessionId = 1;
+        }
+    }
+
+    private Stack<TerminalConnectionFrame> GetOrCreateTerminalSessionStack(string terminalSessionId)
+    {
+        EnsureTerminalConnectionStorage();
+        var normalizedSessionId = NormalizeTerminalSessionId(terminalSessionId);
+        if (!terminalConnectionFramesBySessionId!.TryGetValue(normalizedSessionId, out var stack))
+        {
+            stack = new Stack<TerminalConnectionFrame>();
+            terminalConnectionFramesBySessionId[normalizedSessionId] = stack;
+        }
+
+        return stack;
+    }
+
+    internal sealed class TerminalConnectionFrame
+    {
+        internal string PreviousNodeId { get; init; } = string.Empty;
+
+        internal string PreviousUserKey { get; init; } = string.Empty;
+
+        internal string PreviousCwd { get; init; } = "/";
+
+        internal string PreviousPromptUser { get; init; } = string.Empty;
+
+        internal string PreviousPromptHost { get; init; } = string.Empty;
+
+        internal string SessionNodeId { get; init; } = string.Empty;
+
+        internal int SessionId { get; init; }
     }
 }

@@ -194,6 +194,12 @@ PortConfig
 - exposure: ENUM { public, lan, localhost }
 ```
 
+`exposure` 판정 규칙(v0.2):
+- 용어: `source`는 접속을 시도하는 서버, `target`은 해당 포트를 가진 서버
+- `public`: 모든 source에서 접근 허용
+- `lan`: `source.subnetMembership`과 `target.subnetMembership`이 1개 이상 겹칠 때만 허용
+- `localhost`: `source.nodeId == target.nodeId`일 때만 허용
+
 `net.scan("lan")` 권장 동작(v0.2):
 1) 현재 접속 노드의 `lanNeighbors(nodeId)`를 읽는다.
 2) 각 nodeId를 현재 컨텍스트(netId) 기준 IP로 변환한다.
