@@ -218,6 +218,7 @@ public partial class WorldRuntime
     {
         VisibleNets.Clear();
         KnownNodesByNet.Clear();
+        initiallyExposedNodesByNet.Clear();
 
         VisibleNets.Add(InternetNetId);
         KnownNodesByNet[InternetNetId] = new HashSet<string>(StringComparer.Ordinal);
@@ -226,6 +227,11 @@ public partial class WorldRuntime
         {
             foreach (var iface in nodePair.Value)
             {
+                if (iface.InitiallyExposed)
+                {
+                    CaptureInitiallyExposedNode(iface.NetId, nodePair.Key);
+                }
+
                 if (!VisibleNets.Contains(iface.NetId) || !iface.InitiallyExposed)
                 {
                     continue;

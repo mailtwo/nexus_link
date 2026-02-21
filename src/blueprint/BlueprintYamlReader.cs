@@ -12,10 +12,12 @@ namespace Uplink2.Blueprint;
 public sealed partial class BlueprintYamlReader
 {
     private readonly IDeserializer deserializer;
+    private readonly Action<string>? warningSink;
 
     /// <summary>Creates a reader configured for flexible YAML object deserialization.</summary>
-    public BlueprintYamlReader()
+    public BlueprintYamlReader(Action<string>? warningSink = null)
     {
+        this.warningSink = warningSink;
         deserializer = new DeserializerBuilder()
             .IgnoreUnmatchedProperties()
             .Build();
@@ -109,7 +111,7 @@ public sealed partial class BlueprintYamlReader
         }
 
         ParseServerSpecs(rootMap, filePath, catalog, errors);
-        ParseScenarios(rootMap, filePath, catalog, errors);
+        ParseScenarios(rootMap, filePath, catalog, errors, warningSink);
         ParseCampaigns(rootMap, filePath, catalog, errors);
     }
 }

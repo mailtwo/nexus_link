@@ -48,6 +48,7 @@ public partial class WorldRuntime
         }
 
         PlayerWorkstationServer = ResolvePlayerWorkstation(serversByNodeId.Values);
+        InitializeEventRuntime(scenario);
         GD.Print($"WorldRuntime initialized scenario '{ActiveScenarioId}' ({ServerList.Count} servers).");
     }
 
@@ -85,7 +86,7 @@ public partial class WorldRuntime
             ? DefaultBlueprintDirectory
             : BlueprintDirectory.Trim();
         var absoluteDirectory = ProjectSettings.GlobalizePath(directory);
-        var yamlReader = new BlueprintYamlReader();
+        var yamlReader = new BlueprintYamlReader(static warning => GD.PushWarning(warning));
         return yamlReader.ReadDirectory(absoluteDirectory, "*.yaml", SearchOption.TopDirectoryOnly);
     }
 
@@ -156,6 +157,7 @@ public partial class WorldRuntime
         KnownNodesByNet.Clear();
         ActiveScenarioId = string.Empty;
         nextProcessId = 1;
+        ResetEventRuntimeState();
     }
 
 }

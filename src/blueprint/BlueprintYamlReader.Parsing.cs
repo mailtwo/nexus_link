@@ -125,7 +125,8 @@ public sealed partial class BlueprintYamlReader
         Dictionary<string, object?> rootMap,
         string filePath,
         BlueprintCatalog catalog,
-        List<string> errors)
+        List<string> errors,
+        Action<string>? warningSink)
     {
         if (!TryGetValueIgnoreCase(rootMap, "Scenario", out var scenarioSectionValue))
         {
@@ -176,7 +177,23 @@ public sealed partial class BlueprintYamlReader
 
             if (TryGetValueIgnoreCase(scenarioMap, "events", out var eventsValue))
             {
-                ParseEvents(scenarioBlueprint.Events, eventsValue, filePath, $"{scenarioContext}.events", errors);
+                ParseEvents(
+                    scenarioBlueprint.Events,
+                    eventsValue,
+                    filePath,
+                    $"{scenarioContext}.events",
+                    errors,
+                    warningSink);
+            }
+
+            if (TryGetValueIgnoreCase(scenarioMap, "scripts", out var scriptsValue))
+            {
+                ParseScripts(
+                    scenarioBlueprint.Scripts,
+                    scriptsValue,
+                    filePath,
+                    $"{scenarioContext}.scripts",
+                    errors);
             }
 
             if (catalog.Scenarios.ContainsKey(scenarioId))
@@ -186,6 +203,31 @@ public sealed partial class BlueprintYamlReader
             }
 
             catalog.Scenarios[scenarioId] = scenarioBlueprint;
+        }
+    }
+
+    private static void ParseScripts(
+        Dictionary<string, string> scripts,
+        object? scriptsValue,
+        string filePath,
+        string context,
+        List<string> errors)
+    {
+        var scriptsMap = AsMap(scriptsValue, filePath, context, errors, allowNullAsEmpty: true);
+        if (scriptsMap is null)
+        {
+            return;
+        }
+
+        foreach (var scriptPair in scriptsMap)
+        {
+            if (string.IsNullOrWhiteSpace(scriptPair.Key))
+            {
+                errors.Add($"{filePath}: {context} contains an empty script id key.");
+                continue;
+            }
+
+            scripts[scriptPair.Key] = ReadString(scriptPair.Value);
         }
     }
 
@@ -995,7 +1037,8 @@ public sealed partial class BlueprintYamlReader
         object? eventsValue,
         string filePath,
         string context,
-        List<string> errors)
+        List<string> errors,
+        Action<string>? warningSink)
     {
         var eventsMap = AsMap(eventsValue, filePath, context, errors, allowNullAsEmpty: true);
         if (eventsMap is null)
@@ -1033,15 +1076,24 @@ public sealed partial class BlueprintYamlReader
                 }
             }
 
-            if (TryGetValueIgnoreCase(eventMap, "conditionArgs", out var conditionArgsValue))
+            TryGetValueIgnoreCase(eventMap, "conditionArgs", out var conditionArgsValue);
+            ParseConditionArgs(
+                eventBlueprint,
+                conditionArgsValue,
+                filePath,
+                $"{eventContext}.conditionArgs",
+                errors,
+                warningSink);
+
+            if (TryGetValueIgnoreCase(eventMap, "guardContent", out var guardContentValue))
             {
-                var conditionArgsMap = AsMap(conditionArgsValue, filePath, $"{eventContext}.conditionArgs", errors, allowNullAsEmpty: true);
-                if (conditionArgsMap is not null)
+                if (guardContentValue is null || guardContentValue is string)
                 {
-                    foreach (var argPair in conditionArgsMap)
-                    {
-                        eventBlueprint.ConditionArgs[argPair.Key] = ConvertToBlueprintValue(argPair.Value);
-                    }
+                    eventBlueprint.GuardContent = ReadString(guardContentValue);
+                }
+                else
+                {
+                    errors.Add($"{filePath}: {eventContext}.guardContent must be a string or null.");
                 }
             }
 
@@ -1066,6 +1118,139 @@ public sealed partial class BlueprintYamlReader
 
             eventsById[eventId] = eventBlueprint;
         }
+    }
+
+    private static void ParseConditionArgs(
+        EventBlueprint eventBlueprint,
+        object? conditionArgsValue,
+        string filePath,
+        string context,
+        List<string> errors,
+        Action<string>? warningSink)
+    {
+        var conditionArgsMap = AsMap(conditionArgsValue, filePath, context, errors, allowNullAsEmpty: true);
+        if (conditionArgsMap is null)
+        {
+            return;
+        }
+
+        foreach (var argPair in conditionArgsMap)
+        {
+            if (!TryNormalizeConditionArgKey(eventBlueprint.ConditionType, argPair.Key, out var normalizedKey))
+            {
+                EmitWarning(
+                    warningSink,
+                    $"{filePath}: {context} contains unknown key '{argPair.Key}'. Key will be ignored.");
+                continue;
+            }
+
+            if (!TryReadConditionArgStringOrNull(argPair.Value, out var normalizedValue))
+            {
+                errors.Add($"{filePath}: {context}.{normalizedKey} must be a string or null.");
+                continue;
+            }
+
+            eventBlueprint.ConditionArgs[normalizedKey] = normalizedValue!;
+        }
+
+        foreach (var requiredKey in GetRequiredConditionArgKeys(eventBlueprint.ConditionType))
+        {
+            if (!eventBlueprint.ConditionArgs.ContainsKey(requiredKey))
+            {
+                errors.Add($"{filePath}: {context}.{requiredKey} is required.");
+            }
+        }
+    }
+
+    private static bool TryReadConditionArgStringOrNull(object? value, out string? normalizedValue)
+    {
+        if (value is null)
+        {
+            normalizedValue = null;
+            return true;
+        }
+
+        if (value is string text)
+        {
+            normalizedValue = text;
+            return true;
+        }
+
+        normalizedValue = null;
+        return false;
+    }
+
+    private static IEnumerable<string> GetRequiredConditionArgKeys(BlueprintConditionType conditionType)
+    {
+        if (conditionType == BlueprintConditionType.PrivilegeAcquire)
+        {
+            yield return "privilege";
+            yield break;
+        }
+
+        if (conditionType == BlueprintConditionType.FileAcquire)
+        {
+            yield return "fileName";
+        }
+    }
+
+    private static bool TryNormalizeConditionArgKey(
+        BlueprintConditionType conditionType,
+        string rawKey,
+        out string normalizedKey)
+    {
+        normalizedKey = string.Empty;
+        if (string.IsNullOrWhiteSpace(rawKey))
+        {
+            return false;
+        }
+
+        if (conditionType == BlueprintConditionType.PrivilegeAcquire)
+        {
+            if (string.Equals(rawKey, "nodeId", StringComparison.OrdinalIgnoreCase))
+            {
+                normalizedKey = "nodeId";
+                return true;
+            }
+
+            if (string.Equals(rawKey, "userKey", StringComparison.OrdinalIgnoreCase))
+            {
+                normalizedKey = "userKey";
+                return true;
+            }
+
+            if (string.Equals(rawKey, "privilege", StringComparison.OrdinalIgnoreCase))
+            {
+                normalizedKey = "privilege";
+                return true;
+            }
+
+            return false;
+        }
+
+        if (conditionType == BlueprintConditionType.FileAcquire)
+        {
+            if (string.Equals(rawKey, "nodeId", StringComparison.OrdinalIgnoreCase))
+            {
+                normalizedKey = "nodeId";
+                return true;
+            }
+
+            if (string.Equals(rawKey, "fileName", StringComparison.OrdinalIgnoreCase))
+            {
+                normalizedKey = "fileName";
+                return true;
+            }
+
+            return false;
+        }
+
+        return false;
+    }
+
+    private static void EmitWarning(Action<string>? warningSink, string message)
+    {
+        warningSink?.Invoke(message);
     }
 
     private static ActionBlueprint ParseActionBlueprint(

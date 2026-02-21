@@ -93,6 +93,7 @@ ScenarioBlueprint
 - scenarioId: string
 - servers: List<ServerSpawnBlueprint>
 - subnetTopology: Dictionary<string /*subnetId*/, SubnetBlueprint>
+- Scripts?: Dictionary<string /*scriptId*/, string /*MiniScript body*/>
 - events: Dictionary<string /*eventId*/, EventBlueprint>
 ```
 
@@ -176,6 +177,21 @@ InterfaceBlueprint
 
 > `hostSuffix`가 None이면 IP 할당자는 addressPlan 풀에서 자동 할당한다(아래 “월드 생성 파이프라인” 참고).
 
+### 2.3 Scripts (MiniScript Guard 소스)
+
+- `Scripts`는 시나리오에서 재사용 가능한 guard 스크립트 저장소다.
+- key는 `scriptId`, value는 MiniScript **함수 body만** 작성한다.
+- 엔진은 로드 시 guard 본문을 자동 래핑해 사용한다:
+
+```miniscript
+func guard(evt, state)
+  <body lines...>
+end func
+```
+
+- `evt`: 이벤트 payload
+- `state`: 읽기 전용 상태 뷰(확장 가능)
+
 ---
 
 ## 3) SubnetBlueprint (서브넷 토폴로지)
@@ -217,6 +233,7 @@ HubBlueprint
 EventBlueprint
 - conditionType: ENUM { privilegeAcquire, fileAcquire }
 - conditionArgs: Dictionary<string, Any>
+- guardContent?: string
 - actions: List<ActionBlueprint>
 ```
 
@@ -253,6 +270,30 @@ ActionBlueprint
 
 > v0에서는 “클리어 처리”를 `print`만으로 표현해도 된다(예: “쉬움 시나리오 완료!”).  
 > 다만 이후 확장을 위해 `setFlag`를 통해 캠페인/보상/진행 상태를 저장할 수 있게 한다.
+
+### 4.4 guardContent 작성/참조 규약
+
+`guardContent`는 아래 3가지 prefix만 허용한다.
+
+1) Inline 스크립트: multi-line 문자열의 첫 줄이 `script-`  
+2) Scripts 참조: 단일 라인 `id-<scriptId>`  
+3) 외부 파일: 단일 라인 `path-<relativePath>`
+
+추가 규칙:
+- `path-`는 YAML 파일 위치가 아니라 **프로젝트 루트 기준 상대경로**로 해석한다.
+- prefix가 다르면 로드 에러로 처리한다.
+
+예시:
+
+```yaml
+Scripts:
+  hardWinGuard: |-
+    return evt.privilege == "execute"
+
+events:
+  hardScenarioWinEvent:
+    guardContent: "id-hardWinGuard"
+```
 
 ---
 

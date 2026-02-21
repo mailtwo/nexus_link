@@ -16,6 +16,138 @@ namespace Uplink2.Tests;
 /// <summary>Unit tests for blueprint YAML parsing and blueprint-content loading contracts.</summary>
 public sealed class BlueprintTest
 {
+    /// <summary>Ensures scenario-level scripts and event guardContent fields are parsed from YAML.</summary>
+    [Fact]
+    public void ReadFiles_ParsesScenarioScriptsAndGuardContent()
+    {
+        using var scope = TempDirScope.Create();
+        var yamlPath = scope.WriteFile(
+            "scenario_guard.yaml",
+            """
+            Scenario:
+              s1:
+                scripts:
+                  g1: |
+                    return evt.privilege == "execute"
+                events:
+                  e1:
+                    conditionType: PrivilegeAcquire
+                    conditionArgs:
+                      privilege: execute
+                    guardContent: id-g1
+                    actions:
+                      - actionType: Print
+                        actionArgs:
+                          text: ok
+            """);
+
+        var reader = new BlueprintYamlReader();
+        var catalog = reader.ReadFiles(new[] { yamlPath });
+        var scenario = catalog.Scenarios["s1"];
+        var eventBlueprint = scenario.Events["e1"];
+
+        Assert.True(scenario.Scripts.ContainsKey("g1"));
+        Assert.Contains("evt.privilege", scenario.Scripts["g1"], StringComparison.Ordinal);
+        Assert.Equal("id-g1", eventBlueprint.GuardContent);
+    }
+
+    /// <summary>Ensures required conditionArgs.privilege is enforced for privilegeAcquire handlers.</summary>
+    [Fact]
+    public void ReadFiles_PrivilegeAcquireMissingRequiredPrivilege_Fails()
+    {
+        using var scope = TempDirScope.Create();
+        var yamlPath = scope.WriteFile(
+            "missing_privilege.yaml",
+            """
+            Scenario:
+              s1:
+                events:
+                  e1:
+                    conditionType: PrivilegeAcquire
+                    conditionArgs:
+                      nodeId: n1
+            """);
+
+        var reader = new BlueprintYamlReader();
+        var ex = Assert.Throws<InvalidDataException>(() => reader.ReadFiles(new[] { yamlPath }));
+        Assert.Contains("conditionArgs.privilege is required.", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures required conditionArgs.fileName is enforced for fileAcquire handlers.</summary>
+    [Fact]
+    public void ReadFiles_FileAcquireMissingRequiredFileName_Fails()
+    {
+        using var scope = TempDirScope.Create();
+        var yamlPath = scope.WriteFile(
+            "missing_file_name.yaml",
+            """
+            Scenario:
+              s1:
+                events:
+                  e1:
+                    conditionType: FileAcquire
+                    conditionArgs:
+                      nodeId: n1
+            """);
+
+        var reader = new BlueprintYamlReader();
+        var ex = Assert.Throws<InvalidDataException>(() => reader.ReadFiles(new[] { yamlPath }));
+        Assert.Contains("conditionArgs.fileName is required.", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures unknown conditionArgs keys are warned and ignored instead of failing parse.</summary>
+    [Fact]
+    public void ReadFiles_UnknownConditionArgKey_WarnsAndIgnores()
+    {
+        using var scope = TempDirScope.Create();
+        var yamlPath = scope.WriteFile(
+            "unknown_condition_arg.yaml",
+            """
+            Scenario:
+              s1:
+                events:
+                  e1:
+                    conditionType: PrivilegeAcquire
+                    conditionArgs:
+                      privilege: execute
+                      unknownKey: value
+            """);
+
+        var warnings = new List<string>();
+        var reader = new BlueprintYamlReader(warnings.Add);
+        var catalog = reader.ReadFiles(new[] { yamlPath });
+        var eventBlueprint = catalog.Scenarios["s1"].Events["e1"];
+
+        Assert.Contains(
+            warnings,
+            static warning => warning.Contains("unknown key 'unknownKey'", StringComparison.Ordinal));
+        Assert.DoesNotContain("unknownKey", eventBlueprint.ConditionArgs.Keys);
+        Assert.Equal("execute", eventBlueprint.ConditionArgs["privilege"]);
+    }
+
+    /// <summary>Ensures conditionArgs values only accept string/null and reject numeric inputs.</summary>
+    [Fact]
+    public void ReadFiles_ConditionArgTypeMismatch_Fails()
+    {
+        using var scope = TempDirScope.Create();
+        var yamlPath = scope.WriteFile(
+            "condition_arg_type_mismatch.yaml",
+            """
+            Scenario:
+              s1:
+                events:
+                  e1:
+                    conditionType: PrivilegeAcquire
+                    conditionArgs:
+                      privilege:
+                        - execute
+            """);
+
+        var reader = new BlueprintYamlReader();
+        var ex = Assert.Throws<InvalidDataException>(() => reader.ReadFiles(new[] { yamlPath }));
+        Assert.Contains("conditionArgs.privilege must be a string or null.", ex.Message, StringComparison.Ordinal);
+    }
+
     /// <summary>Ensures executable file kinds parse correctly inside diskOverlay entry metadata.</summary>
     [Fact]
     public void ReadFiles_ParsesExecutableFileKinds()

@@ -20,6 +20,9 @@ Codex는 이 문서만 보고 **인덱싱 기반 디스패치 + MiniScript guard
   - 1회 호출 최대: **1 tick = 0.0166s**
   - 1 tick 전체 총합: **3 ticks ≈ 0.05s** (초과분은 다음 tick으로 이월)
 - Action 실행은 **부분 성공 허용 + warn** (실패해도 다음 action 진행).
+- `print` action의 출력 목적지는 **터미널 즉시 출력(프로그램 stdout 유사)** 으로 고정한다.
+- `fileAcquire.fileName` 매칭 기준은 **basename(확장자 포함 파일명 전체)** 으로 고정한다.
+- `guardContent`의 `path-...`는 **프로젝트 루트 기준 상대경로**로 해석한다.
 - Save/Load는 아직 확정하지 않되, 저장 후보(필수)만 본문에 언급한다.
 
 ---
@@ -113,7 +116,7 @@ public sealed record PrivilegeAcquireDto(
 public sealed record FileAcquireDto(
     string fromNodeId,     // 출처 노드
     string userKey,        // 획득 주체(보통 플레이어)
-    string fileName,       // 시나리오 필터 키(단순/안정 규칙 권장: basename 등)
+    string fileName,       // 시나리오 필터 키(basename; 확장자 포함)
     long acquiredAtMs,
 
     // 선택(디버그/가드용)
@@ -133,6 +136,10 @@ Blueprint v0의 EventBlueprint는 아래 필드가 있다.
 - `conditionType: { privilegeAcquire, fileAcquire }`
 - `conditionArgs: Dictionary<string, Any>`
 - `actions: List<ActionBlueprint>`
+
+문서 유지보수 규칙:
+- EventBlueprint의 기본 스키마(필드/args 정의)는 `plans/10_blueprint_schema_v0.md`를 단일 소스로 참조한다.
+- 이후 EventBlueprint 스키마 변경 시, `plans/10_blueprint_schema_v0.md`를 우선 갱신하고 본 문서는 확장/런타임 규약만 동기화한다.
 
 v0.1에서는 여기에 **guardContent**를 추가한다.
 
@@ -174,7 +181,7 @@ Scripts?: Dictionary<string /*scriptId*/, string /*MiniScript body*/>
 ### 4.3 `fileAcquire` conditionArgs
 ```text
 - nodeId?: string | null        # 출처 노드(fromNodeId), null이면 ANY
-- fileName: string | null       # required(키 누락은 에러), null이면 ANY(=모든 파일)
+- fileName: string | null       # required(키 누락은 에러), basename(확장자 포함) 기준, null이면 ANY(=모든 파일)
 ```
 
 예시:
@@ -182,8 +189,8 @@ Scripts?: Dictionary<string /*scriptId*/, string /*MiniScript body*/>
 - 어떤 파일이든(=전체): `{ nodeId: null, fileName: null }`
 
 ### 4.4 잘못된 키/타입
-- `conditionArgs`에 **알 수 없는 키**가 들어오면: warn 후 무시(권장)
-- required/optional 키에 타입이 잘못되면: 로드 에러(권장)
+- `conditionArgs`에 **알 수 없는 키**가 들어오면: warn 로그를 남기고 무시(고정)
+- required/optional 키에 타입이 잘못되면: 로드 에러(고정)
 
 ---
 
@@ -198,7 +205,7 @@ Scripts?: Dictionary<string /*scriptId*/, string /*MiniScript body*/>
 
 1) **Inline 스크립트**: multi-line 문자열의 첫 줄이 `script-`
 2) **Scripts 참조**: 단일 라인 `id-<scriptId>`
-3) **외부 파일**: 단일 라인 `path-<relativePath>`
+3) **외부 파일**: 단일 라인 `path-<relativePath>` (프로젝트 루트 기준)
 
 그 외 prefix는 **파싱 에러(로드 실패)**.
 
@@ -224,6 +231,10 @@ events:
 ```yaml
 guardContent: "path-plans/guards/hard_win_guard.ms"
 ```
+
+`path-` 해석 기준:
+- `path-foo/bar.ms` -> `<project_root>/foo/bar.ms`
+- YAML 파일 위치 기준 상대경로를 사용하지 않는다.
 
 ### 5.3 “함수 body만 작성” + 엔진 자동 래핑
 기획자는 guard를 함수로 작성하지 않고 **body만** 작성한다.  
@@ -304,7 +315,7 @@ indexFile:
 ### 7.1 WorldTick() 권장 순서
 1) `worldTickIndex++`, `now = worldTimeMs`
 2) ProcessScheduler 업데이트:
-   - due 프로세스를 finished 처리
+   - **min-heap(top=endAt)** 기준으로 `now >= endAt`인 due 프로세스를 pop/finished 처리
    - `processFinished` 이벤트 enqueue
 3) 월드 시뮬레이션 중 발생한 이벤트 enqueue(예: privilegeAcquire, fileAcquire)
 4) tick 끝에서 `EventSystem.Drain(now)` 호출
@@ -336,7 +347,7 @@ indexFile:
 ActionBlueprint (v0): `{ print, setFlag }`
 
 - `print(text)`:
-  - UI 로그/미션 피드에 출력
+  - 터미널 출력 버퍼에 즉시 출력(프로그램 stdout과 동일한 사용자 경험)
 - `setFlag(key,value)`:
   - 월드 플래그 저장소에 기록
 
@@ -368,11 +379,10 @@ ActionBlueprint (v0): `{ print, setFlag }`
 
 - [ ] WorldTick 60Hz 고정 스텝(Physics tick 기반)으로 `worldTickIndex/now` 관리
 - [ ] EventQueue + seq 생성
-- [ ] ProcessScheduler(최소: due scan / 권장: min-heap) + processFinished enqueue
+- [ ] ProcessScheduler(min-heap 필수) + processFinished enqueue
 - [ ] conditionType별 인덱스 구축 (`__ANY__` sentinel 포함)
 - [ ] once-only: firedHandlerIds
 - [ ] guardContent 파서(script-/id-/path-) + 래핑 + 로드타임 컴파일
 - [ ] Guard 실행: 개별 0.0166s, tick 총 0.05s 예산, 에러/타임아웃=false + warn
 - [ ] ActionExecutor: 부분 성공 + warn
 - [ ] (선택) privilegeAcquire(execute) 시스템 훅 적용 시점(시나리오 actions보다 선행)
-

@@ -6,6 +6,7 @@ extends Control
 @export var terminal_caret_color: Color = Color(0.545098, 0.952941, 0.639216, 1.0)
 @export var terminal_selection_color: Color = Color(0.22, 0.35, 0.24, 1.0)
 @export var terminal_font_size: int = 18
+@export var event_poll_interval_seconds: float = 0.10
 
 var text_buffer: Array[String] = []
 var world_runtime: Node = null
@@ -14,6 +15,7 @@ var current_user_key: String = ""
 var current_cwd: String = "/"
 var prompt_user: String = "player"
 var prompt_host: String = "term"
+var event_poll_elapsed: float = 0.0
 
 @onready var background: ColorRect = $Background
 @onready var terminal_vbox: VBoxContainer = $VBox
@@ -42,6 +44,25 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		input_line.grab_focus()
+
+
+func _process(delta: float) -> void:
+	if world_runtime == null:
+		return
+	if not world_runtime.has_method("DrainTerminalEventLines"):
+		return
+
+	event_poll_elapsed += delta
+	var interval := maxf(0.01, event_poll_interval_seconds)
+	if event_poll_elapsed < interval:
+		return
+
+	event_poll_elapsed = 0.0
+	var lines_variant: Variant = world_runtime.call("DrainTerminalEventLines", current_node_id, current_user_key)
+	if lines_variant is Array:
+		var lines_array: Array = lines_variant
+		for line in lines_array:
+			_append_output(str(line))
 
 
 func _on_input_submitted(command_text: String) -> void:

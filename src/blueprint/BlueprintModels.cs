@@ -247,6 +247,9 @@ public sealed class ScenarioBlueprint
 
     /// <summary>Events keyed by event id.</summary>
     public Dictionary<string, EventBlueprint> Events { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Reusable MiniScript guard bodies keyed by script id.</summary>
+    public Dictionary<string, string> Scripts { get; } = new(StringComparer.Ordinal);
 }
 
 /// <summary>Single spawned server declaration in a scenario.</summary>
@@ -389,6 +392,9 @@ public sealed class EventBlueprint
 
     /// <summary>Condition payload by key.</summary>
     public Dictionary<string, object> ConditionArgs { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Optional guard source descriptor (`script-`, `id-`, or `path-`).</summary>
+    public string GuardContent { get; set; } = string.Empty;
 
     /// <summary>Actions executed when condition is met.</summary>
     public List<ActionBlueprint> Actions { get; } = new();
