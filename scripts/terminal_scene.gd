@@ -18,6 +18,9 @@ var prompt_user: String = "player"
 var prompt_host: String = "term"
 var event_poll_elapsed: float = 0.0
 var current_editor_path: String = ""
+var current_editor_read_only: bool = false
+var current_editor_display_mode: String = "text"
+var current_editor_path_exists: bool = false
 
 @onready var background: ColorRect = $Background
 @onready var terminal_vbox: VBoxContainer = $VBox
@@ -157,9 +160,18 @@ func _enter_editor_mode() -> void:
 	editor.grab_focus()
 
 
-func _open_editor_mode(target_path: String, content: String) -> void:
+func _open_editor_mode(
+	target_path: String,
+	content: String,
+	read_only: bool,
+	display_mode: String,
+	path_exists: bool) -> void:
 	current_editor_path = target_path
+	current_editor_read_only = read_only
+	current_editor_display_mode = display_mode
+	current_editor_path_exists = path_exists
 	editor.text = content
+	editor.editable = not read_only
 	editor.set_caret_line(0)
 	editor.set_caret_column(0)
 	_enter_editor_mode()
@@ -169,6 +181,7 @@ func _exit_editor_mode() -> void:
 	editor_overlay.visible = false
 	terminal_vbox.visible = true
 	input_line.editable = true
+	editor.editable = true
 	input_line.call_deferred("grab_focus")
 
 
@@ -188,8 +201,43 @@ func _on_editor_gui_input(event: InputEvent) -> void:
 		return
 
 	if key_event.ctrl_pressed and key_event.keycode == KEY_S:
-		_exit_editor_mode()
+		_save_editor_content()
 		editor.accept_event()
+		return
+
+
+func _save_editor_content() -> void:
+	if world_runtime == null:
+		_append_output("error: world runtime singleton '/root/WorldRuntime' not found.")
+		return
+
+	if current_editor_read_only and current_editor_display_mode == "hex":
+		_append_output("error: read-only buffer.")
+		return
+
+	if not world_runtime.has_method("SaveEditorContent"):
+		_append_output("error: runtime bridge method not found: SaveEditorContent.")
+		return
+
+	var response: Dictionary = world_runtime.call(
+		"SaveEditorContent",
+		current_node_id,
+		current_user_id,
+		current_cwd,
+		current_editor_path,
+		editor.text)
+
+	var lines_variant: Variant = response.get("lines", [])
+	if lines_variant is Array:
+		var lines_array: Array = lines_variant
+		for line in lines_array:
+			_append_output(str(line))
+
+	if bool(response.get("ok", false)):
+		var saved_path: String = str(response.get("savedPath", ""))
+		if not saved_path.is_empty():
+			current_editor_path = saved_path
+		current_editor_path_exists = true
 
 
 func _initialize_runtime_bridge() -> void:
@@ -246,7 +294,15 @@ func _apply_systemcall_response(response: Dictionary) -> void:
 	if should_open_editor:
 		var editor_path: String = str(response.get("editorPath", ""))
 		var editor_content: String = str(response.get("editorContent", ""))
-		_open_editor_mode(editor_path, editor_content)
+		var editor_read_only: bool = bool(response.get("editorReadOnly", false))
+		var editor_display_mode: String = str(response.get("editorDisplayMode", "text"))
+		var editor_path_exists: bool = bool(response.get("editorPathExists", true))
+		_open_editor_mode(
+			editor_path,
+			editor_content,
+			editor_read_only,
+			editor_display_mode,
+			editor_path_exists)
 
 
 func _refresh_prompt() -> void:

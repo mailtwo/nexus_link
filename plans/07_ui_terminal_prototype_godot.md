@@ -12,7 +12,7 @@
 - 유저는 명령어를 입력해 **가상 파일 시스템(VFS)**과 **가상 네트워크**를 다룬다.
 - 코딩(프로그램 수정/작성)을 위해 **내장 텍스트 에디터 모드**가 필요하다.
 - CLI에 익숙하지 않은 유저를 위해 **마우스 입력(클릭)**이 보조적으로 동작한다.
-  - 예: `ls` 결과의 파일명을 클릭하면 `cat <file>` 또는 `edit <file>`을 입력창에 자동 채움.
+  - 예: `ls` 결과의 파일명을 클릭하면 `cat <file>` 또는 `edit <path>`를 입력창에 자동 채움.
 
 ---
 
@@ -95,7 +95,7 @@ TerminalScene (Control)
 예시 출력 아이디어:
 - `ls` 출력에서 파일명에 `meta`를 걸어 클릭 시:
   - 단일 클릭: Input에 `cat <file>` 채우기
-  - 더블 클릭: `edit <file>` 실행(선택)
+  - 더블 클릭: `edit <path>` 실행(선택)
 - 호스트/IP에도 meta를 달아 클릭 시 `ping <ip>` 채우기
 
 > 클릭은 “입력을 대체”가 아니라 “입력을 돕는” 용도(터미널 감성 유지).
@@ -105,9 +105,11 @@ TerminalScene (Control)
 ## 5) 에디터 모드(유사 vim / 코드 편집)
 
 ### 5.1 진입/종료
-- 진입: `edit <file>` 커맨드
+- 진입: `edit <path>` 커맨드
 - 종료: `Esc` (종료 확인 다이얼로그는 선택)
-- 저장: `Ctrl+S`
+- 저장: `Ctrl+S` (`SaveEditorContent` 브리지 호출)
+  - editable: 저장 성공/실패 메시지를 터미널 로그에 출력하고 에디터 유지
+  - read-only: 에러 메시지를 출력하고 에디터 유지
 
 ### 5.2 vim 흉내(선택, MVP 범위)
 - 모드 2개만 구현:
@@ -130,6 +132,8 @@ MVP에서는 `Ctrl+S`, `Esc`만 있어도 충분.
   - `Input.grab_focus()` 복귀
 - 에디터 상단 상태/도움말 바는 프로토타입에서 생략 가능.
 - 터미널↔에디터 전환 시 이질감이 없도록 배경색/폰트/폰트 크기/기본 글자색을 동일하게 유지.
+- `ExecuteTerminalCommand` 응답에 에디터 전환 메타를 포함한다:
+  - `openEditor`, `editorPath`, `editorContent`, `editorReadOnly`, `editorDisplayMode`, `editorPathExists`
 
 ---
 
@@ -163,7 +167,7 @@ MVP에서는 `Ctrl+S`, `Esc`만 있어도 충분.
   - 워크스테이션에서 이미 연결이 없는 상태면 터미널 에러를 출력한다
 
 ### 6.4 코딩/프로그램
-- `edit <file>`: 에디터 오버레이 열기
+- `edit <path>`: 에디터 오버레이 열기
 - `DEBUG_miniscript <script>`: 개발 중 스크립트 검증용 시스템콜(프로젝트 `DEBUG` 옵션 ON일 때만 활성화)
 
 ---

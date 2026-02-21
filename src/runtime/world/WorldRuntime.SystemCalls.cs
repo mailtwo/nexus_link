@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Uplink2.Runtime.Syscalls;
+using Uplink2.Vfs;
 
 #nullable enable
 
@@ -143,9 +144,74 @@ public partial class WorldRuntime
             ["openEditor"] = (bool)responsePayload["openEditor"],
             ["editorPath"] = (string)responsePayload["editorPath"],
             ["editorContent"] = (string)responsePayload["editorContent"],
+            ["editorReadOnly"] = (bool)responsePayload["editorReadOnly"],
+            ["editorDisplayMode"] = (string)responsePayload["editorDisplayMode"],
+            ["editorPathExists"] = (bool)responsePayload["editorPathExists"],
         };
 
         return response;
+    }
+
+    /// <summary>Saves editor buffer content to a server-local overlay file path.</summary>
+    public Godot.Collections.Dictionary SaveEditorContent(
+        string nodeId,
+        string userId,
+        string cwd,
+        string path,
+        string content)
+    {
+        var result = SaveEditorContentInternal(nodeId, userId, cwd, path, content, out var savedPath);
+        return BuildEditorSaveResponse(result, savedPath);
+    }
+
+    internal SystemCallResult SaveEditorContentInternal(
+        string nodeId,
+        string userId,
+        string cwd,
+        string path,
+        string content,
+        out string savedPath)
+    {
+        savedPath = string.Empty;
+        if (!TryCreateEditorSaveContext(nodeId, userId, cwd, out var server, out var user, out var normalizedCwd, out var contextFailure))
+        {
+            return contextFailure!;
+        }
+
+        var targetPath = BaseFileSystem.NormalizePath(normalizedCwd, path ?? string.Empty);
+        var pathExists = server.DiskOverlay.TryResolveEntry(targetPath, out var entry);
+        if (pathExists)
+        {
+            if (entry!.EntryKind != VfsEntryKind.File)
+            {
+                return SystemCallResultFactory.NotFile(targetPath);
+            }
+
+            if (entry.FileKind != VfsFileKind.Text)
+            {
+                return SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, "read-only buffer.");
+            }
+        }
+
+        if (!user.Privilege.Write)
+        {
+            return SystemCallResultFactory.PermissionDenied("edit");
+        }
+
+        var parentPath = BaseFileSystem.NormalizePath("/", GetEditorParentPath(targetPath));
+        if (!server.DiskOverlay.TryResolveEntry(parentPath, out var parentEntry))
+        {
+            return SystemCallResultFactory.NotFound(parentPath);
+        }
+
+        if (parentEntry.EntryKind != VfsEntryKind.Dir)
+        {
+            return SystemCallResultFactory.NotDirectory(parentPath);
+        }
+
+        server.DiskOverlay.WriteFile(targetPath, content ?? string.Empty, cwd: "/", fileKind: VfsFileKind.Text);
+        savedPath = targetPath;
+        return SystemCallResultFactory.Success(lines: new[] { $"saved: {targetPath}" });
     }
 
     internal static Dictionary<string, object> BuildTerminalCommandResponsePayload(SystemCallResult result)
@@ -169,6 +235,9 @@ public partial class WorldRuntime
             ["openEditor"] = false,
             ["editorPath"] = string.Empty,
             ["editorContent"] = string.Empty,
+            ["editorReadOnly"] = false,
+            ["editorDisplayMode"] = "text",
+            ["editorPathExists"] = false,
         };
 
         if (result.Data is EditorOpenTransition editorOpen)
@@ -176,6 +245,9 @@ public partial class WorldRuntime
             payload["openEditor"] = true;
             payload["editorPath"] = editorOpen.TargetPath;
             payload["editorContent"] = editorOpen.Content;
+            payload["editorReadOnly"] = editorOpen.ReadOnly;
+            payload["editorDisplayMode"] = editorOpen.DisplayMode;
+            payload["editorPathExists"] = editorOpen.PathExists;
             return payload;
         }
 
@@ -195,6 +267,95 @@ public partial class WorldRuntime
         }
 
         return payload;
+    }
+
+    private static Godot.Collections.Dictionary BuildEditorSaveResponse(SystemCallResult result, string savedPath)
+    {
+        var lines = new Godot.Collections.Array<string>();
+        foreach (var line in result.Lines)
+        {
+            lines.Add(line ?? string.Empty);
+        }
+
+        return new Godot.Collections.Dictionary
+        {
+            ["ok"] = result.Ok,
+            ["code"] = result.Code.ToString(),
+            ["lines"] = lines,
+            ["savedPath"] = savedPath,
+        };
+    }
+
+    private bool TryCreateEditorSaveContext(
+        string nodeId,
+        string userId,
+        string cwd,
+        out ServerNodeRuntime server,
+        out UserConfig user,
+        out string normalizedCwd,
+        out SystemCallResult? failure)
+    {
+        server = null!;
+        user = null!;
+        normalizedCwd = "/";
+        failure = null;
+
+        var normalizedNodeId = nodeId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedNodeId))
+        {
+            failure = SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, "nodeId is required.");
+            return false;
+        }
+
+        if (!TryGetServer(normalizedNodeId, out server))
+        {
+            failure = SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"server not found: {normalizedNodeId}");
+            return false;
+        }
+
+        var normalizedUserId = userId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedUserId))
+        {
+            failure = SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, "userId is required.");
+            return false;
+        }
+
+        if (!TryResolveUserByUserId(server, normalizedUserId, out _, out user))
+        {
+            failure = SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"user not found: {normalizedUserId}");
+            return false;
+        }
+
+        normalizedCwd = BaseFileSystem.NormalizePath("/", cwd);
+        if (!server.DiskOverlay.TryResolveEntry(normalizedCwd, out var cwdEntry))
+        {
+            failure = SystemCallResultFactory.NotFound(normalizedCwd);
+            return false;
+        }
+
+        if (cwdEntry.EntryKind != VfsEntryKind.Dir)
+        {
+            failure = SystemCallResultFactory.NotDirectory(normalizedCwd);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static string GetEditorParentPath(string normalizedPath)
+    {
+        if (normalizedPath == "/")
+        {
+            return "/";
+        }
+
+        var index = normalizedPath.LastIndexOf('/');
+        if (index <= 0)
+        {
+            return "/";
+        }
+
+        return normalizedPath[..index];
     }
 
     internal string NormalizeTerminalSessionId(string? terminalSessionId)

@@ -181,6 +181,12 @@ internal sealed class EditorOpenTransition
     internal string TargetPath { get; init; } = string.Empty;
 
     internal string Content { get; init; } = string.Empty;
+
+    internal bool ReadOnly { get; init; }
+
+    internal string DisplayMode { get; init; } = "text";
+
+    internal bool PathExists { get; init; }
 }
 
 internal interface ISystemCallHandler

@@ -261,6 +261,281 @@ public sealed class SystemCallTest
         Assert.Equal(true, payload["openEditor"]);
         Assert.Equal("/notes/todo.txt", payload["editorPath"]);
         Assert.Equal("line-1\nline-2", payload["editorContent"]);
+        Assert.Equal(false, payload["editorReadOnly"]);
+        Assert.Equal("text", payload["editorDisplayMode"]);
+        Assert.Equal(true, payload["editorPathExists"]);
+    }
+
+    /// <summary>Ensures edit on an existing file requires read privilege.</summary>
+    [Fact]
+    public void Execute_Edit_Fails_WhenReadPrivilegeMissing_ForExistingFile()
+    {
+        var harness = CreateHarness(
+            includeVfsModule: true,
+            privilege: new PrivilegeConfig
+            {
+                Read = false,
+                Write = true,
+                Execute = true,
+            });
+        harness.BaseFileSystem.AddDirectory("/notes");
+        harness.BaseFileSystem.AddFile("/notes/todo.txt", "line-1\nline-2", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "edit /notes/todo.txt");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Contains("permission denied: edit", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures edit opens existing text files in read-only mode when write privilege is missing.</summary>
+    [Fact]
+    public void Execute_Edit_TextFile_ReadOnly_WhenWritePrivilegeMissing()
+    {
+        var harness = CreateHarness(
+            includeVfsModule: true,
+            privilege: new PrivilegeConfig
+            {
+                Read = true,
+                Write = false,
+                Execute = true,
+            });
+        harness.BaseFileSystem.AddDirectory("/notes");
+        harness.BaseFileSystem.AddFile("/notes/todo.txt", "line-1\nline-2", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "edit /notes/todo.txt");
+
+        Assert.True(result.Ok);
+        var payload = BuildTerminalCommandResponsePayload(result);
+        Assert.Equal(true, payload["openEditor"]);
+        Assert.Equal(true, payload["editorReadOnly"]);
+        Assert.Equal("text", payload["editorDisplayMode"]);
+        Assert.Equal(true, payload["editorPathExists"]);
+    }
+
+    /// <summary>Ensures non-text files open with pseudo-hex preview and read-only mode.</summary>
+    [Fact]
+    public void Execute_Edit_NonTextFile_OpensPseudoHexReadOnly()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddDirectory("/notes");
+        harness.BaseFileSystem.AddFile("/notes/raw.bin", new string('A', 1024), fileKind: VfsFileKind.Binary);
+
+        var result = Execute(harness, "edit /notes/raw.bin");
+
+        Assert.True(result.Ok);
+        var payload = BuildTerminalCommandResponsePayload(result);
+        Assert.Equal(true, payload["openEditor"]);
+        Assert.Equal(true, payload["editorReadOnly"]);
+        Assert.Equal("hex", payload["editorDisplayMode"]);
+        Assert.Equal(true, payload["editorPathExists"]);
+
+        var hexView = (string)payload["editorContent"];
+        Assert.False(string.IsNullOrEmpty(hexView));
+        var lines = hexView.Split('\n');
+        Assert.All(lines, static line => Assert.Equal(100, line.Length));
+        Assert.All(lines, static line => Assert.Matches("^[0-9a-f]+$", line));
+        Assert.True(hexView.Replace("\n", string.Empty, StringComparison.Ordinal).Length <= 20000);
+    }
+
+    /// <summary>Ensures edit on missing path requires write privilege.</summary>
+    [Fact]
+    public void Execute_Edit_MissingPath_Fails_WhenWritePrivilegeMissing()
+    {
+        var harness = CreateHarness(
+            includeVfsModule: true,
+            privilege: new PrivilegeConfig
+            {
+                Read = true,
+                Write = false,
+                Execute = true,
+            });
+        harness.BaseFileSystem.AddDirectory("/notes");
+
+        var result = Execute(harness, "edit /notes/new.txt");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Contains("permission denied: edit", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures edit can open a new empty buffer when path is missing and write privilege exists.</summary>
+    [Fact]
+    public void Execute_Edit_MissingPath_OpensEmptyBuffer_WhenWritePrivilegePresent()
+    {
+        var harness = CreateHarness(
+            includeVfsModule: true,
+            privilege: new PrivilegeConfig
+            {
+                Read = false,
+                Write = true,
+                Execute = true,
+            });
+        harness.BaseFileSystem.AddDirectory("/notes");
+
+        var result = Execute(harness, "edit /notes/new.txt");
+
+        Assert.True(result.Ok);
+        var payload = BuildTerminalCommandResponsePayload(result);
+        Assert.Equal(true, payload["openEditor"]);
+        Assert.Equal("/notes/new.txt", payload["editorPath"]);
+        Assert.Equal(string.Empty, payload["editorContent"]);
+        Assert.Equal(false, payload["editorReadOnly"]);
+        Assert.Equal("text", payload["editorDisplayMode"]);
+        Assert.Equal(false, payload["editorPathExists"]);
+    }
+
+    /// <summary>Ensures edit fails immediately when missing path parent directory does not exist.</summary>
+    [Fact]
+    public void Execute_Edit_MissingPath_Fails_WhenParentDirectoryMissing()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+
+        var result = Execute(harness, "edit /missing/new.txt");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFound, result.Code);
+        Assert.Contains("/missing", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures SaveEditorContent overwrites existing text files when write privilege exists.</summary>
+    [Fact]
+    public void SaveEditorContent_OverwritesExistingTextFile()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddDirectory("/notes");
+        harness.BaseFileSystem.AddFile("/notes/todo.txt", "old", fileKind: VfsFileKind.Text);
+
+        var (result, savedPath) = SaveEditorContentInternal(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "/notes/todo.txt",
+            "new");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Equal("/notes/todo.txt", savedPath);
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/notes/todo.txt", out var savedContent));
+        Assert.Equal("new", savedContent);
+    }
+
+    /// <summary>Ensures SaveEditorContent creates missing text files when write privilege exists.</summary>
+    [Fact]
+    public void SaveEditorContent_CreatesMissingTextFile()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddDirectory("/notes");
+
+        var (result, savedPath) = SaveEditorContentInternal(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "/notes/new.txt",
+            "created");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Equal("/notes/new.txt", savedPath);
+        Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/notes/new.txt", out var savedEntry));
+        Assert.Equal(VfsFileKind.Text, savedEntry.FileKind);
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/notes/new.txt", out var savedContent));
+        Assert.Equal("created", savedContent);
+    }
+
+    /// <summary>Ensures SaveEditorContent rejects non-text files as read-only buffers.</summary>
+    [Fact]
+    public void SaveEditorContent_Fails_ForNonTextFiles()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddDirectory("/notes");
+        harness.BaseFileSystem.AddFile("/notes/raw.bin", "AAAA", fileKind: VfsFileKind.Binary);
+
+        var (result, savedPath) = SaveEditorContentInternal(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "/notes/raw.bin",
+            "BBBB");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Equal(string.Empty, savedPath);
+        Assert.Contains(result.Lines, static line => line.Contains("read-only buffer", StringComparison.Ordinal));
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/notes/raw.bin", out var originalContent));
+        Assert.Equal("AAAA", originalContent);
+    }
+
+    /// <summary>Ensures SaveEditorContent returns permission denied on existing text files without write privilege.</summary>
+    [Fact]
+    public void SaveEditorContent_Fails_WhenWritePrivilegeMissing()
+    {
+        var harness = CreateHarness(
+            includeVfsModule: true,
+            privilege: new PrivilegeConfig
+            {
+                Read = true,
+                Write = false,
+                Execute = true,
+            });
+        harness.BaseFileSystem.AddDirectory("/notes");
+        harness.BaseFileSystem.AddFile("/notes/todo.txt", "old", fileKind: VfsFileKind.Text);
+
+        var (result, savedPath) = SaveEditorContentInternal(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "/notes/todo.txt",
+            "new");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Equal(string.Empty, savedPath);
+        Assert.Contains(result.Lines, static line => line.Contains("permission denied: edit", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures SaveEditorContent fails when parent directory is missing.</summary>
+    [Fact]
+    public void SaveEditorContent_Fails_WhenParentDirectoryMissing()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+
+        var (result, savedPath) = SaveEditorContentInternal(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "/missing/new.txt",
+            "new");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFound, result.Code);
+        Assert.Equal(string.Empty, savedPath);
+        Assert.Contains(result.Lines, static line => line.Contains("/missing", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures SaveEditorContent fails when target path resolves to a directory.</summary>
+    [Fact]
+    public void SaveEditorContent_Fails_WhenTargetIsDirectory()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddDirectory("/notes");
+
+        var (result, savedPath) = SaveEditorContentInternal(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "/notes",
+            "new");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFile, result.Code);
+        Assert.Equal(string.Empty, savedPath);
     }
 
     /// <summary>Ensures renamed editor command no longer accepts legacy vim command text.</summary>
@@ -912,11 +1187,15 @@ public sealed class SystemCallTest
         Assert.Equal(false, transitionPayload["openEditor"]);
         Assert.Equal(string.Empty, transitionPayload["editorPath"]);
         Assert.Equal(string.Empty, transitionPayload["editorContent"]);
+        Assert.Equal(false, transitionPayload["editorReadOnly"]);
+        Assert.Equal("text", transitionPayload["editorDisplayMode"]);
+        Assert.Equal(false, transitionPayload["editorPathExists"]);
 
         var cwdResult = SystemCallResult.Success(nextCwd: "/work");
         var cwdPayload = BuildTerminalCommandResponsePayload(cwdResult);
         Assert.Equal("/work", cwdPayload["nextCwd"]);
         Assert.Equal(false, cwdPayload["openEditor"]);
+        Assert.Equal(false, cwdPayload["editorReadOnly"]);
     }
 
     /// <summary>Ensures default terminal-context API surface uses userId and does not expose userKey keys.</summary>
@@ -1278,6 +1557,26 @@ public sealed class SystemCallTest
         var payload = method!.Invoke(null, new object?[] { result }) as Dictionary<string, object>;
         Assert.NotNull(payload);
         return payload!;
+    }
+
+    private static (SystemCallResult Result, string SavedPath) SaveEditorContentInternal(
+        WorldRuntime world,
+        string nodeId,
+        string userId,
+        string cwd,
+        string path,
+        string content)
+    {
+        var method = typeof(WorldRuntime).GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single(static candidate =>
+                string.Equals(candidate.Name, "SaveEditorContentInternal", StringComparison.Ordinal) &&
+                candidate.GetParameters().Length == 6);
+
+        object?[] args = { nodeId, userId, cwd, path, content, string.Empty };
+        var result = method.Invoke(world, args) as SystemCallResult;
+        Assert.NotNull(result);
+        var savedPath = args[5] as string ?? string.Empty;
+        return (result!, savedPath);
     }
 
     private static IReadOnlyList<MethodBase> ExtractCalledMethods(MethodInfo method)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using Miniscript;
 using Uplink2.Runtime.MiniScript;
@@ -272,24 +273,53 @@ internal sealed class CatCommandHandler : VfsCommandHandlerBase
 
 internal sealed class EditCommandHandler : VfsCommandHandlerBase
 {
+    private const int HexLineWidth = 100;
+    private const int MaxHexChars = 20000;
+    private const string TextDisplayMode = "text";
+    private const string HexDisplayMode = "hex";
+
     public override string Command => "edit";
 
     public override SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
     {
         if (arguments.Count != 1)
         {
-            return SystemCallResultFactory.Usage("edit <file>");
-        }
-
-        if (!RequireRead(context, Command, out var permissionResult))
-        {
-            return permissionResult;
+            return SystemCallResultFactory.Usage("edit <path>");
         }
 
         var targetPath = NormalizePath(context, arguments[0]);
         if (!context.Server.DiskOverlay.TryResolveEntry(targetPath, out var entry))
         {
-            return SystemCallResultFactory.NotFound(targetPath);
+            if (!RequireWrite(context, Command, out var writePermissionResult))
+            {
+                return writePermissionResult;
+            }
+
+            var parentPath = GetParentPath(targetPath);
+            if (!context.Server.DiskOverlay.TryResolveEntry(parentPath, out var parentEntry))
+            {
+                return SystemCallResultFactory.NotFound(parentPath);
+            }
+
+            if (parentEntry.EntryKind != VfsEntryKind.Dir)
+            {
+                return SystemCallResultFactory.NotDirectory(parentPath);
+            }
+
+            return SystemCallResultFactory.Success(
+                data: new EditorOpenTransition
+                {
+                    TargetPath = targetPath,
+                    Content = string.Empty,
+                    ReadOnly = false,
+                    DisplayMode = TextDisplayMode,
+                    PathExists = false,
+                });
+        }
+
+        if (!RequireRead(context, Command, out var readPermissionResult))
+        {
+            return readPermissionResult;
         }
 
         if (entry.EntryKind != VfsEntryKind.File)
@@ -297,9 +327,17 @@ internal sealed class EditCommandHandler : VfsCommandHandlerBase
             return SystemCallResultFactory.NotFile(targetPath);
         }
 
-        if (!IsEditorReadableFile(entry))
+        if (entry.FileKind != VfsFileKind.Text)
         {
-            return ExecutableReadDenied(targetPath);
+            return SystemCallResultFactory.Success(
+                data: new EditorOpenTransition
+                {
+                    TargetPath = targetPath,
+                    Content = BuildPseudoHexView(targetPath, entry),
+                    ReadOnly = true,
+                    DisplayMode = HexDisplayMode,
+                    PathExists = true,
+                });
         }
 
         if (!context.Server.DiskOverlay.TryReadFileText(targetPath, out var content))
@@ -312,7 +350,76 @@ internal sealed class EditCommandHandler : VfsCommandHandlerBase
             {
                 TargetPath = targetPath,
                 Content = content,
+                ReadOnly = !context.User.Privilege.Write,
+                DisplayMode = TextDisplayMode,
+                PathExists = true,
             });
+    }
+
+    private static string BuildPseudoHexView(string path, VfsEntryMeta entry)
+    {
+        var proportionalChars = entry.Size >= long.MaxValue / 2 ? long.MaxValue : entry.Size * 2L;
+        var boundedChars = Math.Min(proportionalChars, MaxHexChars);
+        if (boundedChars <= 0)
+        {
+            return string.Empty;
+        }
+
+        var targetCharCount = (int)(((boundedChars + HexLineWidth - 1) / HexLineWidth) * HexLineWidth);
+        if (targetCharCount > MaxHexChars)
+        {
+            targetCharCount = MaxHexChars;
+        }
+
+        var hexChars = new StringBuilder(targetCharCount);
+        var seedText = $"{path}|{entry.ContentId}|{entry.Size}";
+        var seedBytes = SHA256.HashData(Encoding.UTF8.GetBytes(seedText));
+        var hashInput = new byte[seedBytes.Length + sizeof(int)];
+        Buffer.BlockCopy(seedBytes, 0, hashInput, 0, seedBytes.Length);
+        var counter = 0;
+
+        while (hexChars.Length < targetCharCount)
+        {
+            var counterBytes = BitConverter.GetBytes(counter++);
+            if (!BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(counterBytes);
+            }
+
+            Buffer.BlockCopy(counterBytes, 0, hashInput, seedBytes.Length, sizeof(int));
+            var chunk = SHA256.HashData(hashInput);
+            AppendLowerHex(chunk, hexChars, targetCharCount);
+        }
+
+        var lineCount = targetCharCount / HexLineWidth;
+        var lines = new string[lineCount];
+        for (var index = 0; index < lineCount; index++)
+        {
+            var offset = index * HexLineWidth;
+            lines[index] = hexChars.ToString(offset, HexLineWidth);
+        }
+
+        return string.Join('\n', lines);
+    }
+
+    private static void AppendLowerHex(byte[] bytes, StringBuilder builder, int maxChars)
+    {
+        const string alphabet = "0123456789abcdef";
+        foreach (var value in bytes)
+        {
+            if (builder.Length >= maxChars)
+            {
+                break;
+            }
+
+            builder.Append(alphabet[(value >> 4) & 0x0F]);
+            if (builder.Length >= maxChars)
+            {
+                break;
+            }
+
+            builder.Append(alphabet[value & 0x0F]);
+        }
     }
 }
 

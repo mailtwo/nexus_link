@@ -239,6 +239,20 @@ PortConfig
   - 권한 부족 시: `scan: permission denied` 에러를 반환
   - 예외: player workstation이거나 subnet 미연결(또는 이웃 없음)이면
     "인접 서버를 찾을 수 없음" 안내 문장 1줄 출력
+- `edit <path>`
+  - 파일 존재 + read 없음: `permission denied: edit` 에러
+  - 파일 존재 + `fileKind=Text`: 에디터 오픈
+    - write 있음: editable
+    - write 없음: read-only
+  - 파일 존재 + `fileKind!=Text`(`Binary`, `Image`, `Executable*`):
+    - 에디터는 항상 read-only
+    - 내용은 16진수 유사 문자열(라인당 100문자, 파일 크기 비례, 최대 표시 상한 적용)로 표시
+  - 파일 없음:
+    - write 없음: `permission denied: edit` 에러
+    - write 있음: 빈 버퍼로 오픈(new file draft)
+    - 단, 부모 경로가 없거나 디렉토리가 아니면 열기 단계에서 `not found`/`not directory` 에러
+  - 저장(`Ctrl+S`)은 별도 브리지 API `SaveEditorContent(nodeId,userId,cwd,path,content)`로 처리
+    - read-only 버퍼 저장 시 에러를 출력하고 에디터는 유지
 
 접속 성공 이벤트 규칙(v0.2):
 - `connect` 및 MiniScript `ssh.connect`가 성공하면 `privilegeAcquire` 이벤트를 발행한다.
