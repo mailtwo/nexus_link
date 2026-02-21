@@ -555,7 +555,7 @@ public sealed class SystemCallTest
         Assert.False(result.Ok);
         Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
         Assert.Single(result.Lines);
-        Assert.Contains("authentication failed", result.Lines[0], StringComparison.Ordinal);
+        Assert.Contains("Permission denied, please try again.", result.Lines[0], StringComparison.Ordinal);
     }
 
     /// <summary>Ensures connect fails when target host or user does not exist.</summary>

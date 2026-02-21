@@ -439,7 +439,7 @@ public partial class WorldRuntime
                 return true;
             }
 
-            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.PermissionDenied, "authentication failed.");
+            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.PermissionDenied, "Permission denied, please try again.");
             return false;
         }
 
