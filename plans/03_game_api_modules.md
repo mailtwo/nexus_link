@@ -82,7 +82,6 @@
 - `net.scan(subnetOrHost)` → host IP list
 - `net.ports(host)` → 열린 포트/서비스 목록(권한/탐지에 따라 가시성 차등)
 - `net.banner(host, port)` → 버전/배너(구형 컴포넌트 단서)
-- `net.connect(host, port, opts)` → connection handle
 - `net.route()` / `net.traceroute(host)` (선택)
 
 `net.scan("lan")` 구현 규칙(v0.2):
@@ -108,15 +107,19 @@
 
 ## 4) 인증/크리덴셜/암호 모듈
 
-### 4.1 auth (로그인/세션)
-- `auth.login(host, user, pass)` → session
-- `auth.logout(session)`
-- `auth.whoami(session)`
-- `auth.tokens(session)` (선택: 토큰 스코프 확인)
+### 4.1 ssh (로그인/세션)
+- `ssh.connect(hostOrIp, user, password, port=22)` → `SessionHandler`
+- `session.disconnect()` (현재 세션 연결 종료)
+- `session.whoami()` (선택)
+- `session.tokens()` (선택: 토큰 스코프 확인)
 
 로그인 host 해석 규칙(v0.2):
-- `auth.login(host, ...)`의 `host`는 기본적으로 IP를 받는다.
+- `ssh.connect(hostOrIp, ...)`의 `hostOrIp`는 host 문자열 또는 IP를 받는다.
 - 내부에서는 `ipIndex`로 `nodeId`를 역참조해 실제 서버 런타임을 조회한다.
+
+통합 규칙:
+- 서버 로그인 진입점은 `ssh.connect(...)`로 통일한다.
+- 기존 로그인 진입 API 경로는 사용하지 않는다.
 
 **공격 루트 연결**
 - 약한 비번/기본 비번/credential stuffing/스프레이

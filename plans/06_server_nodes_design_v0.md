@@ -24,9 +24,10 @@
 
 ### 0.2 SSH(가상) 규칙
 - 모든 노드는 필요 시 `22/tcp`에 `ssh` 서비스를 가진다.
-- 최소 API/명령:
-  - `ssh.login(ip, user, password)`
-  - (선택) `ssh.exec(ip, user, password, cmd)`
+- 최소 API:
+  - `ssh.connect(hostOrIp, user, password, port=22)` -> `SessionHandler`
+  - `session.disconnect()`
+  - (선택) `session.exec(cmd)`
 - 권한:
   - `guest`: 제한
   - `root`: 전체
@@ -341,7 +342,7 @@
 
 - [ ] 모든 노드에 `nodeId`, `interfaces`, `primaryIp`, `lanNeighbors(nodeId)`를 정의
 - [ ] `net.scan("lan")`은 내부 nodeId 그래프를 쓰되 결과는 IP 리스트로 반환
-- [ ] `ssh.login(ip, ...)` 입력은 `ipIndex`로 `nodeId` 역참조
+- [ ] `ssh.connect(hostOrIp, ...)` 입력은 `ipIndex`로 `nodeId` 역참조
 - [ ] OTP/unlock 레지스트리는 `targetNodeId` 기준으로 저장/조회
 - [ ] VFS 권한(guest/root) + `fs.find` 구현
 - [ ] 터미널에서 `miniscript <script>`로 MiniScript 실행 가능 (`miniscript`는 시스템콜이 아니라 실행 파일 이름)

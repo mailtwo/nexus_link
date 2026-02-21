@@ -23,7 +23,7 @@ Codex는 이 문서만 보고 런타임 모델(월드 `serverList`, `ipIndex`, `
 ### 0.2 `ipIndex`
 - 타입: `Dictionary<IP, string /*nodeId*/>`
 - 키: `ip` (게임 전체 유일)
-- 의미: IP 입력 기반 명령(`ssh.login(ip, ...)`, `auth.login(host, ...)`)을 `nodeId`로 역참조
+- 의미: IP/host 입력 기반 연결(`ssh.connect(hostOrIp, ...)`)을 `nodeId`로 역참조
 
 ### 0.3 `processList`
 - 타입: `Dictionary<int /*processId*/, ProcessStruct>`
