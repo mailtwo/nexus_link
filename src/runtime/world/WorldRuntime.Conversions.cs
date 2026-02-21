@@ -58,6 +58,7 @@ public partial class WorldRuntime
         {
             PortType = port.PortType switch
             {
+                BlueprintPortType.None => PortType.None,
                 BlueprintPortType.Ssh => PortType.Ssh,
                 BlueprintPortType.Ftp => PortType.Ftp,
                 BlueprintPortType.Http => PortType.Http,

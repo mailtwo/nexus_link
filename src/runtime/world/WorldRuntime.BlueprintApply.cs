@@ -78,6 +78,8 @@ public partial class WorldRuntime
         IReadOnlyDictionary<int, PortBlueprint> basePorts,
         IReadOnlyDictionary<int, PortOverrideBlueprint> portOverrides)
     {
+        SeedDefaultPorts(server);
+
         foreach (var portPair in basePorts)
         {
             server.Ports[portPair.Key] = ConvertPortConfig(portPair.Value);
@@ -93,6 +95,22 @@ public partial class WorldRuntime
 
             server.Ports[overridePair.Key] = ConvertPortConfig(overridePair.Value.Port);
         }
+    }
+
+    /// <summary>Seeds every server with default SSH/FTP port entries before blueprint overlays are applied.</summary>
+    private static void SeedDefaultPorts(ServerNodeRuntime server)
+    {
+        server.Ports[22] = new PortConfig
+        {
+            PortType = PortType.Ssh,
+            Exposure = PortExposure.Public,
+        };
+
+        server.Ports[21] = new PortConfig
+        {
+            PortType = PortType.Ftp,
+            Exposure = PortExposure.Public,
+        };
     }
 
     /// <summary>Copies daemon configurations and applies spawn-time overlay overrides.</summary>

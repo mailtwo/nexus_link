@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Uplink2.Blueprint;
 using Uplink2.Runtime;
 using Uplink2.Runtime.Syscalls;
 using Uplink2.Vfs;
@@ -262,6 +263,68 @@ public sealed class SystemCallTest
         Assert.Contains(expectedMessage, result.Lines[0], StringComparison.Ordinal);
     }
 
+    /// <summary>Ensures world port-merge path seeds default SSH/FTP entries before applying overlays.</summary>
+    [Fact]
+    public void ApplyPorts_SeedsDefaultPorts()
+    {
+        var blobStore = new BlobStore();
+        var baseFileSystem = new BaseFileSystem(blobStore);
+        var server = new ServerNodeRuntime("node-1", "node-1", ServerRole.Terminal, baseFileSystem, blobStore);
+
+        var applyPorts = typeof(WorldRuntime).GetMethod("ApplyPorts", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(applyPorts);
+
+        applyPorts!.Invoke(
+            null,
+            new object?[]
+            {
+                server,
+                new Dictionary<int, PortBlueprint>(),
+                new Dictionary<int, PortOverrideBlueprint>(),
+            });
+
+        Assert.True(server.Ports.TryGetValue(22, out var sshPort));
+        Assert.Equal(PortType.Ssh, sshPort!.PortType);
+        Assert.Equal(PortExposure.Public, sshPort.Exposure);
+
+        Assert.True(server.Ports.TryGetValue(21, out var ftpPort));
+        Assert.Equal(PortType.Ftp, ftpPort!.PortType);
+        Assert.Equal(PortExposure.Public, ftpPort.Exposure);
+    }
+
+    /// <summary>Ensures a declared port with the same number replaces the seeded default entry (not merge/error).</summary>
+    [Fact]
+    public void ApplyPorts_ReplacesSeededDefaultPort22_WhenDeclaredAsFtp()
+    {
+        var blobStore = new BlobStore();
+        var baseFileSystem = new BaseFileSystem(blobStore);
+        var server = new ServerNodeRuntime("node-1", "node-1", ServerRole.Terminal, baseFileSystem, blobStore);
+
+        var applyPorts = typeof(WorldRuntime).GetMethod("ApplyPorts", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(applyPorts);
+
+        applyPorts!.Invoke(
+            null,
+            new object?[]
+            {
+                server,
+                new Dictionary<int, PortBlueprint>
+                {
+                    [22] = new PortBlueprint
+                    {
+                        PortType = BlueprintPortType.Ftp,
+                        Exposure = BlueprintPortExposure.Public,
+                    },
+                },
+                new Dictionary<int, PortOverrideBlueprint>(),
+            });
+
+        Assert.True(server.Ports.TryGetValue(22, out var port22));
+        Assert.Equal(PortType.Ftp, port22!.PortType);
+        Assert.Equal(PortExposure.Public, port22.Exposure);
+        Assert.NotEqual(PortType.Ssh, port22.PortType);
+    }
+
     /// <summary>Ensures connect succeeds with static auth and creates server session entry.</summary>
     [Fact]
     public void Execute_Connect_Succeeds_WithStaticAuth()
@@ -367,6 +430,42 @@ public sealed class SystemCallTest
         Assert.False(result.Ok);
         Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
         Assert.Contains("is not ssh", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures SSH connect fails when port 22 is overwritten as FTP.</summary>
+    [Fact]
+    public void Execute_Connect_Fails_WhenPort22IsOverwrittenAsFtp()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw", portType: PortType.Ftp);
+
+        var result = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-port22-ftp");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("is not ssh", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures unassigned ports (portType none) are treated as unavailable regardless of exposure.</summary>
+    [Fact]
+    public void Execute_Connect_Fails_WhenPortTypeIsNone()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(
+            harness,
+            "node-2",
+            "remote",
+            "10.0.1.20",
+            AuthMode.Static,
+            "pw",
+            portType: PortType.None,
+            exposure: PortExposure.Localhost);
+
+        var result = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-port-none");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFound, result.Code);
+        Assert.Contains("port not available", result.Lines[0], StringComparison.Ordinal);
     }
 
     /// <summary>Ensures connect enforces lan/localhost exposure rules.</summary>

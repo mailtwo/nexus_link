@@ -29,7 +29,8 @@ internal sealed class ConnectCommandHandler : ISystemCallHandler
             return SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"server offline: {targetServer.NodeId}");
         }
 
-        if (!targetServer.Ports.TryGetValue(parsed.Port, out var targetPort))
+        if (!targetServer.Ports.TryGetValue(parsed.Port, out var targetPort) ||
+            targetPort.PortType == PortType.None)
         {
             return SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"port not available: {parsed.Port}");
         }

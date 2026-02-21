@@ -56,9 +56,10 @@ public enum AuthMode
     Other,
 }
 
-/// <summary>Service protocol type for a port.</summary>
+/// <summary>Service protocol type for a port (`None` means unassigned).</summary>
 public enum PortType
 {
+    None,
     Ssh,
     Ftp,
     Http,

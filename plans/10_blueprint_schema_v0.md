@@ -65,7 +65,25 @@ UserBlueprint
 - 블루프린트에서 특정 계정을 가리킬 때는 `userId`가 아니라 **`userKey`** 를 사용한다.  
   (`userId`는 AUTO로 변할 수 있으나 `userKey`는 항상 고정이기 때문)
 
-### 1.2 DaemonBlueprint: OTP (인증 모듈 설정)
+### 1.2 PortConfig
+
+```text
+PortConfig
+- portType: ENUM { none, ssh, ftp, http, sql }
+- serviceId?: string
+- exposure: ENUM { public, lan, localhost }
+```
+
+규칙(v0.2):
+- 모든 서버는 월드 생성 시 기본 포트 시드를 가진다.
+  - `22`: `{ portType: ssh, exposure: public }`
+  - `21`: `{ portType: ftp, exposure: public }`
+- 이후 `ServerSpec.ports`와 `ServerSpawnBlueprint.ports` overlay가 같은 `portNum`을 정의하면 해당 값으로 교체된다.
+- `portType=none`이면 해당 포트는 비할당(unassigned) 상태로 간주한다.
+  - 비할당 포트는 연결 가능한 서비스가 없는 것으로 판정한다.
+  - 이 경우 `exposure` 값은 입력 가능하지만 런타임 판정에서 무시된다.
+
+### 1.3 DaemonBlueprint: OTP (인증 모듈 설정)
 
 v0에서는 “데몬”을 실제 백그라운드 프로세스라기보다, **서버의 인증 모듈 설정**으로 취급한다.
 
@@ -145,6 +163,7 @@ ServerSpawnBlueprint
 - `ports[portNum] = None` → 해당 포트 제거
 - `daemons[type] = None` → 해당 데몬 제거
 - `overlayEntries[path] = None` → 해당 path 제거
+- 주의: `ports[portNum] = None`(YAML null)은 "키 삭제"이고, `ports[portNum].portType = none`은 "키 유지 + 비할당"이다.
 
 ### 2.2 InterfaceBlueprint (네트워크 인터페이스 + 노출)
 

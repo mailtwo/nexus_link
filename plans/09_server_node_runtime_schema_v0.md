@@ -189,10 +189,21 @@ SessionConfig
 
 ```text
 PortConfig
-- portType: ENUM { SSH, FTP, HTTP, SQL }
+- portType: ENUM { NONE, SSH, FTP, HTTP, SQL }
 - serviceId?: string
 - exposure: ENUM { public, lan, localhost }
 ```
+
+기본 포트 시드 규칙(v0.2):
+- 모든 서버는 생성 시 아래 기본 포트를 가진 상태로 시작한다.
+  - `22`: `{ portType: SSH, exposure: public }`
+  - `21`: `{ portType: FTP, exposure: public }`
+- 이후 ServerSpec/Scenario overlay가 같은 `portNum`을 정의하면 해당 값으로 통째로 교체된다.
+
+`portType` 판정 규칙(v0.2):
+- `NONE`: 비할당(unassigned) 포트로 간주한다.
+- 비할당 포트는 해당 `portNum`이 존재해도 “사용 가능한 서비스 없음”으로 판정한다.
+- `NONE`일 때 `exposure` 값은 무시된다.
 
 `exposure` 판정 규칙(v0.2):
 - 용어: `source`는 접속을 시도하는 서버, `target`은 해당 포트를 가진 서버
@@ -335,6 +346,8 @@ LogStruct
 - [ ] `users`를 `userKey` 키로 관리하고 `UserConfig.userId`를 필수값으로 저장
 - [ ] 세션/프로세스 내부 참조는 `userKey`, 표시/로그는 `userId` 사용
 - [ ] `lanNeighbors`를 nodeId 기반으로 유지하고 `net.scan("lan")`은 IP 목록 반환
+- [ ] 서버 생성 시 기본 포트(`22:SSH/public`, `21:FTP/public`)를 시드하고 overlay로 덮어쓰기/삭제를 반영
+- [ ] `portType=NONE`을 비할당 포트로 취급하고 해당 포트의 `exposure`를 무시
 - [ ] OTP daemon 참조를 `userKey` 기준으로 검증
 - [ ] `connectionRateLimiter` daemon 구현: `monitorMs/threshold/blockMs/rateLimit/recoveryMs` 규칙 반영
 - [ ] 프로세스 tick: `now >= endAt` 처리 + 서버 reason 보호 규칙

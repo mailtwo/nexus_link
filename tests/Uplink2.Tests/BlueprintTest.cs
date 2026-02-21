@@ -182,6 +182,30 @@ public sealed class BlueprintTest
             spec.DiskOverlay.OverlayEntries["/opt/bin/hard_exec"].FileKind);
     }
 
+    /// <summary>Ensures PortConfig accepts portType none for unassigned-port declarations.</summary>
+    [Fact]
+    public void ReadFiles_ParsesPortTypeNone()
+    {
+        using var scope = TempDirScope.Create();
+        var yamlPath = scope.WriteFile(
+            "ports_none.yaml",
+            """
+            ServerSpec:
+              spec_none_port:
+                ports:
+                  22:
+                    portType: none
+                    exposure: localhost
+            """);
+
+        var reader = new BlueprintYamlReader();
+        var catalog = reader.ReadFiles(new[] { yamlPath });
+        var spec = catalog.ServerSpecs["spec_none_port"];
+
+        Assert.Equal(BlueprintPortType.None, spec.Ports[22].PortType);
+        Assert.Equal(BlueprintPortExposure.Localhost, spec.Ports[22].Exposure);
+    }
+
     /// <summary>Ensures invalid fileKind values are accumulated into one read exception.</summary>
     [Fact]
     public void ReadFiles_InvalidFileKinds_AggregatesErrors()

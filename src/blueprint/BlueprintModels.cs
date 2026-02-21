@@ -61,9 +61,10 @@ public enum BlueprintDaemonType
     ConnectionRateLimiter,
 }
 
-/// <summary>Port protocol type.</summary>
+/// <summary>Port protocol type (`None` means unassigned).</summary>
 public enum BlueprintPortType
 {
+    None,
     Ssh,
     Ftp,
     Http,
