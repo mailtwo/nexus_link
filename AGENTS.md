@@ -15,6 +15,7 @@ This project follows context7 principles:
 - For this project, implement features based on the markdown files in the `plans/` folder by default.
 - If the developer does not specify details, use the relevant `plans/` documents as the source of truth.
 - If a request conflicts with the `plans/` documents, ask the developer for confirmation before proceeding.
+- Files in `plans/` are UTF-8 encoded; when reading them in tools/shell, explicitly use UTF-8 encoding.
 
 ### Code Documentation Policy
 - Add XML docstrings for all `public`/`protected` classes and members.
@@ -26,3 +27,8 @@ This project follows context7 principles:
 ### C# Source Layout Policy
 - Put all C# game-logic code under `src/`.
 - Use subfolders inside `src/` (for example `src/runtime`, `src/vfs`) instead of creating C# logic folders at project root.
+
+### MiniScript Vendor Boundary Policy
+- Treat `src/MiniScript-cs/` as vendored upstream code and do not modify files in this folder unless the developer explicitly requests it.
+- Implement project-specific MiniScript intrinsic bindings/integration outside `src/MiniScript-cs/` (for example under `src/runtime/miniscript`).
+- If intrinsic/API behavior needs changes, prefer wrapper/adapter/registration code in project runtime first; only patch vendored sources as a last resort with explicit developer approval.
