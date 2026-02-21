@@ -50,6 +50,14 @@
    - 월드 런타임의 **서버/프로세스/세션/디스크 오버레이** 등 핵심 상태를 담는 스키마(v0)  
    - `serverList(nodeId key)` + `ipIndex` + `processList` 단일 진실 원칙, reboot/프로세스 완료 규칙, subnet/exposure 런타임 모델 포함
 
+10) **10_blueprint_schema_v0.md**
+   - 콘텐츠 데이터를 정의하는 **Blueprint 스키마(v0)** 문서  
+   - `ServerSpec / Scenario / Campaign` 구조, `interfaces/subnetTopology/events` 규칙, overlay 병합/검증 규칙 포함
+
+11) **11_event_handler_spec_v0_1.md**
+   - 전역 이벤트 큐 기반 **Event Handler 시스템(v0.1)** 문서  
+   - `processFinished/privilegeAcquire/fileAcquire` 처리, 인덱싱 디스패치, `guardContent(MiniScript)` 실행 예산/오류 정책 포함
+
 
 ---
 
@@ -64,6 +72,8 @@
 - **탐지/긴장감**: 로깅/모니터링 시스템 + Trace 게이지(소음/은밀함 트레이드오프)
 - **디스크 모델**: 공통 BaseFS + 서버별 OverlayFS(tombstone 포함) + BlobStore 중복 제거(08 문서)
 - **런타임 스키마**: `serverList(nodeId key)`/`ipIndex`/`processList` 중심(단일 진실) + subnet/exposure 상태 캐시 + reboot/프로세스 완료 규칙(09 문서)
+- **블루프린트 스키마**: `ServerSpec/Scenario/Campaign` + 인터페이스/IP/토폴로지/이벤트 데이터 계약(10 문서)
+- **이벤트 시스템**: condition 인덱싱 + once-only 디스패치 + MiniScript guard(`guardContent`) + tick 예산 기반 실행(11 문서)
 
 ---
 
@@ -87,7 +97,7 @@
 - **안전장치**: 무한루프/메모리 폭주/크래시 방지, 스크립트 타임아웃, 보호된 API 경계
 - **밸런싱**: 자동화가 게임을 “혼자 돌리는” 상태로 가지 않게 하는 장치(수동 퍼즐/이벤트/탐지 강화)
 - **세이브/로드/리플레이**: 미션 상태, 서버 상태, 유저 스크립트 버전 관리
-- **튜토리얼/학습曲線**: 초반 30분에 코딩 경험 없는 유저도 “성공 경험”을 얻게 만들기
+- **튜토리얼/학습곡선**: 초반 30분에 코딩 경험 없는 유저도 “성공 경험”을 얻게 만들기
 - **난이도 조절**: 공격 난이도/방어 강도/로그 감도/시간 제한을 데이터로 튜닝 가능하게
 - **법/윤리 톤**: 실제 해킹 조장으로 보이지 않게 ‘시뮬레이션/교육’ 톤을 유지(페이로드/실전 절차는 추상화)
 
