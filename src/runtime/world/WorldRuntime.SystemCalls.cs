@@ -18,7 +18,7 @@ public partial class WorldRuntime
         systemCallProcessor = new SystemCallProcessor(this, modules);
     }
 
-    /// <summary>Executes a terminal system call against world runtime state.</summary>
+    /// <summary>Executes a terminal system call through the internal processor; use this public entry point for black-box tests instead of exposing internal handlers.</summary>
     public SystemCallResult ExecuteSystemCall(SystemCallRequest request)
     {
         if (request is null)
