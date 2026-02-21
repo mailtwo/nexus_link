@@ -1,0 +1,15 @@
+D:\Users\redbl\Documents\GodotProjects\uplink-2\src\MiniScript-cs\bin\Debug\net8.0\Miniscript.exe
+D:\Users\redbl\Documents\GodotProjects\uplink-2\src\MiniScript-cs\bin\Debug\net8.0\Miniscript.deps.json
+D:\Users\redbl\Documents\GodotProjects\uplink-2\src\MiniScript-cs\bin\Debug\net8.0\Miniscript.runtimeconfig.json
+D:\Users\redbl\Documents\GodotProjects\uplink-2\src\MiniScript-cs\bin\Debug\net8.0\Miniscript.dll
+D:\Users\redbl\Documents\GodotProjects\uplink-2\src\MiniScript-cs\bin\Debug\net8.0\Miniscript.pdb
+D:\Users\redbl\Documents\GodotProjects\uplink-2\src\MiniScript-cs\obj\Debug\net8.0\Miniscript.GeneratedMSBuildEditorConfig.editorconfig
+D:\Users\redbl\Documents\GodotProjects\uplink-2\src\MiniScript-cs\obj\Debug\net8.0\Miniscript.AssemblyInfoInputs.cache
+D:\Users\redbl\Documents\GodotProjects\uplink-2\src\MiniScript-cs\obj\Debug\net8.0\Miniscript.AssemblyInfo.cs
+D:\Users\redbl\Documents\GodotProjects\uplink-2\src\MiniScript-cs\obj\Debug\net8.0\Miniscript.csproj.CoreCompileInputs.cache
+D:\Users\redbl\Documents\GodotProjects\uplink-2\src\MiniScript-cs\obj\Debug\net8.0\Miniscript.sourcelink.json
+D:\Users\redbl\Documents\GodotProjects\uplink-2\src\MiniScript-cs\obj\Debug\net8.0\Miniscript.dll
+D:\Users\redbl\Documents\GodotProjects\uplink-2\src\MiniScript-cs\obj\Debug\net8.0\refint\Miniscript.dll
+D:\Users\redbl\Documents\GodotProjects\uplink-2\src\MiniScript-cs\obj\Debug\net8.0\Miniscript.pdb
+D:\Users\redbl\Documents\GodotProjects\uplink-2\src\MiniScript-cs\obj\Debug\net8.0\Miniscript.genruntimeconfig.cache
+D:\Users\redbl\Documents\GodotProjects\uplink-2\src\MiniScript-cs\obj\Debug\net8.0\ref\Miniscript.dll

@@ -19,7 +19,8 @@ public enum VfsFileKind
     Text,
     Binary,
     Image,
-    Executable,
+    ExecutableScript,
+    ExecutableHardcode,
 }
 
 /// <summary>Metadata for a single VFS entry.</summary>
@@ -60,13 +61,26 @@ public sealed class VfsEntryMeta
     /// <summary>Returns true when this entry is directly executable as a command target.</summary>
     public bool IsDirectExecutable()
     {
-        return EntryKind == VfsEntryKind.File && FileKind == VfsFileKind.Executable;
+        return EntryKind == VfsEntryKind.File &&
+               (FileKind == VfsFileKind.ExecutableScript || FileKind == VfsFileKind.ExecutableHardcode);
+    }
+
+    /// <summary>Returns true when this entry should be treated like a binary executable blob.</summary>
+    public bool IsBinaryLikeExecutable()
+    {
+        return IsDirectExecutable();
+    }
+
+    /// <summary>Returns true when this entry is a plain text content file.</summary>
+    public bool IsReadableTextContent()
+    {
+        return EntryKind == VfsEntryKind.File && FileKind == VfsFileKind.Text;
     }
 
     /// <summary>Returns true when this entry can be passed as a MiniScript source argument.</summary>
     public bool IsMiniScriptSource()
     {
-        return EntryKind == VfsEntryKind.File && FileKind == VfsFileKind.Text;
+        return IsReadableTextContent();
     }
 }
 

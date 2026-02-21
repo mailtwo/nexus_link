@@ -344,4 +344,7 @@
 - [ ] `ssh.login(ip, ...)` 입력은 `ipIndex`로 `nodeId` 역참조
 - [ ] OTP/unlock 레지스트리는 `targetNodeId` 기준으로 저장/조회
 - [ ] VFS 권한(guest/root) + `fs.find` 구현
-- [ ] 터미널에서 `run <script>`로 MiniScript 실행 가능
+- [ ] 터미널에서 `miniscript <script>`로 MiniScript 실행 가능 (`miniscript`는 시스템콜이 아니라 실행 파일 이름)
+- [ ] 시스템콜 미일치 시 `cwd`/`PATH(/opt/bin)` 순서로 프로그램 탐색 실행
+- [ ] 상대경로 실행(`../prog`, `./dir/prog`) 동작 확인
+- [ ] 프로젝트 `DEBUG` 옵션 ON 시에만 `DEBUG_miniscript <script>` 시스템콜 활성화(개발/검증 전용)

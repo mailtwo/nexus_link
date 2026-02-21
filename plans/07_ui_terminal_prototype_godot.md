@@ -158,7 +158,10 @@ MVP에서는 `Ctrl+S`, `Esc`만 있어도 충분.
 
 ### 6.4 코딩/프로그램
 - `edit <file>`: 에디터 오버레이 열기
-- `run <file|program>`: MiniScript 프로그램 실행(가상 API만 사용)
+- `miniscript <script>`: MiniScript 프로그램 실행(가상 API만 사용)
+  - `miniscript`는 시스템콜이 아니라 VFS 프로그램 이름(예: `/opt/bin/miniscript`)
+  - 상대경로 인자 예시: `./tools/miniscript ../scripts/a.ms`
+- `DEBUG_miniscript <script>`: 개발 중 스크립트 검증용 시스템콜(프로젝트 `DEBUG` 옵션 ON일 때만 활성화)
 
 ---
 
@@ -201,9 +204,9 @@ MVP에서는 `Ctrl+S`, `Esc`만 있어도 충분.
 ---
 
 ## 9) 프로토타입 성공 기준(Definition of Done)
-- 단일 터미널 화면에서 `ls/cd/cat/edit/save/run/ping`이 동작한다.
+- 단일 터미널 화면에서 `ls/cd/cat/edit/save/miniscript <script>/ping`이 동작한다. (`miniscript`는 프로그램 실행 경로)
 - 출력 스크롤백이 자연스럽고, 클릭 보조 UX가 최소 2가지 이상 동작한다.
-- 에디터에서 파일 수정→저장→`run`으로 결과 확인 가능.
+- 에디터에서 파일 수정→저장→`miniscript <script>`로 결과 확인 가능.
 - 전체 경험이 “리눅스 터미널 같다”는 인상을 준다.
 
 ---

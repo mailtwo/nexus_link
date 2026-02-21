@@ -12,7 +12,7 @@ public partial class WorldRuntime
     {
         ISystemCallModule[] modules =
         {
-            new VfsSystemCallModule(),
+            new VfsSystemCallModule(enableDebugCommands: DebugOption),
         };
 
         systemCallProcessor = new SystemCallProcessor(this, modules);

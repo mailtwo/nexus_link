@@ -111,7 +111,8 @@ public partial class WorldRuntime
             BlueprintFileKind.Text => VfsFileKind.Text,
             BlueprintFileKind.Binary => VfsFileKind.Binary,
             BlueprintFileKind.Image => VfsFileKind.Image,
-            BlueprintFileKind.Executable => VfsFileKind.Executable,
+            BlueprintFileKind.ExecutableScript => VfsFileKind.ExecutableScript,
+            BlueprintFileKind.ExecutableHardcode => VfsFileKind.ExecutableHardcode,
             _ => throw new InvalidDataException($"Unsupported file kind: {fileKind}."),
         };
     }

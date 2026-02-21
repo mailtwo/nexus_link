@@ -58,7 +58,7 @@
 
 `EntryMeta` 최소 필드:
 - `entryKind: File | Dir`
-- `fileKind` (File일 때): `Text | Binary | Image | Executable`
+- `fileKind` (File일 때): `Text | Binary | Image | ExecutableScript | ExecutableHardcode`
 - `contentId` (File일 때)
 - (선택) `size`, `mtime`, `owner`, `perms`
 
@@ -67,13 +67,24 @@
 - 빈 디렉토리를 유지하려면 `EntryMeta(entryKind=Dir)`로 명시적으로 만든다(`mkdir`).
 
 파일 실행 가능성 규칙(v0):
-- 직접 실행(`helloWorld.ms`처럼 파일 경로를 바로 명령으로 실행)은 `fileKind == Executable`에서만 허용
+- 직접 실행은 `fileKind == ExecutableScript | ExecutableHardcode`에서만 허용
 - `fileKind == Text`는 **직접 실행 불가**
-- MiniScript 스크립트 실행은 `miniscript <scriptPath>` 형태로만 허용
-  - `miniscript` 실행 파일(또는 동일 역할 커맨드)이 실행 가능 상태여야 함
-  - `<scriptPath>`는 `fileKind == Text`이면 확장자와 무관하게 실행 시도 가능
+- `ExecutableScript`:
+  - 파일 내용은 MiniScript 소스 텍스트
+  - 파일명을 직접 실행하면 내장 MiniScript 인터프리터로 실행
+- `ExecutableHardcode`:
+  - 파일 내용은 `executableId` 텍스트
+  - 파일명을 직접 실행하면 `executableId` 기반 dispatcher로 실행
+- MiniScript 스크립트 실행은 `miniscript <scriptPath>` 형태를 지원
+  - `miniscript`는 **시스템콜이 아니라 VFS 실행 파일 이름**이다(예: `/opt/bin/miniscript`)
+  - `<scriptPath>`는 `fileKind == Text`면 확장자와 무관하게 실행 시도 가능
   - 스크립트가 MiniScript 문법/런타임 조건을 만족하지 않으면 인터프리터 오류 반환
+- 개발/검증 전용 예외:
+  - 프로젝트 `DEBUG` 옵션이 켜진 경우에 한해 `DEBUG_miniscript <scriptPath>` 시스템콜을 임시 허용할 수 있다
 - 확장자(예: `.ms`)는 실행 가능성 판정 키가 아니라 표시/편의용 메타데이터로만 취급
+- 실행계열 파일(`ExecutableScript`, `ExecutableHardcode`)은 바이너리처럼 취급:
+  - `cat`/`vim`/`edit` 대상에서 차단
+  - 권장 오류 문구: `error: cannot read executable file: <path>`
 
 ---
 
@@ -99,6 +110,28 @@
 ### 4.3 find(dir, pattern)
 - MVP는 DFS/BFS 재귀 탐색
 - 자식 목록은 `ls(dir)`를 사용해 tombstone/override를 자동 반영
+
+### 4.4 명령 실행 해석(시스템콜 + 프로그램 fallback)
+- 디스패치 순서:
+  1) 시스템콜 registry 조회
+  2) 미일치 시 프로그램 실행 탐색
+  3) 최종 미해결 시 `unknown command`
+- 프로그램 탐색 규칙(PATH 하드코딩):
+  - `PATH = ["/opt/bin"]`
+  - `command`에 `/`가 포함되면 `Normalize(cwd, command)`만 시도하고 PATH는 탐색하지 않음
+  - `/`가 없으면 순서대로:
+    1) `Normalize(cwd, command)`
+    2) `/opt/bin/<command>`
+- 상대경로 실행 지원:
+  - `../prog`, `./tools/prog` 모두 `Normalize(cwd, command)`로 해석
+- 실행 권한:
+  - 프로그램 실행은 `read + execute` 둘 다 필요
+
+### 4.5 ExecutableHardcode 미등록 ID 처리
+- `ExecutableHardcode` 실행 시 `executableId`가 빈값/미등록이면 사용자 응답은 `unknown command: <command>`로 통일
+- 내부 디버그 로그:
+  - `WorldRuntime.DebugOption == true`일 때만 `GD.PushWarning(...)` 출력
+  - 권장 포함 필드: `command`, `resolvedProgramPath`, `executableId`, `nodeId`, `userKey`, `cwd`
 
 ---
 
@@ -228,3 +261,7 @@
 - [ ] 경로 Normalize + cd .. 동작 확인
 - [ ] 현재 디렉토리 삭제 금지 처리(`rmdir .` 에러)
 - [ ] BlobStore(refCount) 기본 동작 + overlay 파일 교체/삭제 시 refCount 감소
+- [ ] `fileKind` 확장 반영(`ExecutableScript`, `ExecutableHardcode`)
+- [ ] 시스템콜 미일치 시 프로그램 fallback + `PATH=/opt/bin` + 상대경로 실행 확인
+- [ ] 실행계열 파일 `cat`/`vim`/`edit` 차단 규칙 적용
+- [ ] `ExecutableHardcode` 미등록 ID 시 사용자 `unknown command` 유지 + DEBUG warning 로그 출력

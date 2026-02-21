@@ -36,6 +36,10 @@ public partial class WorldRuntime : Node
     [Export]
     public string DictionaryPasswordFile { get; set; } = DefaultDictionaryPasswordFile;
 
+    /// <summary>Enables debug-only runtime features such as DEBUG_* system calls.</summary>
+    [Export]
+    public bool DebugOption { get; set; }
+
     /// <summary>Global runtime instance.</summary>
     public static WorldRuntime Instance { get; private set; }
 

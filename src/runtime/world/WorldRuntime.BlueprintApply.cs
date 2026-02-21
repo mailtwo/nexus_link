@@ -249,7 +249,9 @@ public partial class WorldRuntime
             throw new FileNotFoundException($"Blueprint content file not found: {contentId}", absolutePath);
         }
 
-        if (fileKind == BlueprintFileKind.Text)
+        if (fileKind == BlueprintFileKind.Text ||
+            fileKind == BlueprintFileKind.ExecutableScript ||
+            fileKind == BlueprintFileKind.ExecutableHardcode)
         {
             return File.ReadAllText(absolutePath, Encoding.UTF8);
         }

@@ -2,12 +2,16 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Miniscript;
+using Uplink2.Runtime.MiniScript;
 using Uplink2.Vfs;
 
 namespace Uplink2.Runtime.Syscalls;
 
 internal abstract class VfsCommandHandlerBase : ISystemCallHandler
 {
+    private const string ExecutableReadErrorPrefix = "error: cannot read executable file: ";
+
     public abstract string Command { get; }
 
     public abstract SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments);
@@ -36,6 +40,18 @@ internal abstract class VfsCommandHandlerBase : ISystemCallHandler
         return false;
     }
 
+    protected static bool RequireExecute(SystemCallExecutionContext context, string command, out SystemCallResult result)
+    {
+        if (context.User.Privilege.Execute)
+        {
+            result = SystemCallResultFactory.Success();
+            return true;
+        }
+
+        result = SystemCallResultFactory.PermissionDenied(command);
+        return false;
+    }
+
     protected static string NormalizePath(SystemCallExecutionContext context, string inputPath)
     {
         return BaseFileSystem.NormalizePath(context.Cwd, inputPath);
@@ -55,6 +71,16 @@ internal abstract class VfsCommandHandlerBase : ISystemCallHandler
         }
 
         return normalizedPath[..index];
+    }
+
+    protected static bool IsEditorReadableFile(VfsEntryMeta entry)
+    {
+        return !entry.IsBinaryLikeExecutable();
+    }
+
+    protected static SystemCallResult ExecutableReadDenied(string path)
+    {
+        return SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, ExecutableReadErrorPrefix + path);
     }
 }
 
@@ -221,6 +247,11 @@ internal sealed class CatCommandHandler : VfsCommandHandlerBase
             return SystemCallResultFactory.NotFile(targetPath);
         }
 
+        if (!IsEditorReadableFile(entry))
+        {
+            return ExecutableReadDenied(targetPath);
+        }
+
         if (!context.Server.DiskOverlay.TryReadFileText(targetPath, out var content))
         {
             return SystemCallResultFactory.NotFile(targetPath);
@@ -281,6 +312,151 @@ internal sealed class MkdirCommandHandler : VfsCommandHandlerBase
 
         context.Server.DiskOverlay.AddDirectory(targetPath);
         return SystemCallResultFactory.Success();
+    }
+}
+
+internal sealed class DebugMiniScriptCommandHandler : VfsCommandHandlerBase
+{
+    public override string Command => "DEBUG_miniscript";
+
+    public override SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count != 1)
+        {
+            return SystemCallResultFactory.Usage("DEBUG_miniscript <script>");
+        }
+
+        if (!RequireRead(context, Command, out var readPermissionResult))
+        {
+            return readPermissionResult;
+        }
+
+        if (!RequireExecute(context, Command, out var executePermissionResult))
+        {
+            return executePermissionResult;
+        }
+
+        var scriptPath = NormalizePath(context, arguments[0]);
+        if (!context.Server.DiskOverlay.TryResolveEntry(scriptPath, out var scriptEntry))
+        {
+            return SystemCallResultFactory.NotFound(scriptPath);
+        }
+
+        if (scriptEntry.EntryKind != VfsEntryKind.File)
+        {
+            return SystemCallResultFactory.NotFile(scriptPath);
+        }
+
+        if (scriptEntry.FileKind != VfsFileKind.Text && scriptEntry.FileKind != VfsFileKind.ExecutableScript)
+        {
+            return SystemCallResultFactory.Failure(
+                SystemCallErrorCode.InvalidArgs,
+                "DEBUG_miniscript source must be text or executable script: " + scriptPath);
+        }
+
+        if (!context.Server.DiskOverlay.TryReadFileText(scriptPath, out var scriptSource))
+        {
+            return SystemCallResultFactory.NotFile(scriptPath);
+        }
+
+        return MiniScriptExecutionRunner.ExecuteScript(scriptSource);
+    }
+}
+
+internal static class MiniScriptExecutionRunner
+{
+    private const double TimeSliceSeconds = 0.01;
+    private const double MaxRuntimeSeconds = 2.0;
+
+    internal static SystemCallResult ExecuteScript(string scriptSource)
+    {
+        var standardOutput = new ScriptOutputCollector();
+        var errorOutput = new ScriptOutputCollector();
+
+        try
+        {
+            var interpreter = new Interpreter(scriptSource, standardOutput.Append, errorOutput.Append)
+            {
+                implicitOutput = standardOutput.Append,
+            };
+
+            MiniScriptCryptoIntrinsics.InjectCryptoModule(interpreter);
+            var deadlineUtc = DateTime.UtcNow.AddSeconds(MaxRuntimeSeconds);
+            while (!interpreter.done)
+            {
+                interpreter.RunUntilDone(TimeSliceSeconds, returnEarly: false);
+                if (DateTime.UtcNow >= deadlineUtc)
+                {
+                    return SystemCallResultFactory.Failure(
+                        SystemCallErrorCode.InternalError,
+                        "miniscript execution timed out.");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            return SystemCallResultFactory.Failure(
+                SystemCallErrorCode.InternalError,
+                "miniscript execution failed: " + ex.Message);
+        }
+
+        var stdoutLines = standardOutput.ToLines();
+        var stderrLines = errorOutput.ToLines();
+        if (stderrLines.Count == 0)
+        {
+            return SystemCallResultFactory.Success(lines: stdoutLines);
+        }
+
+        var lines = new List<string>(stdoutLines.Count + stderrLines.Count);
+        lines.AddRange(stdoutLines);
+        foreach (var line in stderrLines)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                lines.Add("error: miniscript execution failed.");
+                continue;
+            }
+
+            lines.Add(line.StartsWith("error:", StringComparison.OrdinalIgnoreCase) ? line : "error: " + line);
+        }
+
+        return new SystemCallResult
+        {
+            Ok = false,
+            Code = SystemCallErrorCode.InternalError,
+            Lines = lines,
+        };
+    }
+
+    private sealed class ScriptOutputCollector
+    {
+        private readonly List<string> lines = new();
+        private readonly StringBuilder pending = new();
+
+        internal void Append(string text, bool addLineBreak)
+        {
+            if (!string.IsNullOrEmpty(text))
+            {
+                pending.Append(text);
+            }
+
+            if (addLineBreak)
+            {
+                lines.Add(pending.ToString());
+                pending.Clear();
+            }
+        }
+
+        internal IReadOnlyList<string> ToLines()
+        {
+            if (pending.Length > 0)
+            {
+                lines.Add(pending.ToString());
+                pending.Clear();
+            }
+
+            return lines;
+        }
     }
 }
 

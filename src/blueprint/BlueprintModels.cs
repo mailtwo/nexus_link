@@ -91,7 +91,8 @@ public enum BlueprintFileKind
     Text,
     Binary,
     Image,
-    Executable,
+    ExecutableScript,
+    ExecutableHardcode,
 }
 
 /// <summary>Event trigger category.</summary>

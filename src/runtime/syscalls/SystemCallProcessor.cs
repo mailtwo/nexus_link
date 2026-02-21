@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Uplink2.Vfs;
 
 #nullable enable
@@ -9,8 +10,19 @@ namespace Uplink2.Runtime.Syscalls;
 
 internal sealed class SystemCallProcessor
 {
+    private static readonly string[] ProgramPathDirectories =
+    {
+        "/opt/bin",
+    };
+
     private readonly WorldRuntime world;
     private readonly SystemCallRegistry registry = new();
+    private readonly Dictionary<string, Func<SystemCallExecutionContext, IReadOnlyList<string>, SystemCallResult>> hardcodedExecutableHandlers =
+        new(StringComparer.Ordinal)
+        {
+            ["noop"] = static (_, _) => SystemCallResultFactory.Success(),
+            ["miniscript"] = ExecuteMiniScriptProgram,
+        };
 
     internal SystemCallProcessor(WorldRuntime world, IEnumerable<ISystemCallModule> modules)
     {
@@ -38,15 +50,20 @@ internal sealed class SystemCallProcessor
             return SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, parseError);
         }
 
-        if (!registry.TryGetHandler(command, out var handler))
-        {
-            return SystemCallResultFactory.Failure(SystemCallErrorCode.UnknownCommand, $"unknown command: {command}");
-        }
-
         var contextResult = TryCreateContext(request, out var context);
         if (!contextResult.Ok)
         {
             return contextResult;
+        }
+
+        if (!registry.TryGetHandler(command, out var handler))
+        {
+            if (TryExecuteProgram(context!, command, arguments, out var programResult))
+            {
+                return programResult;
+            }
+
+            return SystemCallResultFactory.Failure(SystemCallErrorCode.UnknownCommand, $"unknown command: {command}");
         }
 
         try
@@ -104,5 +121,198 @@ internal sealed class SystemCallProcessor
             userKey,
             normalizedCwd);
         return SystemCallResultFactory.Success();
+    }
+
+    private bool TryExecuteProgram(
+        SystemCallExecutionContext context,
+        string command,
+        IReadOnlyList<string> arguments,
+        out SystemCallResult result)
+    {
+        result = SystemCallResultFactory.Success();
+
+        if (!TryResolveProgramPath(context, command, out var resolvedProgramPath, out var resolvedProgramEntry))
+        {
+            return false;
+        }
+
+        if (!context.User.Privilege.Read || !context.User.Privilege.Execute)
+        {
+            result = SystemCallResultFactory.PermissionDenied(command);
+            return true;
+        }
+
+        if (resolvedProgramEntry!.FileKind == VfsFileKind.ExecutableScript)
+        {
+            return TryExecuteScriptProgram(context, resolvedProgramPath, out result);
+        }
+
+        if (resolvedProgramEntry.FileKind == VfsFileKind.ExecutableHardcode)
+        {
+            return TryExecuteHardcodedProgram(context, command, resolvedProgramPath, arguments, out result);
+        }
+
+        return false;
+    }
+
+    private static bool TryResolveProgramPath(
+        SystemCallExecutionContext context,
+        string command,
+        out string resolvedProgramPath,
+        out VfsEntryMeta? resolvedProgramEntry)
+    {
+        resolvedProgramPath = string.Empty;
+        resolvedProgramEntry = null;
+
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            return false;
+        }
+
+        var candidatePaths = new List<string>();
+        if (command.Contains("/", StringComparison.Ordinal))
+        {
+            candidatePaths.Add(BaseFileSystem.NormalizePath(context.Cwd, command));
+        }
+        else
+        {
+            candidatePaths.Add(BaseFileSystem.NormalizePath(context.Cwd, command));
+            foreach (var searchDir in ProgramPathDirectories)
+            {
+                var joined = searchDir.EndsWith("/", StringComparison.Ordinal)
+                    ? searchDir + command
+                    : searchDir + "/" + command;
+                candidatePaths.Add(BaseFileSystem.NormalizePath("/", joined));
+            }
+        }
+
+        foreach (var candidatePath in candidatePaths.Distinct(StringComparer.Ordinal))
+        {
+            if (!context.Server.DiskOverlay.TryResolveEntry(candidatePath, out var entry))
+            {
+                continue;
+            }
+
+            if (entry.EntryKind != VfsEntryKind.File || !entry.IsDirectExecutable())
+            {
+                continue;
+            }
+
+            resolvedProgramPath = candidatePath;
+            resolvedProgramEntry = entry;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryExecuteScriptProgram(
+        SystemCallExecutionContext context,
+        string resolvedProgramPath,
+        out SystemCallResult result)
+    {
+        result = SystemCallResultFactory.Success();
+
+        if (!context.Server.DiskOverlay.TryReadFileText(resolvedProgramPath, out var scriptSource))
+        {
+            result = SystemCallResultFactory.NotFile(resolvedProgramPath);
+            return true;
+        }
+
+        result = MiniScriptExecutionRunner.ExecuteScript(scriptSource);
+        return true;
+    }
+
+    private bool TryExecuteHardcodedProgram(
+        SystemCallExecutionContext context,
+        string command,
+        string resolvedProgramPath,
+        IReadOnlyList<string> arguments,
+        out SystemCallResult result)
+    {
+        result = SystemCallResultFactory.Success();
+
+        if (!context.Server.DiskOverlay.TryReadFileText(resolvedProgramPath, out var executablePayload))
+        {
+            return false;
+        }
+
+        var executableId = executablePayload.Trim();
+        if (string.IsNullOrWhiteSpace(executableId))
+        {
+            WarnUnknownExecutableId(context, command, resolvedProgramPath, executableId);
+            result = SystemCallResultFactory.Failure(SystemCallErrorCode.UnknownCommand, $"unknown command: {command}");
+            return true;
+        }
+
+        if (!hardcodedExecutableHandlers.TryGetValue(executableId, out var handler))
+        {
+            WarnUnknownExecutableId(context, command, resolvedProgramPath, executableId);
+            result = SystemCallResultFactory.Failure(SystemCallErrorCode.UnknownCommand, $"unknown command: {command}");
+            return true;
+        }
+
+        try
+        {
+            result = handler(context, arguments);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            GD.PushError($"Hardcoded executable '{executableId}' failed: {ex}");
+            result = SystemCallResultFactory.Failure(SystemCallErrorCode.InternalError, "internal error.");
+            return true;
+        }
+    }
+
+    private void WarnUnknownExecutableId(
+        SystemCallExecutionContext context,
+        string command,
+        string resolvedProgramPath,
+        string executableId)
+    {
+        if (!world.DebugOption)
+        {
+            return;
+        }
+
+        var printableExecutableId = string.IsNullOrWhiteSpace(executableId) ? "<empty>" : executableId;
+        GD.PushWarning(
+            $"Unknown executableId mapping. command='{command}', resolvedProgramPath='{resolvedProgramPath}', executableId='{printableExecutableId}', nodeId='{context.NodeId}', userKey='{context.UserKey}', cwd='{context.Cwd}'.");
+    }
+
+    private static SystemCallResult ExecuteMiniScriptProgram(
+        SystemCallExecutionContext context,
+        IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count != 1)
+        {
+            return SystemCallResultFactory.Usage("miniscript <script>");
+        }
+
+        var scriptPath = BaseFileSystem.NormalizePath(context.Cwd, arguments[0]);
+        if (!context.Server.DiskOverlay.TryResolveEntry(scriptPath, out var scriptEntry))
+        {
+            return SystemCallResultFactory.NotFound(scriptPath);
+        }
+
+        if (scriptEntry.EntryKind != VfsEntryKind.File)
+        {
+            return SystemCallResultFactory.NotFile(scriptPath);
+        }
+
+        if (scriptEntry.FileKind != VfsFileKind.Text)
+        {
+            return SystemCallResultFactory.Failure(
+                SystemCallErrorCode.InvalidArgs,
+                "miniscript source must be text: " + scriptPath);
+        }
+
+        if (!context.Server.DiskOverlay.TryReadFileText(scriptPath, out var scriptSource))
+        {
+            return SystemCallResultFactory.NotFile(scriptPath);
+        }
+
+        return MiniScriptExecutionRunner.ExecuteScript(scriptSource);
     }
 }
