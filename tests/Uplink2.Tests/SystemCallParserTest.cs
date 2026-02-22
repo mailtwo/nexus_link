@@ -95,6 +95,17 @@ public sealed class SystemCallParserTest
         Assert.Equal(new[] { string.Empty, "tail" }, result.Arguments);
     }
 
+    /// <summary>Ensures escaped quotes and backslashes inside quoted tokens are preserved.</summary>
+    [Fact]
+    public void TryParse_QuotedArgument_SupportsEscapedCharacters()
+    {
+        var result = InvokeTryParse("echo \"say \\\"hi\\\" \\\\o/\"");
+
+        Assert.True(result.Ok);
+        Assert.Equal("echo", result.Command);
+        Assert.Equal(new[] { "say \"hi\" \\o/" }, result.Arguments);
+    }
+
     private static ParseResult InvokeTryParse(string? commandLine)
     {
         var parserType = RequireRuntimeType("Uplink2.Runtime.Syscalls.SystemCallParser");

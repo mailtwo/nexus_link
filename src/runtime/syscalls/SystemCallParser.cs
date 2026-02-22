@@ -25,10 +25,26 @@ internal static class SystemCallParser
         var tokens = new List<string>();
         var token = new StringBuilder(commandLine.Length);
         var inQuotes = false;
+        var escapeNext = false;
         var tokenStarted = false;
 
         foreach (var ch in commandLine)
         {
+            if (escapeNext)
+            {
+                token.Append(ch);
+                tokenStarted = true;
+                escapeNext = false;
+                continue;
+            }
+
+            if (ch == '\\' && inQuotes)
+            {
+                escapeNext = true;
+                tokenStarted = true;
+                continue;
+            }
+
             if (ch == '"')
             {
                 inQuotes = !inQuotes;
@@ -50,6 +66,11 @@ internal static class SystemCallParser
 
             token.Append(ch);
             tokenStarted = true;
+        }
+
+        if (escapeNext)
+        {
+            token.Append('\\');
         }
 
         if (inQuotes)
