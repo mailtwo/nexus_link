@@ -103,12 +103,19 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 여러 API는 **첫 인자로 session을 선택적으로 받을 수 있다.**
 - `foo(path, ...)`  : 현재 실행 컨텍스트(현재 host/user/cwd)에서 수행
 - `foo(session, path, ...)` : 해당 session의 원격 host/user 컨텍스트에서 수행
+- 일부 API(`ssh.exec`, `ftp.get`, `ftp.put`)는 `sessionOrRoute`를 받아 `Session|SshRoute`를 모두 허용한다.
 
 판정 규칙(v0.2):
 - 첫 인자가 맵이고 `kind == "sshSession"`이면 session으로 해석한다.
+- 첫 인자가 맵이고 `kind == "sshRoute"`이면 route로 해석한다. (단, `ssh.exec`, `ftp.get`, `ftp.put`에 한함)
 - 그 외에는 session 생략으로 간주한다.
 
 > 이 규칙은 MiniScript에서 오버로딩을 흉내 내기 위한 “인자 타입 기반 디스패치”이다.
+>
+> route endpoint 규칙(v0.2):
+> - `first = route.sessions[0]`
+> - `last = route.lastSession` (`route.sessions[-1]`와 동일)
+> - 별도 `firstSession` 필드는 추가하지 않는다.
 
 ### 0.8 비동기 작업(프로세스) 규약(권장)
 - 다운로드/업로드 같은 시간 작업은 **프로세스(processList)** 로 모델링할 수 있다.
@@ -117,7 +124,8 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 
 ### 0.9 이벤트 연동(필수 포인트)
 - `ssh.connect` 성공 시: 로그인 계정이 보유한 `read/write/execute` 각각에 대해 `privilegeAcquire` 이벤트를 enqueue(중복 발행 금지).
-- 파일 전송 완료로 “로컬(현재 실행 컨텍스트)에서 파일이 획득 가능해지는 순간” : `fileAcquire` 이벤트를 enqueue(transferMethod=`"ftp"`).
+- 파일 전송 완료로 “해당 API가 정의한 local 반영 지점에서 파일이 획득 가능해지는 순간” : `fileAcquire` 이벤트를 enqueue(transferMethod=`"ftp"`).
+  - `ftp.get(route, ...)`에서는 local 반영 지점이 `route.sessions[0]`(first endpoint)이다.
 
 ---
 
@@ -327,10 +335,12 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - 공유 hop이라도 route에 포함되면 종료 시도한다.
   - 구조가 유효하면 일부 hop 실패가 있어도 `ok=1` + `summary`로 보고한다(best-effort).
 
-### 5.3 `ssh.exec(session, cmd, opts?)`
+### 5.3 `ssh.exec(sessionOrRoute, cmd, opts?)`
 - 목적: 원격 호스트에서 커맨드 실행 + stdout 수집
 - 인자:
-  - `session: Session`
+  - `sessionOrRoute: Session|SshRoute`
+    - `Session`이면 해당 session의 서버/계정/cwd에서 실행한다.
+    - `SshRoute`이면 `route.lastSession`의 서버/계정/cwd에서 실행한다.
   - `cmd: string` (단일 커맨드 라인)
   - `opts.maxBytes?: int` (stdout 상한 권장)
 - 커맨드 해석(권장):
@@ -342,6 +352,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 반환 `data`(권장):
   - `{ stdout: string, exitCode: int }`
 - 실패:
+  - route 구조 검증 실패 시 `ERR_INVALID_ARGS`
   - `ERR_INVALID_ARGS`, `ERR_PERMISSION_DENIED`, `ERR_NOT_FOUND`(프로그램/경로 없음), `ERR_TOO_LARGE`
 
 ---
@@ -356,24 +367,41 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 
 지원 함수(이번 버전): `get/put`
 
-### 6.1 `ftp.get(session, remotePath, localPath?, opts?)`
-- 목적: 원격(SSH 세션 대상) → 로컬(현재 실행 컨텍스트) 다운로드
+### 6.1 `ftp.get(sessionOrRoute, remotePath, localPath?, opts?)`
+- 목적: 원격 endpoint → local endpoint 다운로드
 - 인자:
-  - `session: Session`
-  - `remotePath: string` (session의 cwd 기준 상대경로 허용)
-  - `localPath?: string` (생략 시 `/home/player/<basename(remotePath)>` 권장)
+  - `sessionOrRoute: Session|SshRoute`
+    - `Session` 모드:
+      - remote endpoint = `session.sessionNodeId`
+      - local endpoint = 현재 실행 컨텍스트
+    - `SshRoute` 모드:
+      - remote endpoint = `route.lastSession`
+      - local endpoint = `route.sessions[0]` (first endpoint)
+      - 전송 방향은 `last -> first`로 고정한다.
+  - `remotePath: string`
+    - `Session` 모드: `session`의 cwd 기준 상대경로 허용
+    - `SshRoute` 모드: `lastSession`의 cwd 기준 상대경로 허용
+  - `localPath?: string`
+    - `Session` 모드: 현재 실행 컨텍스트 cwd 기준(생략 시 `/home/player/<basename(remotePath)>` 권장)
+    - `SshRoute` 모드: first endpoint session의 cwd 기준
   - `opts.port?: int` (기본 21)
   - `opts.overwrite?: bool` (기본 false 권장)
   - `opts.maxBytes?: int` (다운로드 상한; 권장)
+- cwd 기본값(v0.2):
+  - 현재 `Session`의 cwd 초기값은 `/`이다.
+  - 세션별 cwd 변경 API는 아직 없고, 후속 버전에서 확장 가능하다.
 - 필수 조건(게이팅):
-  - target = `session.sessionNodeId`
-  - target의 `ports[opts.port].portType == ftp` 이어야 함. 아니면 `ERR_PORT_CLOSED`
-  - `exposure` 판정 통과(0.6 규칙). 실패 시 `ERR_NET_DENIED`
+  - `Endpoint direct only` 정책:
+    - `Session` 모드: `source = 현재 실행 컨텍스트`, `target = session.sessionNodeId`
+    - `SshRoute` 모드: `source = first`, `target = last`
+  - `target`의 `ports[opts.port].portType == ftp` 이어야 함. 아니면 `ERR_PORT_CLOSED`
+  - `source -> target`에 대해 `exposure` 판정 통과(0.6 규칙). 실패 시 `ERR_NET_DENIED`
 - 권한 조건(권장):
-  - 원격 파일 read 권한 + 로컬 write 권한
+  - `Session` 모드: 원격 read + 로컬 write
+  - `SshRoute` 모드: `last(read) + first(write)`
 - 완료 처리(필수):
-  - 로컬 반영 지점에서 `fileAcquire` 이벤트를 1회 enqueue
-    - `fromNodeId = session.sessionNodeId`
+  - local endpoint 반영 지점에서 `fileAcquire` 이벤트를 1회 enqueue
+    - `fromNodeId = remote endpoint nodeId` (`SshRoute` 모드에서는 `last.sessionNodeId`)
     - `fileName = basename(remotePath)` (확장자 포함)
     - `transferMethod = "ftp"`
 - 반환 `data`:
@@ -382,19 +410,36 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 실패:
   - `ERR_INVALID_ARGS`, `ERR_PORT_CLOSED`, `ERR_NET_DENIED`, `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`, `ERR_ALREADY_EXISTS`, `ERR_TOO_LARGE`
 
-### 6.2 `ftp.put(session, localPath, remotePath?, opts?)`
-- 목적: 로컬(현재 실행 컨텍스트) → 원격(SSH 세션 대상) 업로드
+### 6.2 `ftp.put(sessionOrRoute, localPath, remotePath?, opts?)`
+- 목적: local endpoint → 원격 endpoint 업로드
 - 인자:
-  - `session: Session`
+  - `sessionOrRoute: Session|SshRoute`
+    - `Session` 모드:
+      - local endpoint = 현재 실행 컨텍스트
+      - remote endpoint = `session.sessionNodeId`
+    - `SshRoute` 모드:
+      - local endpoint = `route.sessions[0]` (first endpoint)
+      - remote endpoint = `route.lastSession`
+      - 전송 방향은 `first -> last`로 고정한다.
   - `localPath: string`
-  - `remotePath?: string` (생략 시 session cwd 기준 `<basename(localPath)>` 권장)
+    - `Session` 모드: 현재 실행 컨텍스트 cwd 기준
+    - `SshRoute` 모드: first endpoint session의 cwd 기준
+  - `remotePath?: string`
+    - `Session` 모드: 생략 시 `session` cwd 기준 `<basename(localPath)>` 권장
+    - `SshRoute` 모드: 생략 시 `lastSession` cwd 기준 `<basename(localPath)>` 권장
   - `opts.port?: int` (기본 21)
   - `opts.overwrite?: bool` (기본 false 권장)
   - `opts.maxBytes?: int`
 - 필수 조건(게이팅):
-  - `ftp.get`과 동일(원격 target의 ftp 포트 타입/노출)
+  - `Endpoint direct only` 정책:
+    - `Session` 모드: `source = 현재 실행 컨텍스트`, `target = session.sessionNodeId`
+    - `SshRoute` 모드: `source = first`, `target = last`
+  - `target`의 ftp 포트 타입/노출 판정을 `source -> target` 기준으로 검사한다.
 - 권한 조건(권장):
-  - 로컬 read 권한 + 원격 write 권한
+  - `Session` 모드: 로컬 read + 원격 write
+  - `SshRoute` 모드: `first(read) + last(write)`
+- 완료 처리(필수):
+  - `fileAcquire` 이벤트는 발행하지 않는다(기존 정책 유지).
 - 반환/실패:
   - `ftp.get`과 동일한 형식/정책을 따른다.
 

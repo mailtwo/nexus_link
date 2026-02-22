@@ -108,14 +108,15 @@ public sealed record PrivilegeAcquireDto(
 
 ### 2.4 `fileAcquire` (시나리오 이벤트 지원)
 **발생 조건**
-- “플레이어 로컬(워크스테이션)에 파일이 획득되어 접근 가능해지는 순간” 1회 enqueue.
-- 전송 방식(ftp/process 완료/직접 복사 등)과 무관하게 **로컬 반영 지점 1곳**에서 발행한다.
+- “전송 결과가 local endpoint(수신 측)에 반영되어 파일이 접근 가능해지는 순간” 1회 enqueue.
+- 전송 방식(ftp/process 완료/직접 복사 등)과 무관하게 **해당 API가 정의한 local 반영 지점 1곳**에서 발행한다.
+- 예: 시스템콜 `ftp`는 기존 규약대로 워크스테이션 local 반영 지점에서 enqueue한다.
 
 **Payload**
 ```csharp
 public sealed record FileAcquireDto(
-    string fromNodeId,     // 출처 노드
-    string userKey,        // 획득 주체(보통 플레이어)
+    string fromNodeId,     // 출처 endpoint 노드(송신 측)
+    string userKey,        // 획득 주체(수신 endpoint 계정; 보통 플레이어)
     string fileName,       // 시나리오 필터 키(basename; 확장자 포함)
     long acquiredAtMs,
 

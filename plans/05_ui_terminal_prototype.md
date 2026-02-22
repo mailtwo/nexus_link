@@ -119,6 +119,9 @@ MVP 속도와 구현 난이도 관점에서 가장 현실적인 조합.
   - 실제 ICMP가 아니라 “가상 연결성/지연”을 출력하는 시뮬레이션.
 
 ### 5.4 접속/전송 시스템콜(현재 구현 기준)
+- 이 섹션은 **터미널 시스템콜** 계약을 설명한다.
+- MiniScript intrinsic(`ssh.exec`, `ftp.get`, `ftp.put`)의 route 대응 규칙은 `plans/03_game_api_modules.md`를 기준으로 한다.
+- 따라서 본 섹션의 `ftp`는 계속 `workstation <-> remote` 고정 정책을 유지한다.
 - `connect [(-p|--port) <port>] <host|ip> <user> <password>`
   - 기본 포트는 `22`(SSH).
   - 성공 시 원격 컨텍스트로 전환되고, 터미널 세션 스택에 이전 컨텍스트가 push된다.
