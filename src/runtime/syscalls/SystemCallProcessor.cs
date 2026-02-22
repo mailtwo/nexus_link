@@ -135,6 +135,7 @@ internal sealed class SystemCallProcessor
                 command,
                 request.CommandLine ?? string.Empty,
                 resolvedProgramPath,
+                arguments,
                 out launch,
                 out immediateResult);
         }
@@ -217,6 +218,7 @@ internal sealed class SystemCallProcessor
         string command,
         string commandLine,
         string resolvedProgramPath,
+        IReadOnlyList<string> arguments,
         out MiniScriptProgramLaunch? launch,
         out SystemCallResult? immediateResult)
     {
@@ -232,7 +234,8 @@ internal sealed class SystemCallProcessor
             scriptSource,
             resolvedProgramPath,
             command,
-            commandLine);
+            commandLine,
+            arguments.ToArray());
         immediateResult = SystemCallResultFactory.Success();
         return true;
     }
@@ -296,7 +299,8 @@ internal sealed class SystemCallProcessor
             scriptSource,
             scriptPath,
             command,
-            commandLine);
+            commandLine,
+            Array.Empty<string>());
         immediateResult = SystemCallResultFactory.Success();
         return true;
     }
@@ -311,7 +315,7 @@ internal sealed class SystemCallProcessor
         out SystemCallResult? immediateResult)
     {
         launch = null;
-        if (arguments.Count != 1)
+        if (arguments.Count < 1)
         {
             immediateResult = SystemCallResultFactory.Usage("miniscript <script>");
             return true;
@@ -344,12 +348,14 @@ internal sealed class SystemCallProcessor
             return true;
         }
 
+        var scriptArguments = arguments.Skip(1).ToArray();
         launch = new MiniScriptProgramLaunch(
             context,
             scriptSource,
             resolvedProgramPath,
             command,
-            commandLine);
+            commandLine,
+            scriptArguments);
         immediateResult = SystemCallResultFactory.Success();
         return true;
     }
@@ -375,7 +381,7 @@ internal sealed class SystemCallProcessor
 
         if (resolvedProgramEntry!.FileKind == VfsFileKind.ExecutableScript)
         {
-            return TryExecuteScriptProgram(context, resolvedProgramPath, out result);
+            return TryExecuteScriptProgram(context, resolvedProgramPath, arguments, out result);
         }
 
         if (resolvedProgramEntry.FileKind == VfsFileKind.ExecutableHardcode)
@@ -440,6 +446,7 @@ internal sealed class SystemCallProcessor
     private static bool TryExecuteScriptProgram(
         SystemCallExecutionContext context,
         string resolvedProgramPath,
+        IReadOnlyList<string> arguments,
         out SystemCallResult result)
     {
         result = SystemCallResultFactory.Success();
@@ -450,7 +457,7 @@ internal sealed class SystemCallProcessor
             return true;
         }
 
-        result = MiniScriptExecutionRunner.ExecuteScript(scriptSource, context);
+        result = MiniScriptExecutionRunner.ExecuteScript(scriptSource, context, arguments);
         return true;
     }
 

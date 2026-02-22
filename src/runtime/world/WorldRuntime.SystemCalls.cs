@@ -493,6 +493,7 @@ public partial class WorldRuntime
                 StandardErrorLineSink = line => TryQueueTerminalProgramOutputLine(state, NormalizeMiniScriptErrorLine(line)),
                 SshMode = MiniScriptSshExecutionMode.SandboxValidated,
                 CaptureOutputLines = false,
+                ScriptArguments = state.Launch.ScriptArguments,
             };
 
             var execution = MiniScriptExecutionRunner.ExecuteScriptWithOptions(

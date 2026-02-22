@@ -194,9 +194,9 @@ public sealed class SystemCallTest
             string.Equals(called.Name, "PushWarning", StringComparison.Ordinal));
     }
 
-    /// <summary>Ensures miniscript executable enforces argument count contract.</summary>
+    /// <summary>Ensures miniscript executable requires at least one script-path argument.</summary>
     [Fact]
-    public void Execute_Miniscript_RequiresSingleArgument()
+    public void Execute_Miniscript_RequiresScriptArgument()
     {
         var harness = CreateHarness(includeVfsModule: true);
         harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
@@ -207,6 +207,31 @@ public sealed class SystemCallTest
         Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
         Assert.Single(result.Lines);
         Assert.Contains("usage: miniscript <script>", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures miniscript exposes argv/argc and passes trailing command arguments to script source.</summary>
+    [Fact]
+    public void Execute_Miniscript_PassesTrailingArgumentsToScript()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/argv.ms",
+            """
+            print "argc=" + str(argc)
+            print "argv0=" + argv[0]
+            print "argv1=" + argv[1]
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/argv.ms alpha beta");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "argc=2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "argv0=alpha", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "argv1=beta", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures miniscript returns not-found when target script path does not exist.</summary>
@@ -265,6 +290,29 @@ public sealed class SystemCallTest
         Assert.True(result.Ok);
         Assert.Equal(SystemCallErrorCode.None, result.Code);
         Assert.Contains(result.Lines, static line => line.Contains("Hello world!", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures executable-script program path execution exposes argv/argc with trailing command arguments.</summary>
+    [Fact]
+    public void Execute_ExecutableScript_PassesArgumentsToScript()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile(
+            "/opt/bin/argv_runner.ms",
+            """
+            print "argc=" + str(argc)
+            print "argv0=" + argv[0]
+            print "argv1=" + argv[1]
+            """,
+            fileKind: VfsFileKind.ExecutableScript);
+
+        var result = Execute(harness, "argv_runner.ms left right");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "argc=2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "argv0=left", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "argv1=right", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures edit opens editor mode payload with the target file path and text content.</summary>
@@ -1111,6 +1159,70 @@ public sealed class SystemCallTest
 
         Assert.False(response.Handled);
         Assert.False(response.Started);
+    }
+
+    /// <summary>Ensures async miniscript launch exposes argv/argc with trailing command arguments.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_MiniScript_PassesArgumentsToScript()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/argv_async.ms",
+            """
+            print "argc=" + str(argc)
+            print "argv0=" + argv[0]
+            print "argv1=" + argv[1]
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "miniscript /scripts/argv_async.ms one two",
+            "ts-argv-async");
+        Assert.True(start.Handled);
+        Assert.True(start.Started);
+
+        WaitForTerminalProgramStop(harness.World, "ts-argv-async");
+        var outputLines = SnapshotTerminalEventLines(harness.World);
+        Assert.Contains("argc=2", outputLines);
+        Assert.Contains("argv0=one", outputLines);
+        Assert.Contains("argv1=two", outputLines);
+    }
+
+    /// <summary>Ensures async executable-script launch exposes argv/argc with trailing command arguments.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_ExecutableScript_PassesArgumentsToScript()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile(
+            "/opt/bin/argv_exec_async.ms",
+            """
+            print "argc=" + str(argc)
+            print "argv0=" + argv[0]
+            print "argv1=" + argv[1]
+            """,
+            fileKind: VfsFileKind.ExecutableScript);
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "argv_exec_async.ms red blue",
+            "ts-argv-exec-async");
+        Assert.True(start.Handled);
+        Assert.True(start.Started);
+
+        WaitForTerminalProgramStop(harness.World, "ts-argv-exec-async");
+        var outputLines = SnapshotTerminalEventLines(harness.World);
+        Assert.Contains("argc=2", outputLines);
+        Assert.Contains("argv0=red", outputLines);
+        Assert.Contains("argv1=blue", outputLines);
     }
 
     /// <summary>Ensures async miniscript execution enters running state and can be interrupted with Ctrl+C bridge API.</summary>

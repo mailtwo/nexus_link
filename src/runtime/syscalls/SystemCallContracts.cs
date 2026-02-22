@@ -191,7 +191,8 @@ internal readonly record struct MiniScriptProgramLaunch(
     string ScriptSource,
     string ProgramPath,
     string Command,
-    string CommandLine);
+    string CommandLine,
+    IReadOnlyList<string> ScriptArguments);
 
 /// <summary>Context transition payload returned by system calls that switch terminal target.</summary>
 internal sealed class TerminalContextTransition

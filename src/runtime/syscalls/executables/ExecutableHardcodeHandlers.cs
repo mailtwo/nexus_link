@@ -23,7 +23,7 @@ internal sealed class MiniScriptExecutableHardcodeHandler : IExecutableHardcodeH
     public SystemCallResult Execute(ExecutableHardcodeInvocation invocation)
     {
         var context = invocation.Context;
-        if (invocation.Arguments.Count != 1)
+        if (invocation.Arguments.Count < 1)
         {
             return SystemCallResultFactory.Usage("miniscript <script>");
         }
@@ -51,6 +51,12 @@ internal sealed class MiniScriptExecutableHardcodeHandler : IExecutableHardcodeH
             return SystemCallResultFactory.NotFile(scriptPath);
         }
 
-        return MiniScriptExecutionRunner.ExecuteScript(scriptSource, context);
+        var scriptArguments = new string[invocation.Arguments.Count - 1];
+        for (var index = 1; index < invocation.Arguments.Count; index++)
+        {
+            scriptArguments[index - 1] = invocation.Arguments[index];
+        }
+
+        return MiniScriptExecutionRunner.ExecuteScript(scriptSource, context, scriptArguments);
     }
 }

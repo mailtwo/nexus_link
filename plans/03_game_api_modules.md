@@ -132,6 +132,14 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 파일 전송 완료로 “해당 API가 정의한 local 반영 지점에서 파일이 획득 가능해지는 순간” : `fileAcquire` 이벤트를 enqueue(transferMethod=`"ftp"`).
   - `ftp.get(route, ...)`에서는 local 반영 지점이 `route.sessions[0]`(first endpoint)이다.
 
+### 0.10 스크립트 인자(`argv`/`argc`) 규약(v0.2)
+- MiniScript 실행 컨텍스트는 전역 `argv`, `argc`를 제공한다.
+- `argv`: `List<string>` (스크립트에 전달된 인자 목록)
+- `argc`: `int` (`argv` 길이)
+- `miniscript <script> [args...]` 실행 시 `argv`에는 `<script>` 뒤 인자들만 들어간다.
+- `ExecutableScript` 직접 실행(`<scriptPath> [args...]`)도 동일하게 `argv`/`argc`를 제공한다.
+- 인자가 없으면 `argv=[]`, `argc=0`이다.
+
 ---
 
 ## 1) term (터미널 출력)

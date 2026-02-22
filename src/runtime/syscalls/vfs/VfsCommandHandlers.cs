@@ -539,6 +539,8 @@ internal sealed class MiniScriptExecutionOptions
     internal MiniScriptSshExecutionMode SshMode { get; init; } = MiniScriptSshExecutionMode.RealWorld;
 
     internal bool CaptureOutputLines { get; init; } = true;
+
+    internal IReadOnlyList<string> ScriptArguments { get; init; } = Array.Empty<string>();
 }
 
 internal readonly record struct MiniScriptExecutionResult(SystemCallResult Result, bool WasCancelled);
@@ -550,9 +552,16 @@ internal static class MiniScriptExecutionRunner
 
     internal static SystemCallResult ExecuteScript(
         string scriptSource,
-        SystemCallExecutionContext executionContext = null)
+        SystemCallExecutionContext executionContext = null,
+        IReadOnlyList<string> scriptArguments = null)
     {
-        return ExecuteScriptWithOptions(scriptSource, executionContext).Result;
+        return ExecuteScriptWithOptions(
+            scriptSource,
+            executionContext,
+            new MiniScriptExecutionOptions
+            {
+                ScriptArguments = scriptArguments ?? Array.Empty<string>(),
+            }).Result;
     }
 
     internal static MiniScriptExecutionResult ExecuteScriptWithOptions(
@@ -580,6 +589,7 @@ internal static class MiniScriptExecutionRunner
 
             MiniScriptCryptoIntrinsics.InjectCryptoModule(interpreter);
             MiniScriptSshIntrinsics.InjectSshModule(interpreter, executionContext, options.SshMode);
+            ArgsIntrinsics.InjectArgs(interpreter, options.ScriptArguments);
             var maxRuntimeSeconds = options.MaxRuntimeSeconds > 0
                 ? options.MaxRuntimeSeconds
                 : DefaultMaxRuntimeSeconds;
