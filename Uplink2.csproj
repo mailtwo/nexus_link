@@ -6,6 +6,7 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);.godot/**;tests/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="MessagePack" Version="3.1.4" />
     <PackageReference Include="YamlDotNet" Version="16.3.0" />
   </ItemGroup>
   <ItemGroup>

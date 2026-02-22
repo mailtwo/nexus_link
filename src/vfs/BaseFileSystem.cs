@@ -642,6 +642,22 @@ public sealed class OverlayFileSystem
         return CanExecuteFile(interpreterPath) && CanUseAsMiniScriptSource(scriptPath);
     }
 
+    internal void ClearOverlayForLoad()
+    {
+        foreach (var entry in overlayEntries.Values)
+        {
+            if (entry.EntryKind == VfsEntryKind.File &&
+                !string.IsNullOrEmpty(entry.ContentId))
+            {
+                blobStore.Release(entry.ContentId);
+            }
+        }
+
+        overlayEntries.Clear();
+        tombstones.Clear();
+        overlayDir.Clear();
+    }
+
     // DirDelta rules (from design doc) to keep delta neutral when possible.
     private void ApplyAddChild(string dirPath, string childName)
     {

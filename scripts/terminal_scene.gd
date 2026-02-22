@@ -11,6 +11,9 @@ extends Control
 
 const EDITOR_HELP_TEXT := "Ctrl+S: save | Esc: exit"
 const EDITOR_STATUS_TIMEOUT_SECONDS: float = 3.0
+const EDITOR_UNSAVED_EXIT_WARNING_TEXT := "warning: unsaved changes. press Esc again to exit without saving."
+const EDITOR_STATUS_WARNING_COLOR := Color(0.95, 0.35, 0.35, 1.0)
+const MOTD_ANCHOR_MAX_ACTIVATION_RETRIES := 8
 const OUTPUT_SCROLL_MODE_NORMAL_BOTTOM := "normal_bottom"
 const OUTPUT_SCROLL_MODE_MOTD_ANCHOR_ACTIVATE := "motd_anchor_activate"
 const OUTPUT_SCROLL_MODE_MOTD_ANCHOR_CONTINUE := "motd_anchor_continue"
@@ -28,6 +31,9 @@ var current_editor_path: String = ""
 var current_editor_read_only: bool = false
 var current_editor_display_mode: String = "text"
 var current_editor_path_exists: bool = false
+var editor_dirty: bool = false
+var editor_last_saved_text: String = ""
+var editor_exit_without_save_armed: bool = false
 var editor_status_revision: int = 0
 var is_program_running: bool = false
 var is_motd_anchor_active: bool = false
@@ -68,6 +74,7 @@ func _ready() -> void:
 	input_line.focus_exited.connect(_on_input_line_focus_exited)
 	input_line.gui_input.connect(_on_input_line_gui_input)
 	editor.gui_input.connect(_on_editor_gui_input)
+	editor.text_changed.connect(_on_editor_text_changed)
 	editor.shortcut_keys_enabled = true
 	var v_scroll := output_scroll.get_v_scroll_bar()
 	if v_scroll:
@@ -743,12 +750,17 @@ func _apply_default_scroll_policy_after_append() -> void:
 	_scroll_to_bottom()
 
 
-func _activate_motd_anchor(content_before: float) -> void:
+func _activate_motd_anchor(content_before: float, retry_count: int = 0) -> void:
 	var content_after := _get_output_content_height()
 	var motd_height_px := maxf(0.0, content_after - content_before)
 	var viewport_height_px := output_scroll.size.y
 	if viewport_height_px <= 0.0:
-		call_deferred("_activate_motd_anchor", content_before)
+		if retry_count < MOTD_ANCHOR_MAX_ACTIVATION_RETRIES:
+			call_deferred("_activate_motd_anchor", content_before, retry_count + 1)
+			return
+		# Fallback for headless/zero-size layouts: skip anchor and keep normal bottom scroll.
+		_dismiss_motd_anchor()
+		_scroll_to_bottom()
 		return
 
 	var blank_px := maxf(0.0, viewport_height_px - motd_height_px)
@@ -900,17 +912,31 @@ func _open_editor_mode(
 	editor.editable = not read_only
 	editor.set_caret_line(0)
 	editor.set_caret_column(0)
+	editor_last_saved_text = content
+	editor_dirty = false
+	editor_exit_without_save_armed = false
 	_enter_editor_mode()
 	_show_editor_status_persistent(EDITOR_HELP_TEXT)
 
 
 func _exit_editor_mode() -> void:
 	_clear_editor_status()
+	editor_dirty = false
+	editor_last_saved_text = ""
+	editor_exit_without_save_armed = false
 	editor_overlay.visible = false
 	terminal_vbox.visible = true
 	input_line.editable = true
 	editor.editable = true
 	input_line.call_deferred("grab_focus")
+
+
+func _on_editor_text_changed() -> void:
+	if not editor_overlay.visible:
+		return
+	editor_dirty = editor.text != editor_last_saved_text
+	if editor_exit_without_save_armed:
+		_reset_editor_exit_without_save_warning()
 
 
 func _on_editor_gui_input(event: InputEvent) -> void:
@@ -923,8 +949,11 @@ func _on_editor_gui_input(event: InputEvent) -> void:
 	if not key_event.pressed or key_event.echo:
 		return
 
+	if key_event.keycode != KEY_ESCAPE:
+		_reset_editor_exit_without_save_warning()
+
 	if key_event.keycode == KEY_ESCAPE:
-		_exit_editor_mode()
+		_try_exit_editor_mode()
 		editor.accept_event()
 		return
 
@@ -934,7 +963,28 @@ func _on_editor_gui_input(event: InputEvent) -> void:
 		return
 
 
+func _try_exit_editor_mode() -> void:
+	if not editor_dirty:
+		_exit_editor_mode()
+		return
+	if editor_exit_without_save_armed:
+		_exit_editor_mode()
+		return
+	editor_exit_without_save_armed = true
+	_show_editor_status_persistent(EDITOR_UNSAVED_EXIT_WARNING_TEXT, EDITOR_STATUS_WARNING_COLOR)
+
+
+func _reset_editor_exit_without_save_warning() -> void:
+	if not editor_exit_without_save_armed:
+		return
+	editor_exit_without_save_armed = false
+	if editor_dirty:
+		_show_editor_status_persistent(EDITOR_HELP_TEXT)
+
+
 func _save_editor_content() -> void:
+	editor_exit_without_save_armed = false
+
 	if world_runtime == null:
 		_show_editor_status_temporary("error: world runtime singleton '/root/WorldRuntime' not found.")
 		return
@@ -960,6 +1010,8 @@ func _save_editor_content() -> void:
 		if not saved_path.is_empty():
 			current_editor_path = saved_path
 		current_editor_path_exists = true
+		editor_last_saved_text = editor.text
+		editor_dirty = false
 		var success_message := "saved."
 		if not saved_path.is_empty():
 			success_message = "saved: %s" % saved_path
@@ -970,24 +1022,28 @@ func _save_editor_content() -> void:
 	_show_editor_status_temporary(failure_message)
 
 
-func _show_editor_status_persistent(message: String) -> void:
+func _show_editor_status_persistent(message: String, color: Color = terminal_text_color) -> void:
 	editor_status_revision += 1
+	editor_status_label.add_theme_color_override("font_color", color)
 	editor_status_label.text = message
 
 
-func _show_editor_status_temporary(message: String) -> void:
+func _show_editor_status_temporary(message: String, color: Color = terminal_text_color) -> void:
 	editor_status_revision += 1
 	var revision := editor_status_revision
+	editor_status_label.add_theme_color_override("font_color", color)
 	editor_status_label.text = message
 	var timer := get_tree().create_timer(EDITOR_STATUS_TIMEOUT_SECONDS)
 	timer.timeout.connect(func() -> void:
 		if revision != editor_status_revision:
 			return
+		editor_status_label.add_theme_color_override("font_color", terminal_text_color)
 		editor_status_label.text = "")
 
 
 func _clear_editor_status() -> void:
 	editor_status_revision += 1
+	editor_status_label.add_theme_color_override("font_color", terminal_text_color)
 	editor_status_label.text = ""
 
 

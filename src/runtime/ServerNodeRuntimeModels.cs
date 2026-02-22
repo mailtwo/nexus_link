@@ -264,6 +264,29 @@ public sealed class LogStruct
             Origin = Origin,
         };
     }
+
+    internal static LogStruct CreateForLoad(
+        int id,
+        long time,
+        string user,
+        string remoteIp,
+        LogActionType actionType,
+        string action,
+        bool dirty,
+        LogStruct? origin)
+    {
+        return new LogStruct
+        {
+            Id = id,
+            Time = time,
+            User = user ?? string.Empty,
+            RemoteIp = string.IsNullOrWhiteSpace(remoteIp) ? "127.0.0.1" : remoteIp,
+            ActionType = actionType,
+            Action = action ?? string.Empty,
+            Dirty = dirty,
+            Origin = origin,
+        };
+    }
 }
 
 /// <summary>Runtime state container for a single server node.</summary>
@@ -477,5 +500,15 @@ public sealed class ServerNodeRuntime
         }
 
         logs.Enqueue(log);
+    }
+
+    internal void ClearLogsForLoad()
+    {
+        logs.Clear();
+    }
+
+    internal void AppendLogForLoad(LogStruct log)
+    {
+        AppendLog(log);
     }
 }

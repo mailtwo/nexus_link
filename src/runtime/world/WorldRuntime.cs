@@ -60,6 +60,10 @@ public partial class WorldRuntime : Node
     [Export]
     public bool DebugOption { get; set; }
 
+    /// <summary>Base64-encoded HMAC key used for save/load integrity verification.</summary>
+    [Export]
+    public string SaveHmacKeyBase64 { get; set; } = string.Empty;
+
     /// <summary>Per-world stable seed used for deterministic runtime generation/rendering.</summary>
     public int WorldSeed
     {

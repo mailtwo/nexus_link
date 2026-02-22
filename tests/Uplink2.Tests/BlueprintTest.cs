@@ -224,7 +224,7 @@ public sealed class BlueprintTest
         var reader = new BlueprintYamlReader();
         var catalog = reader.ReadFiles(new[] { yamlPath });
         var spec = catalog.ServerSpecs["myWorkstation"];
-        var entry = spec.DiskOverlay.OverlayEntries["/opt/bin/miniscript"];
+        var entry = spec.DiskOverlay.OverlayEntries["/opt/bin/ms"];
 
         Assert.Equal(BlueprintEntryKind.File, entry.EntryKind);
         Assert.Equal(BlueprintFileKind.ExecutableHardcode, entry.FileKind);

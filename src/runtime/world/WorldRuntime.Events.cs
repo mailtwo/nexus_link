@@ -527,6 +527,55 @@ public partial class WorldRuntime
         return (worldTickIndex * 1000L) / ticksPerSecond;
     }
 
+    internal (long WorldTickIndex, long EventSeq) CaptureEventRuntimeClockForSave()
+    {
+        return (worldTickIndex, eventSeq);
+    }
+
+    internal IReadOnlyList<string> CaptureFiredHandlerIdsForSave()
+    {
+        return firedHandlerIds.OrderBy(static value => value, StringComparer.Ordinal).ToArray();
+    }
+
+    internal void ApplyEventRuntimeStateForLoad(
+        long loadedWorldTickIndex,
+        long loadedEventSeq,
+        IEnumerable<string> loadedFiredHandlerIds)
+    {
+        worldTickIndex = Math.Max(0, loadedWorldTickIndex);
+        eventSeq = Math.Max(0, loadedEventSeq);
+        eventQueue.Clear();
+        firedHandlerIds.Clear();
+
+        foreach (var firedHandlerId in loadedFiredHandlerIds)
+        {
+            if (string.IsNullOrWhiteSpace(firedHandlerId))
+            {
+                continue;
+            }
+
+            firedHandlerIds.Add(firedHandlerId.Trim());
+        }
+
+        lock (terminalEventLinesSync)
+        {
+            terminalEventLines.Clear();
+        }
+    }
+
+    internal void RebuildProcessSchedulerForLoad()
+    {
+        processScheduler.RebuildFrom(ProcessList);
+        scheduledProcessEndAtById.Clear();
+        foreach (var processPair in ProcessList)
+        {
+            if (processPair.Value.State == ProcessState.Running)
+            {
+                scheduledProcessEndAtById[processPair.Key] = processPair.Value.EndAt;
+            }
+        }
+    }
+
     private static bool TryGrantPrivilege(UserConfig user, string privilege, out bool granted)
     {
         granted = false;
