@@ -261,6 +261,16 @@ internal static partial class MiniScriptSshIntrinsics
                 try
                 {
                     endpoint.Server.DiskOverlay.WriteFile(targetPath, text, cwd: "/", fileKind: VfsFileKind.Text);
+                    var hasResolvedWrittenEntry = endpoint.Server.DiskOverlay.TryResolveEntry(targetPath, out var writtenEntry);
+                    executionContext.World.EmitFileAcquire(
+                        fromNodeId: endpoint.NodeId,
+                        userKey: endpoint.UserKey,
+                        fileName: targetPath,
+                        remotePath: null,
+                        localPath: targetPath,
+                        sizeBytes: hasResolvedWrittenEntry ? ToOptionalInt(writtenEntry.Size) : null,
+                        contentId: hasResolvedWrittenEntry ? writtenEntry.ContentId : null,
+                        transferMethod: "fs.write");
                 }
                 catch (InvalidOperationException ex)
                 {

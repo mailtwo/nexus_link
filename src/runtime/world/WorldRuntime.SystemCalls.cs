@@ -318,7 +318,15 @@ public partial class WorldRuntime
         out string savedPath)
     {
         savedPath = string.Empty;
-        if (!TryCreateEditorSaveContext(nodeId, userId, cwd, out var server, out var user, out var normalizedCwd, out var contextFailure))
+        if (!TryCreateEditorSaveContext(
+                nodeId,
+                userId,
+                cwd,
+                out var server,
+                out var user,
+                out var userKey,
+                out var normalizedCwd,
+                out var contextFailure))
         {
             return contextFailure!;
         }
@@ -355,6 +363,20 @@ public partial class WorldRuntime
         }
 
         server.DiskOverlay.WriteFile(targetPath, content ?? string.Empty, cwd: "/", fileKind: VfsFileKind.Text);
+        if (!pathExists)
+        {
+            var hasResolvedSavedEntry = server.DiskOverlay.TryResolveEntry(targetPath, out var savedEntry);
+            EmitFileAcquire(
+                fromNodeId: server.NodeId,
+                userKey: userKey,
+                fileName: targetPath,
+                remotePath: null,
+                localPath: targetPath,
+                sizeBytes: hasResolvedSavedEntry ? ToOptionalInt(savedEntry.Size) : null,
+                contentId: hasResolvedSavedEntry ? savedEntry.ContentId : null,
+                transferMethod: "edit.save");
+        }
+
         savedPath = targetPath;
         return SystemCallResultFactory.Success(lines: new[] { $"saved: {targetPath}" });
     }
@@ -550,11 +572,13 @@ public partial class WorldRuntime
         string cwd,
         out ServerNodeRuntime server,
         out UserConfig user,
+        out string userKey,
         out string normalizedCwd,
         out SystemCallResult? failure)
     {
         server = null!;
         user = null!;
+        userKey = string.Empty;
         normalizedCwd = "/";
         failure = null;
 
@@ -578,12 +602,13 @@ public partial class WorldRuntime
             return false;
         }
 
-        if (!TryResolveUserByUserId(server, normalizedUserId, out _, out user))
+        if (!TryResolveUserByUserId(server, normalizedUserId, out var resolvedUserKey, out user))
         {
             failure = SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"user not found: {normalizedUserId}");
             return false;
         }
 
+        userKey = resolvedUserKey;
         normalizedCwd = BaseFileSystem.NormalizePath("/", cwd);
         if (!server.DiskOverlay.TryResolveEntry(normalizedCwd, out var cwdEntry))
         {
@@ -598,6 +623,13 @@ public partial class WorldRuntime
         }
 
         return true;
+    }
+
+    private static int? ToOptionalInt(long value)
+    {
+        return value is < int.MinValue or > int.MaxValue
+            ? null
+            : (int)value;
     }
 
     private static string GetEditorParentPath(string normalizedPath)

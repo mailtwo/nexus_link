@@ -523,6 +523,32 @@ public sealed class SystemCallTest
         Assert.Equal("new", savedContent);
     }
 
+    /// <summary>Ensures SaveEditorContent overwrite path does not emit fileAcquire.</summary>
+    [Fact]
+    public void SaveEditorContent_OverwritesExistingTextFile_DoesNotEmitFileAcquire()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddDirectory("/notes");
+        harness.BaseFileSystem.AddFile("/notes/todo.txt", "old", fileKind: VfsFileKind.Text);
+
+        var (result, savedPath) = SaveEditorContentInternal(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "/notes/todo.txt",
+            "new");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Equal("/notes/todo.txt", savedPath);
+        var events = DrainQueuedGameEvents(harness.World);
+        var fileAcquireEvents = events
+            .Where(static gameEvent => string.Equals((string)GetPropertyValue(gameEvent, "EventType"), "fileAcquire", StringComparison.Ordinal))
+            .ToList();
+        Assert.Empty(fileAcquireEvents);
+    }
+
     /// <summary>Ensures SaveEditorContent creates missing text files when write privilege exists.</summary>
     [Fact]
     public void SaveEditorContent_CreatesMissingTextFile()
@@ -545,6 +571,42 @@ public sealed class SystemCallTest
         Assert.Equal(VfsFileKind.Text, savedEntry.FileKind);
         Assert.True(harness.Server.DiskOverlay.TryReadFileText("/notes/new.txt", out var savedContent));
         Assert.Equal("created", savedContent);
+    }
+
+    /// <summary>Ensures SaveEditorContent create path emits fileAcquire with edit.save transfer method.</summary>
+    [Fact]
+    public void SaveEditorContent_CreatesMissingTextFile_EmitsFileAcquire()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddDirectory("/notes");
+
+        var (result, savedPath) = SaveEditorContentInternal(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "/notes/new.txt",
+            "created");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Equal("/notes/new.txt", savedPath);
+
+        var expectedUserKey = harness.Server.Users
+            .Single(pair => string.Equals(pair.Value.UserId, harness.UserId, StringComparison.Ordinal))
+            .Key;
+        var events = DrainQueuedGameEvents(harness.World);
+        var fileAcquireEvents = events
+            .Where(static gameEvent => string.Equals((string)GetPropertyValue(gameEvent, "EventType"), "fileAcquire", StringComparison.Ordinal))
+            .ToList();
+        var fileAcquire = Assert.Single(fileAcquireEvents);
+        var payload = GetPropertyValue(fileAcquire, "Payload");
+        Assert.Equal(harness.Server.NodeId, (string?)GetPropertyValue(payload!, "FromNodeId"));
+        Assert.Equal(expectedUserKey, (string?)GetPropertyValue(payload!, "UserKey"));
+        Assert.Equal("new.txt", (string?)GetPropertyValue(payload!, "FileName"));
+        Assert.Equal("/notes/new.txt", (string?)GetPropertyValue(payload!, "LocalPath"));
+        Assert.Null(GetPropertyValue(payload!, "RemotePath"));
+        Assert.Equal("edit.save", (string?)GetPropertyValue(payload!, "TransferMethod"));
     }
 
     /// <summary>Ensures SaveEditorContent rejects non-text files as read-only buffers.</summary>
@@ -1700,6 +1762,61 @@ public sealed class SystemCallTest
         Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/new/nested/out.txt", out _));
     }
 
+    /// <summary>Ensures miniscript fs.write emits fileAcquire for create and overwrite success paths.</summary>
+    [Fact]
+    public void Execute_Miniscript_Fs_Write_EmitsFileAcquire_OnCreateAndOverwrite()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/docs");
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/fs_write_emit.ms",
+            """
+            w1 = fs.write("/docs/new.txt", "A")
+            print "w1ok=" + str(w1.ok)
+            print "w1code=" + w1.code
+            opts = {}
+            opts["overwrite"] = 1
+            w2 = fs.write("/docs/new.txt", "B", opts)
+            print "w2ok=" + str(w2.ok)
+            print "w2code=" + w2.code
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/fs_write_emit.ms", terminalSessionId: "ts-ms-fs-write-emit");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w1ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w1code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w2ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w2code=None", StringComparison.Ordinal));
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/docs/new.txt", out var finalContent));
+        Assert.Equal("B", finalContent);
+
+        var expectedUserKey = harness.Server.Users
+            .Single(pair => string.Equals(pair.Value.UserId, harness.UserId, StringComparison.Ordinal))
+            .Key;
+        var events = DrainQueuedGameEvents(harness.World);
+        var fileAcquireEvents = events
+            .Where(static gameEvent => string.Equals((string)GetPropertyValue(gameEvent, "EventType"), "fileAcquire", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(2, fileAcquireEvents.Count);
+        Assert.Equal(fileAcquireEvents.Count, events.Count);
+
+        foreach (var fileAcquire in fileAcquireEvents)
+        {
+            var payload = GetPropertyValue(fileAcquire, "Payload");
+            Assert.Equal(harness.Server.NodeId, (string?)GetPropertyValue(payload!, "FromNodeId"));
+            Assert.Equal(expectedUserKey, (string?)GetPropertyValue(payload!, "UserKey"));
+            Assert.Equal("new.txt", (string?)GetPropertyValue(payload!, "FileName"));
+            Assert.Equal("/docs/new.txt", (string?)GetPropertyValue(payload!, "LocalPath"));
+            Assert.Null(GetPropertyValue(payload!, "RemotePath"));
+            Assert.Equal("fs.write", (string?)GetPropertyValue(payload!, "TransferMethod"));
+        }
+    }
+
     /// <summary>Ensures miniscript fs.delete handles success, missing target, and non-empty directory failures.</summary>
     [Fact]
     public void Execute_Miniscript_Fs_Delete_FailsOnMissingAndNonEmptyDirectory()
@@ -2069,7 +2186,12 @@ public sealed class SystemCallTest
 
         Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/sandbox/new.txt", out _));
         Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/sandbox/keep.txt", out _));
-        Assert.Empty(DrainQueuedGameEvents(harness.World));
+        var events = DrainQueuedGameEvents(harness.World);
+        var fileAcquireEvents = events
+            .Where(static gameEvent => string.Equals((string)GetPropertyValue(gameEvent, "EventType"), "fileAcquire", StringComparison.Ordinal))
+            .ToList();
+        Assert.Empty(fileAcquireEvents);
+        Assert.Empty(events);
     }
 
     /// <summary>Ensures processor context creation requires userId and rejects unknown user ids.</summary>
@@ -2743,6 +2865,11 @@ public sealed class SystemCallTest
             .ToList();
         var fileAcquire = Assert.Single(fileAcquireEvents);
         var payload = GetPropertyValue(fileAcquire, "Payload");
+        var expectedUserKey = harness.Server.Users
+            .Single(pair => string.Equals(pair.Value.UserId, harness.UserId, StringComparison.Ordinal))
+            .Key;
+        Assert.Equal(remote.NodeId, (string?)GetPropertyValue(payload!, "FromNodeId"));
+        Assert.Equal(expectedUserKey, (string?)GetPropertyValue(payload!, "UserKey"));
         Assert.Equal("ftp", (string?)GetPropertyValue(payload!, "TransferMethod"));
         Assert.Equal("/drop/tool.bin", (string?)GetPropertyValue(payload!, "RemotePath"));
         Assert.Equal("/work/downloads/tool.bin", (string?)GetPropertyValue(payload!, "LocalPath"));
