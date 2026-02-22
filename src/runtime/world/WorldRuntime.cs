@@ -61,7 +61,6 @@ public partial class WorldRuntime : Node
     public bool DebugOption { get; set; }
 
     /// <summary>Per-world stable seed used for deterministic runtime generation/rendering.</summary>
-    [Export]
     public int WorldSeed
     {
         get
@@ -111,6 +110,8 @@ public partial class WorldRuntime : Node
 
     // Runtime allocators/state.
     private InitializationStage initializationStage = InitializationStage.NotStarted;
+    [Export]
+    // Serialized backing field keeps inspector editing without invoking guarded getter before initialization.
     private int worldSeed;
     private int nextProcessId = 1;
     private int physicsTicksPerSecond = 60;

@@ -39,7 +39,15 @@ var has_pending_anchor_overflow_check: bool = false
 var command_history: Array[String] = []
 var history_nav_index: int = -1
 var history_nav_draft: String = ""
-var is_applying_history_text: bool = false
+var is_applying_input_text: bool = false
+var completion_session_active: bool = false
+var completion_anchor_text: String = ""
+var completion_anchor_token_raw_start: int = -1
+var completion_anchor_token_raw_end: int = -1
+var completion_candidate_texts: Array[String] = []
+var completion_candidate_index: int = -1
+var completion_last_applied_text: String = ""
+var completion_last_applied_caret: int = -1
 
 @onready var background: ColorRect = $Background
 @onready var terminal_vbox: VBoxContainer = $VBox
@@ -56,6 +64,8 @@ var is_applying_history_text: bool = false
 func _ready() -> void:
 	input_line.keep_editing_on_text_submit = true
 	input_line.text_submitted.connect(_on_input_submitted)
+	input_line.text_changed.connect(_on_input_line_text_changed)
+	input_line.focus_exited.connect(_on_input_line_focus_exited)
 	input_line.gui_input.connect(_on_input_line_gui_input)
 	editor.gui_input.connect(_on_editor_gui_input)
 	editor.shortcut_keys_enabled = true
@@ -90,6 +100,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	_sync_completion_session_with_input_state()
+
 	if world_runtime == null:
 		return
 	if is_program_running and world_runtime.has_method("IsTerminalProgramRunning"):
@@ -113,6 +125,7 @@ func _on_input_submitted(command_text: String) -> void:
 	if is_program_running:
 		return
 
+	_reset_completion_session()
 	var trimmed: String = command_text.strip_edges()
 	if trimmed.is_empty():
 		_reset_history_navigation()
@@ -174,7 +187,7 @@ func _on_input_submitted(command_text: String) -> void:
 
 
 func _on_input_line_gui_input(event: InputEvent) -> void:
-	if is_applying_history_text:
+	if is_applying_input_text:
 		return
 	if event is not InputEventKey:
 		return
@@ -186,8 +199,35 @@ func _on_input_line_gui_input(event: InputEvent) -> void:
 		return
 	if not input_line.has_focus():
 		return
+	if _try_handle_tab_completion(key_event):
+		input_line.accept_event()
+		return
 	if _try_handle_history_navigation(key_event):
 		input_line.accept_event()
+
+
+func _on_input_line_text_changed(_new_text: String) -> void:
+	if is_applying_input_text:
+		return
+	_reset_completion_session()
+
+
+func _on_input_line_focus_exited() -> void:
+	_reset_completion_session()
+
+
+func _try_handle_tab_completion(event: InputEventKey) -> bool:
+	if event.keycode != KEY_TAB:
+		return false
+	if event.shift_pressed:
+		return false
+
+	_sync_completion_session_with_input_state()
+	if completion_session_active:
+		_cycle_completion_candidate()
+		return true
+
+	return _start_completion_session()
 
 
 func _try_handle_history_navigation(event: InputEventKey) -> bool:
@@ -202,7 +242,395 @@ func _try_handle_history_navigation(event: InputEventKey) -> bool:
 	return false
 
 
+func _start_completion_session() -> bool:
+	var current_text := input_line.text
+	var current_caret := clampi(input_line.caret_column, 0, current_text.length())
+	var target := _resolve_completion_target(current_text, current_caret)
+
+	var candidates: Array[String] = []
+	if _is_path_completion_mode(target):
+		candidates = _build_path_completion_candidates(target)
+	else:
+		candidates = _build_command_completion_candidates(target)
+
+	if candidates.is_empty():
+		_reset_completion_session()
+		return true
+
+	completion_session_active = true
+	completion_anchor_text = current_text
+	completion_anchor_token_raw_start = int(target.get("raw_start", current_caret))
+	completion_anchor_token_raw_end = int(target.get("raw_end", current_caret))
+	completion_candidate_texts = candidates
+	completion_candidate_index = 0
+	_apply_completion_candidate(completion_candidate_index)
+	return true
+
+
+func _cycle_completion_candidate() -> void:
+	if not completion_session_active:
+		return
+	if completion_candidate_texts.is_empty():
+		_reset_completion_session()
+		return
+
+	completion_candidate_index += 1
+	if completion_candidate_index >= completion_candidate_texts.size():
+		completion_candidate_index = 0
+	_apply_completion_candidate(completion_candidate_index)
+
+
+func _apply_completion_candidate(candidate_index: int) -> void:
+	if not completion_session_active:
+		return
+	if candidate_index < 0 or candidate_index >= completion_candidate_texts.size():
+		return
+
+	var anchor_start := maxi(0, completion_anchor_token_raw_start)
+	var anchor_end := maxi(anchor_start, completion_anchor_token_raw_end)
+	var prefix := completion_anchor_text.substr(0, anchor_start)
+	var suffix := completion_anchor_text.substr(anchor_end)
+	var replacement := completion_candidate_texts[candidate_index]
+	var next_text := prefix + replacement + suffix
+	var next_caret := prefix.length() + replacement.length()
+	_set_input_text_and_caret(next_text, next_caret)
+	completion_last_applied_text = next_text
+	completion_last_applied_caret = next_caret
+
+
+func _sync_completion_session_with_input_state() -> void:
+	if not completion_session_active:
+		return
+	if is_applying_input_text:
+		return
+	if not input_line.has_focus():
+		_reset_completion_session()
+		return
+	if input_line.text != completion_last_applied_text:
+		_reset_completion_session()
+		return
+	if input_line.caret_column != completion_last_applied_caret:
+		_reset_completion_session()
+
+
+func _reset_completion_session() -> void:
+	completion_session_active = false
+	completion_anchor_text = ""
+	completion_anchor_token_raw_start = -1
+	completion_anchor_token_raw_end = -1
+	completion_candidate_texts = []
+	completion_candidate_index = -1
+	completion_last_applied_text = ""
+	completion_last_applied_caret = -1
+
+
+func _is_path_completion_mode(target: Dictionary) -> bool:
+	var token_index := int(target.get("token_index", 0))
+	if token_index > 0:
+		return true
+
+	var prefix := str(target.get("prefix", ""))
+	return prefix.contains("/")
+
+
+func _build_command_completion_candidates(target: Dictionary) -> Array[String]:
+	var candidates: Array[String] = []
+	if world_runtime == null:
+		return candidates
+	if not world_runtime.has_method("GetTerminalCommandCompletions"):
+		return candidates
+
+	var prefix := str(target.get("prefix", ""))
+	var is_quoted := bool(target.get("is_quoted", false))
+	var has_closing_quote := bool(target.get("has_closing_quote", false))
+	var completions_variant: Variant = world_runtime.call(
+		"GetTerminalCommandCompletions",
+		current_node_id,
+		current_user_id,
+		current_cwd)
+	var completions := _variant_lines_to_string_array(completions_variant)
+	for completion in completions:
+		if not prefix.is_empty() and not completion.begins_with(prefix):
+			continue
+
+		if is_quoted:
+			candidates.append(_build_quoted_completion_replacement(completion, false, has_closing_quote))
+		else:
+			candidates.append(completion + " ")
+
+	return candidates
+
+
+func _build_path_completion_candidates(target: Dictionary) -> Array[String]:
+	var candidates: Array[String] = []
+	if world_runtime == null:
+		return candidates
+	if not world_runtime.has_method("GetTerminalPathCompletionEntries"):
+		return candidates
+
+	var prefix := str(target.get("prefix", ""))
+	var split := _split_completion_path_prefix(prefix)
+	var dir_part := str(split.get("dir_part", ""))
+	var name_prefix := str(split.get("name_prefix", ""))
+	var directory_query := "." if dir_part.is_empty() else dir_part
+	var payload := _fetch_path_completion_payload(directory_query)
+	if not bool(payload.get("ok", false)):
+		return candidates
+
+	var entries_variant: Variant = payload.get("entries", [])
+	if entries_variant is not Array:
+		return candidates
+
+	var entries: Array = entries_variant
+	var is_quoted := bool(target.get("is_quoted", false))
+	var has_closing_quote := bool(target.get("has_closing_quote", false))
+	for entry_variant in entries:
+		if entry_variant is not Dictionary:
+			continue
+
+		var entry: Dictionary = entry_variant
+		var entry_name := str(entry.get("name", ""))
+		if entry_name.is_empty():
+			continue
+		if not name_prefix.is_empty() and not entry_name.begins_with(name_prefix):
+			continue
+		if not name_prefix.begins_with(".") and entry_name.begins_with("."):
+			continue
+
+		var content := dir_part + entry_name
+		var is_directory := bool(entry.get("isDirectory", false))
+		if is_quoted:
+			candidates.append(_build_quoted_completion_replacement(content, is_directory, has_closing_quote))
+		elif is_directory:
+			candidates.append(content + "/")
+		else:
+			candidates.append(content + " ")
+
+	return candidates
+
+
+func _fetch_path_completion_payload(directory_query: String) -> Dictionary:
+	var payload := {
+		"ok": false,
+		"entries": [],
+	}
+	if world_runtime == null:
+		return payload
+	if not world_runtime.has_method("GetTerminalPathCompletionEntries"):
+		return payload
+
+	var response_variant: Variant = world_runtime.call(
+		"GetTerminalPathCompletionEntries",
+		current_node_id,
+		current_user_id,
+		current_cwd,
+		directory_query)
+	if response_variant is not Dictionary:
+		return payload
+
+	var response: Dictionary = response_variant
+	payload["ok"] = bool(response.get("ok", false))
+	payload["entries"] = response.get("entries", [])
+	return payload
+
+
+func _split_completion_path_prefix(prefix: String) -> Dictionary:
+	var split_index := prefix.rfind("/")
+	if split_index < 0:
+		return {
+			"dir_part": "",
+			"name_prefix": prefix,
+		}
+
+	return {
+		"dir_part": prefix.substr(0, split_index + 1),
+		"name_prefix": prefix.substr(split_index + 1),
+	}
+
+
+func _resolve_completion_target(text: String, caret_column: int) -> Dictionary:
+	var caret := clampi(caret_column, 0, text.length())
+	var tokens := _collect_completion_tokens(text)
+	if tokens.is_empty():
+		return {
+			"token_index": 0,
+			"raw_start": caret,
+			"raw_end": caret,
+			"is_quoted": false,
+			"has_closing_quote": false,
+			"content": "",
+			"prefix": "",
+		}
+
+	for token_index in range(tokens.size()):
+		var token: Dictionary = tokens[token_index]
+		var raw_start := int(token.get("raw_start", 0))
+		var raw_end := int(token.get("raw_end", raw_start))
+		if caret < raw_start:
+			return {
+				"token_index": token_index,
+				"raw_start": caret,
+				"raw_end": caret,
+				"is_quoted": false,
+				"has_closing_quote": false,
+				"content": "",
+				"prefix": "",
+			}
+
+		if caret > raw_end:
+			continue
+
+		var raw_token := text.substr(raw_start, raw_end - raw_start)
+		var caret_in_token := clampi(caret - raw_start, 0, raw_token.length())
+		var decoded := _decode_completion_token(raw_token, caret_in_token)
+		return {
+			"token_index": token_index,
+			"raw_start": raw_start,
+			"raw_end": raw_end,
+			"is_quoted": bool(token.get("is_quoted", false)),
+			"has_closing_quote": bool(token.get("has_closing_quote", false)),
+			"content": str(decoded.get("content", "")),
+			"prefix": str(decoded.get("prefix", "")),
+		}
+
+	return {
+		"token_index": tokens.size(),
+		"raw_start": caret,
+		"raw_end": caret,
+		"is_quoted": false,
+		"has_closing_quote": false,
+		"content": "",
+		"prefix": "",
+	}
+
+
+func _collect_completion_tokens(text: String) -> Array[Dictionary]:
+	var tokens: Array[Dictionary] = []
+	var token_started := false
+	var token_raw_start := 0
+	var token_is_quoted := false
+	var token_has_closing_quote := false
+	var in_quotes := false
+	var escape_next := false
+	for index in range(text.length()):
+		var ch := text.substr(index, 1)
+		if not token_started:
+			if _is_completion_whitespace(ch):
+				continue
+
+			token_started = true
+			token_raw_start = index
+			token_is_quoted = ch == "\""
+			token_has_closing_quote = false
+			in_quotes = token_is_quoted
+			escape_next = false
+			continue
+
+		if in_quotes:
+			if escape_next:
+				escape_next = false
+				continue
+
+			if ch == "\\":
+				escape_next = true
+				continue
+
+			if ch == "\"":
+				in_quotes = false
+				if token_is_quoted:
+					token_has_closing_quote = true
+				continue
+
+			continue
+
+		if ch == "\"":
+			in_quotes = true
+			continue
+
+		if _is_completion_whitespace(ch):
+			tokens.append({
+				"raw_start": token_raw_start,
+				"raw_end": index,
+				"is_quoted": token_is_quoted,
+				"has_closing_quote": token_is_quoted and token_has_closing_quote and not in_quotes,
+			})
+			token_started = false
+			in_quotes = false
+			escape_next = false
+
+	if token_started:
+		tokens.append({
+			"raw_start": token_raw_start,
+			"raw_end": text.length(),
+			"is_quoted": token_is_quoted,
+			"has_closing_quote": token_is_quoted and token_has_closing_quote and not in_quotes,
+		})
+
+	return tokens
+
+
+func _decode_completion_token(raw_token: String, caret_in_token: int) -> Dictionary:
+	var content := ""
+	var prefix := ""
+	var in_quotes := false
+	var escape_next := false
+	var normalized_caret := clampi(caret_in_token, 0, raw_token.length())
+	for index in range(raw_token.length()):
+		var ch := raw_token.substr(index, 1)
+		var append_char := true
+		if escape_next:
+			escape_next = false
+		elif ch == "\\" and in_quotes:
+			escape_next = true
+			append_char = false
+		elif ch == "\"":
+			in_quotes = not in_quotes
+			append_char = false
+
+		if append_char:
+			content += ch
+			if index < normalized_caret:
+				prefix += ch
+
+	if escape_next:
+		content += "\\"
+		if raw_token.length() <= normalized_caret:
+			prefix += "\\"
+
+	return {
+		"content": content,
+		"prefix": prefix,
+	}
+
+
+func _is_completion_whitespace(ch: String) -> bool:
+	return ch == " " or ch == "\t" or ch == "\n" or ch == "\r"
+
+
+func _build_quoted_completion_replacement(content: String, is_directory: bool, has_closing_quote: bool) -> String:
+	var escaped_content := _escape_for_double_quote(content)
+	if is_directory:
+		var replacement := "\"" + escaped_content + "/"
+		if has_closing_quote:
+			replacement += "\""
+		return replacement
+
+	return "\"" + escaped_content + "\" "
+
+
+func _escape_for_double_quote(value: String) -> String:
+	var escaped := ""
+	for index in range(value.length()):
+		var ch := value.substr(index, 1)
+		if ch == "\\" or ch == "\"":
+			escaped += "\\"
+		escaped += ch
+
+	return escaped
+
+
 func _navigate_history(direction: int) -> void:
+	_reset_completion_session()
 	if command_history.is_empty():
 		return
 	if direction < 0:
@@ -250,11 +678,16 @@ func _reset_history_navigation() -> void:
 	history_nav_draft = ""
 
 
-func _set_input_text_and_caret_to_end(value: String) -> void:
-	is_applying_history_text = true
+func _set_input_text_and_caret(value: String, caret_column: int) -> void:
+	var clamped_caret := clampi(caret_column, 0, value.length())
+	is_applying_input_text = true
 	input_line.text = value
-	input_line.caret_column = value.length()
-	is_applying_history_text = false
+	input_line.caret_column = clamped_caret
+	is_applying_input_text = false
+
+
+func _set_input_text_and_caret_to_end(value: String) -> void:
+	_set_input_text_and_caret(value, value.length())
 
 
 func _append_command_echo(command_text: String) -> void:

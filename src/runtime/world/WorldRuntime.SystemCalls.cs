@@ -140,6 +140,151 @@ public partial class WorldRuntime
         return BuildGodotTerminalCommandResponse(result);
     }
 
+    /// <summary>Returns terminal command completion candidates for current context.</summary>
+    public Godot.Collections.Array<string> GetTerminalCommandCompletions(
+        string nodeId,
+        string userId,
+        string cwd)
+    {
+        var completions = new Godot.Collections.Array<string>();
+        foreach (var command in GetTerminalCommandCompletionsCore(nodeId, userId, cwd))
+        {
+            completions.Add(command);
+        }
+
+        return completions;
+    }
+
+    internal IReadOnlyList<string> GetTerminalCommandCompletionsCore(
+        string nodeId,
+        string userId,
+        string cwd)
+    {
+        if (systemCallProcessor is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        if (!TryCreateEditorSaveContext(
+                nodeId,
+                userId,
+                cwd,
+                out var server,
+                out var user,
+                out var userKey,
+                out var normalizedCwd,
+                out _))
+        {
+            return Array.Empty<string>();
+        }
+
+        var executionContext = new SystemCallExecutionContext(
+            this,
+            server,
+            user,
+            server.NodeId,
+            userKey,
+            normalizedCwd,
+            string.Empty);
+        return systemCallProcessor.ListCommandCompletions(executionContext);
+    }
+
+    /// <summary>Returns path completion child entries for a normalized directory context.</summary>
+    public Godot.Collections.Dictionary GetTerminalPathCompletionEntries(
+        string nodeId,
+        string userId,
+        string cwd,
+        string directoryPath)
+    {
+        var coreResult = GetTerminalPathCompletionEntriesCore(nodeId, userId, cwd, directoryPath);
+        var entries = new Godot.Collections.Array();
+        var response = new Godot.Collections.Dictionary
+        {
+            ["ok"] = (bool)coreResult["ok"],
+            ["normalizedDirectoryPath"] = (string)coreResult["normalizedDirectoryPath"],
+            ["entries"] = entries,
+            ["error"] = (string)coreResult["error"],
+        };
+        var coreEntries = (IReadOnlyList<Dictionary<string, object>>)coreResult["entries"];
+        foreach (var coreEntry in coreEntries)
+        {
+            entries.Add(new Godot.Collections.Dictionary
+            {
+                ["name"] = (string)coreEntry["name"],
+                ["isDirectory"] = (bool)coreEntry["isDirectory"],
+            });
+        }
+
+        return response;
+    }
+
+    internal Dictionary<string, object> GetTerminalPathCompletionEntriesCore(
+        string nodeId,
+        string userId,
+        string cwd,
+        string directoryPath)
+    {
+        var entries = new List<Dictionary<string, object>>();
+        var response = new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            ["ok"] = false,
+            ["normalizedDirectoryPath"] = string.Empty,
+            ["entries"] = entries,
+            ["error"] = string.Empty,
+        };
+
+        if (!TryCreateEditorSaveContext(
+                nodeId,
+                userId,
+                cwd,
+                out var server,
+                out var user,
+                out _,
+                out var normalizedCwd,
+                out var contextFailure))
+        {
+            response["error"] = ResolveCompletionFailureMessage(contextFailure, "failed to create completion context.");
+            return response;
+        }
+
+        if (!user.Privilege.Read)
+        {
+            response["error"] = "permission denied: path completion.";
+            return response;
+        }
+
+        var normalizedDirectoryPath = BaseFileSystem.NormalizePath(normalizedCwd, directoryPath ?? ".");
+        response["normalizedDirectoryPath"] = normalizedDirectoryPath;
+        if (!server.DiskOverlay.TryResolveEntry(normalizedDirectoryPath, out var directoryEntry))
+        {
+            response["error"] = $"no such file or directory: {normalizedDirectoryPath}";
+            return response;
+        }
+
+        if (directoryEntry.EntryKind != VfsEntryKind.Dir)
+        {
+            response["error"] = $"not a directory: {normalizedDirectoryPath}";
+            return response;
+        }
+
+        foreach (var childName in server.DiskOverlay.ListChildren(normalizedDirectoryPath))
+        {
+            var childPath = normalizedDirectoryPath == "/"
+                ? "/" + childName
+                : normalizedDirectoryPath + "/" + childName;
+            var isDirectory = server.DiskOverlay.TryResolveEntry(childPath, out var childEntry) &&
+                              childEntry.EntryKind == VfsEntryKind.Dir;
+            entries.Add(new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["name"] = childName,
+                ["isDirectory"] = isDirectory,
+            });
+        }
+
+        response["ok"] = true;
+        return response;
+    }
+
     /// <summary>Attempts to start asynchronous user program execution for script-like commands.</summary>
     public Godot.Collections.Dictionary TryStartTerminalProgramExecution(
         string nodeId,
@@ -564,6 +709,28 @@ public partial class WorldRuntime
         return line.StartsWith("error:", StringComparison.OrdinalIgnoreCase)
             ? line
             : "error: " + line;
+    }
+
+    private static string ResolveCompletionFailureMessage(SystemCallResult? failure, string fallback)
+    {
+        if (failure is null)
+        {
+            return fallback;
+        }
+
+        foreach (var line in failure.Lines)
+        {
+            var message = line?.Trim() ?? string.Empty;
+            if (message.Length > 0)
+            {
+                const string errorPrefix = "error: ";
+                return message.StartsWith(errorPrefix, StringComparison.OrdinalIgnoreCase)
+                    ? message[errorPrefix.Length..]
+                    : message;
+            }
+        }
+
+        return fallback;
     }
 
     private bool TryCreateEditorSaveContext(

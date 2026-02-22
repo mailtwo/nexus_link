@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Uplink2.Runtime.Syscalls;
 
@@ -28,5 +29,12 @@ internal sealed class SystemCallRegistry
     internal bool TryGetHandler(string command, out ISystemCallHandler handler)
     {
         return handlers.TryGetValue(command, out handler!);
+    }
+
+    internal IReadOnlyList<string> ListCommands()
+    {
+        return handlers.Keys
+            .OrderBy(static command => command, StringComparer.Ordinal)
+            .ToArray();
     }
 }

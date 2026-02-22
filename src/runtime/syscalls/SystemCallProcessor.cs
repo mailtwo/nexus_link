@@ -166,6 +166,30 @@ internal sealed class SystemCallProcessor
             out immediateResult);
     }
 
+    internal IReadOnlyList<string> ListCommandCompletions(SystemCallExecutionContext context)
+    {
+        if (context is null)
+        {
+            throw new ArgumentNullException(nameof(context));
+        }
+
+        var commandNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var registeredCommand in registry.ListCommands())
+        {
+            commandNames.Add(registeredCommand);
+        }
+
+        AddExecutableProgramNamesFromDirectory(context, context.Cwd, commandNames);
+        foreach (var searchDirectory in ProgramPathDirectories)
+        {
+            AddExecutableProgramNamesFromDirectory(context, searchDirectory, commandNames);
+        }
+
+        return commandNames
+            .OrderBy(static value => value, StringComparer.Ordinal)
+            .ToArray();
+    }
+
     private SystemCallResult TryCreateContext(SystemCallRequest request, out SystemCallExecutionContext? context)
     {
         context = null;
@@ -211,6 +235,34 @@ internal sealed class SystemCallProcessor
             normalizedCwd,
             request.TerminalSessionId?.Trim() ?? string.Empty);
         return SystemCallResultFactory.Success();
+    }
+
+    private static void AddExecutableProgramNamesFromDirectory(
+        SystemCallExecutionContext context,
+        string directoryPath,
+        HashSet<string> commandNames)
+    {
+        var normalizedDirectoryPath = BaseFileSystem.NormalizePath("/", directoryPath);
+        if (!context.Server.DiskOverlay.TryResolveEntry(normalizedDirectoryPath, out var directoryEntry) ||
+            directoryEntry.EntryKind != VfsEntryKind.Dir)
+        {
+            return;
+        }
+
+        foreach (var childName in context.Server.DiskOverlay.ListChildren(normalizedDirectoryPath))
+        {
+            var childPath = normalizedDirectoryPath == "/"
+                ? "/" + childName
+                : normalizedDirectoryPath + "/" + childName;
+            if (!context.Server.DiskOverlay.TryResolveEntry(childPath, out var childEntry) ||
+                childEntry.EntryKind != VfsEntryKind.File ||
+                !childEntry.IsDirectExecutable())
+            {
+                continue;
+            }
+
+            commandNames.Add(childName);
+        }
     }
 
     private static bool TryPrepareExecutableScriptLaunch(

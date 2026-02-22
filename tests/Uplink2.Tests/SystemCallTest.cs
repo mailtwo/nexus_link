@@ -3301,6 +3301,118 @@ public sealed class SystemCallTest
                              string.Equals(called.Name, "ResolveMotdLinesForLogin", StringComparison.Ordinal));
     }
 
+    /// <summary>Ensures command completion API returns sorted, distinct builtins plus executable program names.</summary>
+    [Fact]
+    public void GetTerminalCommandCompletions_ReturnsSortedDistinctBuiltinsAndExecutables()
+    {
+        var harness = CreateHarness(includeVfsModule: true, includeConnectModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/localtool", "exec:noop", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/remotetool", "exec:noop", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/not_exec.txt", "plain", fileKind: VfsFileKind.Text);
+
+        var method = typeof(WorldRuntime).GetMethod(
+            "GetTerminalCommandCompletionsCore",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        var completions = method!.Invoke(harness.World, new object?[]
+        {
+            harness.Server.NodeId,
+            "guest",
+            "/work",
+        }) as IReadOnlyList<string>;
+        Assert.NotNull(completions);
+
+        var completionList = completions!.ToList();
+        Assert.Contains("cat", completionList);
+        Assert.Contains("connect", completionList);
+        Assert.Contains("localtool", completionList);
+        Assert.Contains("remotetool", completionList);
+        Assert.DoesNotContain("not_exec.txt", completionList);
+
+        var sorted = completionList.OrderBy(static value => value, StringComparer.Ordinal).ToList();
+        Assert.Equal(sorted, completionList);
+        Assert.Equal(completionList.Count, completionList.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    /// <summary>Ensures path completion API returns normalized directory and child metadata.</summary>
+    [Fact]
+    public void GetTerminalPathCompletionEntries_ReturnsChildrenWithDirectoryFlags()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.Server.DiskOverlay.AddDirectory("/work/subdir");
+        harness.Server.DiskOverlay.WriteFile("/work/alpha.txt", "A", fileKind: VfsFileKind.Text);
+        harness.Server.DiskOverlay.WriteFile("/work/.hidden", "H", fileKind: VfsFileKind.Text);
+
+        var method = typeof(WorldRuntime).GetMethod(
+            "GetTerminalPathCompletionEntriesCore",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        var payload = method!.Invoke(harness.World, new object?[]
+        {
+            harness.Server.NodeId,
+            "guest",
+            "/work",
+            ".",
+        }) as Dictionary<string, object>;
+        Assert.NotNull(payload);
+
+        Assert.True((bool)payload!["ok"]);
+        Assert.Equal("/work", payload["normalizedDirectoryPath"]);
+        Assert.Equal(string.Empty, payload["error"]);
+
+        var entries = Assert.IsAssignableFrom<IReadOnlyList<Dictionary<string, object>>>(payload["entries"]);
+        Assert.NotEmpty(entries);
+        var byName = new Dictionary<string, bool>(StringComparer.Ordinal);
+        foreach (var entry in entries)
+        {
+            var name = (string)entry["name"]!;
+            var isDirectory = (bool)entry["isDirectory"]!;
+            byName[name] = isDirectory;
+        }
+
+        Assert.True(byName.ContainsKey("alpha.txt"));
+        Assert.False(byName["alpha.txt"]);
+        Assert.True(byName.ContainsKey("subdir"));
+        Assert.True(byName["subdir"]);
+        Assert.True(byName.ContainsKey(".hidden"));
+    }
+
+    /// <summary>Ensures path completion API denies access when read privilege is missing.</summary>
+    [Fact]
+    public void GetTerminalPathCompletionEntries_FailsWithoutReadPrivilege()
+    {
+        var harness = CreateHarness(
+            includeVfsModule: true,
+            cwd: "/work",
+            privilege: new PrivilegeConfig
+            {
+                Read = false,
+                Write = true,
+                Execute = true,
+            });
+        harness.BaseFileSystem.AddDirectory("/work");
+
+        var method = typeof(WorldRuntime).GetMethod(
+            "GetTerminalPathCompletionEntriesCore",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        var payload = method!.Invoke(harness.World, new object?[]
+        {
+            harness.Server.NodeId,
+            "guest",
+            "/work",
+            ".",
+        }) as Dictionary<string, object>;
+        Assert.NotNull(payload);
+
+        Assert.False((bool)payload!["ok"]);
+        Assert.Contains("permission denied", (string)payload["error"], StringComparison.Ordinal);
+        var entries = Assert.IsAssignableFrom<IReadOnlyList<Dictionary<string, object>>>(payload["entries"]);
+        Assert.Empty(entries);
+    }
+
     /// <summary>Ensures MOTD resolver returns content lines only when account can read text /etc/motd.</summary>
     [Fact]
     public void ResolveMotdLinesForLogin_ReturnsExpectedLines_OnlyForReadableTextMotd()
