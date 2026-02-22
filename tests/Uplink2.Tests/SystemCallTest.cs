@@ -292,6 +292,40 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => line.Contains("Hello world!", StringComparison.Ordinal));
     }
 
+    /// <summary>Ensures miniscript string literals support common backslash escapes.</summary>
+    [Fact]
+    public void Execute_Miniscript_SupportsBackslashEscapesInStringLiterals()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/escapes.ms",
+            """
+            text = "first\r\nsecond"
+            normalized = text.replace("\r\n", "\n")
+            lines = normalized.split("\n")
+            print "count=" + str(len(lines))
+            print "line0=" + lines[0]
+            print "line1=" + lines[1]
+            print "tabLen=" + str(len("a\tb"))
+            print "quote=a\"b"
+            print "slash=a\\b"
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/escapes.ms");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "count=2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "line0=first", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "line1=second", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "tabLen=3", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "quote=a\"b", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "slash=a\\b", StringComparison.Ordinal));
+    }
+
     /// <summary>Ensures executable-script program path execution exposes argv/argc with trailing command arguments.</summary>
     [Fact]
     public void Execute_ExecutableScript_PassesArgumentsToScript()

@@ -33,6 +33,10 @@ ServerSpec:
           entryKind: File
           contentId: res://scenario_content/resources/text/myworkstation_prototype_motd.txt
           fileKind: Text
+        /leaked_password.txt:
+          entryKind: File
+          contentId: res://scenario_content/resources/text/leaked_password.txt
+          fileKind: Text
 Scenario:
   startScenario:
     servers:

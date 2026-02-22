@@ -9,6 +9,7 @@ need to worry about this stuff.
 */
 using System;
 using System.Collections.Generic;
+using System.Text;
 
 namespace Miniscript {
 	public class Token {
@@ -219,17 +220,46 @@ namespace Miniscript {
 				}
 				return result;
 			} else if (c == '"') {
-				// Lex a string... to the closing ", but skipping (and singling) a doubled double quote ("")
+				// Lex a string... to the closing ", supporting either doubled quotes ("")
+				// or common backslash escapes (e.g., \n, \r, \t, \\, \").
 				result.type = Token.Type.String;
-				bool haveDoubledQuotes = false;
-				startPos = position;
+				StringBuilder builder = new StringBuilder();
 				bool gotEndQuote = false;
 				while (position < inputLength) {
 					c = input[position++];
-					if (c == '"') {
+					if (c == '\\') {
+						if (position >= inputLength) {
+							builder.Append('\\');
+							break;
+						}
+
+						char escaped = input[position++];
+						switch (escaped) {
+						case 'n':
+							builder.Append('\n');
+							break;
+						case 'r':
+							builder.Append('\r');
+							break;
+						case 't':
+							builder.Append('\t');
+							break;
+						case '"':
+							builder.Append('"');
+							break;
+						case '\\':
+							builder.Append('\\');
+							break;
+						default:
+							// Keep unknown escapes verbatim for backward compatibility.
+							builder.Append('\\');
+							builder.Append(escaped);
+							break;
+						}
+					} else if (c == '"') {
 						if (position < inputLength && input[position] == '"') {
 							// This is just a doubled quote.
-							haveDoubledQuotes = true;
+							builder.Append('"');
 							position++;
 						} else {
 							// This is the closing quote, marking the end of the string.
@@ -239,11 +269,12 @@ namespace Miniscript {
 					} else if (c == '\n' || c == '\r') {
 						// Break at end of line (string literals should not contain a line break).
 						break;
+					} else {
+						builder.Append(c);
 					}
 				}
 				if (!gotEndQuote) throw new LexerException("missing closing quote (\")");
-				result.text = input.Substring(startPos, position-startPos-1);
-				if (haveDoubledQuotes) result.text = result.text.Replace("\"\"", "\"");
+				result.text = builder.ToString();
 				return result;
 
 			} else {

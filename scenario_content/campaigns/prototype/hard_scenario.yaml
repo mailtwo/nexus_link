@@ -20,7 +20,7 @@ ServerSpec:
     users:
       hardTerminal1User1:
         userId: root
-        passwd: AUTO:c4_numspecial
+        passwd: AUTO:c3_numspecial
         authMode: static
         privilege:
           read: true
@@ -33,7 +33,7 @@ ServerSpec:
     users:
       hardTerminal2User1:
         userId: root
-        passwd: AUTO:c5_numspecial
+        passwd: AUTO:c4_numspecial
         authMode: static
         privilege:
           read: true
@@ -46,7 +46,7 @@ ServerSpec:
     users:
       hardTerminal3User1:
         userId: root
-        passwd: AUTO:c4_numspecial
+        passwd: AUTO:c3_numspecial
         authMode: static
         privilege:
           read: true
@@ -59,7 +59,7 @@ ServerSpec:
     users:
       hardTerminal4User1:
         userId: root
-        passwd: AUTO:c6_numspecial
+        passwd: AUTO:c5_numspecial
         authMode: static
         privilege:
           read: true
@@ -72,7 +72,7 @@ ServerSpec:
     users:
       hardTerminal5User1:
         userId: root
-        passwd: AUTO:c5_numspecial
+        passwd: AUTO:c4_numspecial
         authMode: static
         privilege:
           read: true
@@ -85,7 +85,7 @@ ServerSpec:
     users:
       hardGuard1User1:
         userId: root
-        passwd: AUTO:c5_numspecial
+        passwd: AUTO:c3_numspecial
         authMode: static
         privilege:
           read: true
@@ -98,7 +98,7 @@ ServerSpec:
     users:
       hardGuard2User1:
         userId: root
-        passwd: AUTO:c5_numspecial
+        passwd: AUTO:c4_numspecial
         authMode: static
         privilege:
           read: true
@@ -111,7 +111,7 @@ ServerSpec:
     users:
       hardGuard3User1:
         userId: root
-        passwd: AUTO:c5_numspecial
+        passwd: AUTO:c4_numspecial
         authMode: static
         privilege:
           read: true
@@ -124,7 +124,7 @@ ServerSpec:
     users:
       hardGuard4User1:
         userId: root
-        passwd: AUTO:c5_numspecial
+        passwd: AUTO:c4_numspecial
         authMode: static
         privilege:
           read: true
@@ -137,7 +137,7 @@ ServerSpec:
     users:
       hardMainframeSUser1:
         userId: root
-        passwd: AUTO:c5_numspecial
+        passwd: AUTO:c4_numspecial
         authMode: static
         privilege:
           read: true
