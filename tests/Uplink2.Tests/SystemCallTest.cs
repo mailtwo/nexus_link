@@ -1556,6 +1556,522 @@ public sealed class SystemCallTest
         Assert.False(remote.DiskOverlay.TryResolveEntry("/incoming/u.txt", out _));
     }
 
+    /// <summary>Ensures miniscript fs.list/read/stat works in local execution context.</summary>
+    [Fact]
+    public void Execute_Miniscript_Fs_Local_ListReadStat_Succeeds()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/docs");
+        harness.BaseFileSystem.AddFile("/docs/a.txt", "HELLO", fileKind: VfsFileKind.Text, size: 5);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/fs_local_ok.ms",
+            """
+            l = fs.list("/docs")
+            print "lok=" + str(l.ok)
+            print "lcode=" + l.code
+            print "lcount=" + str(len(l.entries))
+            r = fs.read("/docs/a.txt")
+            print "rok=" + str(r.ok)
+            print "rtext=" + r.text
+            s = fs.stat("/docs/a.txt")
+            print "sok=" + str(s.ok)
+            print "skind=" + s.entryKind
+            print "sfileKind=" + s.fileKind
+            print "ssize=" + str(s.size)
+            print "hasPerms=" + str(hasIndex(s, "perms"))
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/fs_local_ok.ms", terminalSessionId: "ts-ms-fs-local-ok");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "lok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "lcode=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "lcount=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "rok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "rtext=HELLO", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "sok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "skind=File", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "sfileKind=Text", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ssize=5", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "hasPerms=0", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures miniscript fs.read rejects non-text files with NotTextFile.</summary>
+    [Fact]
+    public void Execute_Miniscript_Fs_Read_ReturnsNotTextFile_ForBinary()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/bin");
+        harness.BaseFileSystem.AddFile("/bin/blob.bin", "0101", fileKind: VfsFileKind.Binary, size: 4);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/fs_read_not_text.ms",
+            """
+            r = fs.read("/bin/blob.bin")
+            print "ok=" + str(r.ok)
+            print "code=" + r.code
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/fs_read_not_text.ms", terminalSessionId: "ts-ms-fs-read-not-text");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=NotTextFile", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures miniscript fs.read respects maxBytes option and returns TooLarge.</summary>
+    [Fact]
+    public void Execute_Miniscript_Fs_Read_RespectsMaxBytes()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/docs");
+        harness.BaseFileSystem.AddFile("/docs/big.txt", "ABCDE", fileKind: VfsFileKind.Text, size: 5);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/fs_read_max_bytes.ms",
+            """
+            opts = {}
+            opts["maxBytes"] = 3
+            r = fs.read("/docs/big.txt", opts)
+            print "ok=" + str(r.ok)
+            print "code=" + r.code
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/fs_read_max_bytes.ms", terminalSessionId: "ts-ms-fs-read-max");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=TooLarge", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures miniscript fs.write enforces overwrite and createParents options.</summary>
+    [Fact]
+    public void Execute_Miniscript_Fs_Write_RespectsOverwriteAndCreateParents()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/docs");
+        harness.BaseFileSystem.AddFile("/docs/a.txt", "A", fileKind: VfsFileKind.Text, size: 1);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/fs_write_opts.ms",
+            """
+            w1 = fs.write("/docs/a.txt", "X")
+            print "w1ok=" + str(w1.ok)
+            print "w1code=" + w1.code
+            w2 = fs.write("/new/nested/out.txt", "Y")
+            print "w2ok=" + str(w2.ok)
+            print "w2code=" + w2.code
+            opts = {}
+            opts["createParents"] = 1
+            w3 = fs.write("/new/nested/out.txt", "Y", opts)
+            print "w3ok=" + str(w3.ok)
+            print "w3code=" + w3.code
+            print "w3path=" + w3.path
+            print "w3written=" + str(w3.written)
+            r = fs.read("/new/nested/out.txt")
+            print "r3ok=" + str(r.ok)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/fs_write_opts.ms", terminalSessionId: "ts-ms-fs-write-opts");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w1ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w1code=AlreadyExists", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w2ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w2code=NotFound", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w3ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w3code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w3path=/new/nested/out.txt", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w3written=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r3ok=1", StringComparison.Ordinal));
+        Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/new/nested/out.txt", out _));
+    }
+
+    /// <summary>Ensures miniscript fs.delete handles success, missing target, and non-empty directory failures.</summary>
+    [Fact]
+    public void Execute_Miniscript_Fs_Delete_FailsOnMissingAndNonEmptyDirectory()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/tmp");
+        harness.BaseFileSystem.AddFile("/tmp/x.txt", "X", fileKind: VfsFileKind.Text, size: 1);
+        harness.BaseFileSystem.AddDirectory("/tmp/dir");
+        harness.BaseFileSystem.AddFile("/tmp/dir/y.txt", "Y", fileKind: VfsFileKind.Text, size: 1);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/fs_delete_cases.ms",
+            """
+            d1 = fs.delete("/tmp/x.txt")
+            print "d1ok=" + str(d1.ok)
+            print "d1code=" + d1.code
+            print "d1deleted=" + str(d1.deleted)
+            d2 = fs.delete("/tmp/x.txt")
+            print "d2ok=" + str(d2.ok)
+            print "d2code=" + d2.code
+            d3 = fs.delete("/tmp/dir")
+            print "d3ok=" + str(d3.ok)
+            print "d3code=" + d3.code
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/fs_delete_cases.ms", terminalSessionId: "ts-ms-fs-delete-cases");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d1ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d1code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d1deleted=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d2ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d2code=NotFound", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d3ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d3code=NotDirectory", StringComparison.Ordinal));
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/tmp/x.txt", out _));
+        Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/tmp/dir/y.txt", out _));
+    }
+
+    /// <summary>Ensures session-scoped fs.list/read/stat use session user read privilege.</summary>
+    [Fact]
+    public void Execute_Miniscript_Fs_SessionReadApis_UseSessionReadPrivilege()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.DiskOverlay.AddDirectory("/drop");
+        remote.DiskOverlay.WriteFile("/drop/a.txt", "A", fileKind: VfsFileKind.Text, size: 1);
+        remote.Users["guest"].Privilege.Read = false;
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/fs_session_read_perm.ms",
+            """
+            r = ssh.connect("10.0.1.20", "guest", "pw")
+            l = fs.list(r.session, "/drop")
+            print "lok=" + str(l.ok)
+            print "lcode=" + l.code
+            s = fs.stat(r.session, "/drop/a.txt")
+            print "sok=" + str(s.ok)
+            print "scode=" + s.code
+            rd = fs.read(r.session, "/drop/a.txt")
+            print "rok=" + str(rd.ok)
+            print "rcode=" + rd.code
+            d = ssh.disconnect(r.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/fs_session_read_perm.ms", terminalSessionId: "ts-ms-fs-session-read");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "lok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "lcode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "sok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "scode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "rok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "rcode=PermissionDenied", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures session-scoped fs.write/delete use session user write privilege.</summary>
+    [Fact]
+    public void Execute_Miniscript_Fs_SessionWriteApis_UseSessionWritePrivilege()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.DiskOverlay.AddDirectory("/drop");
+        remote.DiskOverlay.WriteFile("/drop/to-delete.txt", "D", fileKind: VfsFileKind.Text, size: 1);
+        remote.Users["guest"].Privilege.Write = false;
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/fs_session_write_perm.ms",
+            """
+            r = ssh.connect("10.0.1.20", "guest", "pw")
+            w = fs.write(r.session, "/drop/new.txt", "N")
+            print "wok=" + str(w.ok)
+            print "wcode=" + w.code
+            del = fs.delete(r.session, "/drop/to-delete.txt")
+            print "dok=" + str(del.ok)
+            print "dcode=" + del.code
+            d = ssh.disconnect(r.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/fs_session_write_perm.ms", terminalSessionId: "ts-ms-fs-session-write");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "wok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "wcode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "dok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "dcode=PermissionDenied", StringComparison.Ordinal));
+        Assert.False(remote.DiskOverlay.TryResolveEntry("/drop/new.txt", out _));
+        Assert.True(remote.DiskOverlay.TryResolveEntry("/drop/to-delete.txt", out _));
+    }
+
+    /// <summary>Ensures route-scoped fs.list/read/stat use route.lastSession and ignore non-last route fields.</summary>
+    [Fact]
+    public void Execute_Miniscript_Fs_WithRoute_ReadApis_UseLastSessionOnly()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var first = AddRemoteServer(
+            harness,
+            "node-2",
+            "hop-b",
+            "10.1.0.20",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Public,
+            netId: "alpha");
+        var last = AddRemoteServer(
+            harness,
+            "node-3",
+            "hop-c",
+            "10.1.0.30",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Lan,
+            netId: "alpha");
+        last.DiskOverlay.AddDirectory("/drop");
+        last.DiskOverlay.WriteFile("/drop/a.txt", "A", fileKind: VfsFileKind.Text, size: 1);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/fs_route_read_perm.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            opts = {}
+            opts["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", opts)
+            route = r2.route
+            route["version"] = 999
+            route["sessions"] = []
+            route["prefixRoutes"] = []
+            route["hopCount"] = 0
+            l = fs.list(route, "/drop")
+            print "lok=" + str(l.ok)
+            print "lcode=" + l.code
+            s = fs.stat(route, "/drop/a.txt")
+            print "sok=" + str(s.ok)
+            print "scode=" + s.code
+            rd = fs.read(route, "/drop/a.txt")
+            print "rok=" + str(rd.ok)
+            print "rcode=" + rd.code
+            d2 = ssh.disconnect(r2.session)
+            d1 = ssh.disconnect(r1.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        first.Users["guest"].Privilege.Read = false;
+        last.Users["guest"].Privilege.Read = true;
+        var firstReadDeniedButLastAllowed = Execute(harness, "miniscript /scripts/fs_route_read_perm.ms", terminalSessionId: "ts-ms-fs-route-read");
+        Assert.True(firstReadDeniedButLastAllowed.Ok);
+        Assert.Contains(firstReadDeniedButLastAllowed.Lines, static line => string.Equals(line, "lok=1", StringComparison.Ordinal));
+        Assert.Contains(firstReadDeniedButLastAllowed.Lines, static line => string.Equals(line, "lcode=None", StringComparison.Ordinal));
+        Assert.Contains(firstReadDeniedButLastAllowed.Lines, static line => string.Equals(line, "sok=1", StringComparison.Ordinal));
+        Assert.Contains(firstReadDeniedButLastAllowed.Lines, static line => string.Equals(line, "scode=None", StringComparison.Ordinal));
+        Assert.Contains(firstReadDeniedButLastAllowed.Lines, static line => string.Equals(line, "rok=1", StringComparison.Ordinal));
+        Assert.Contains(firstReadDeniedButLastAllowed.Lines, static line => string.Equals(line, "rcode=None", StringComparison.Ordinal));
+
+        first.Users["guest"].Privilege.Read = true;
+        last.Users["guest"].Privilege.Read = false;
+        var lastReadDenied = Execute(harness, "miniscript /scripts/fs_route_read_perm.ms", terminalSessionId: "ts-ms-fs-route-read");
+        Assert.True(lastReadDenied.Ok);
+        Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "lok=0", StringComparison.Ordinal));
+        Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "lcode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "sok=0", StringComparison.Ordinal));
+        Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "scode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "rok=0", StringComparison.Ordinal));
+        Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "rcode=PermissionDenied", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures route-scoped fs.write/delete use route.lastSession and ignore non-last route fields.</summary>
+    [Fact]
+    public void Execute_Miniscript_Fs_WithRoute_WriteApis_UseLastSessionOnly()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var first = AddRemoteServer(
+            harness,
+            "node-2",
+            "hop-b",
+            "10.1.0.20",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Public,
+            netId: "alpha");
+        var last = AddRemoteServer(
+            harness,
+            "node-3",
+            "hop-c",
+            "10.1.0.30",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Lan,
+            netId: "alpha");
+        last.DiskOverlay.AddDirectory("/drop");
+        last.DiskOverlay.WriteFile("/drop/to-delete.txt", "D", fileKind: VfsFileKind.Text, size: 1);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/fs_route_write_perm.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            opts = {}
+            opts["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", opts)
+            route = r2.route
+            route["version"] = 999
+            route["sessions"] = []
+            route["prefixRoutes"] = []
+            route["hopCount"] = 0
+            w = fs.write(route, "/drop/new.txt", "N")
+            print "wok=" + str(w.ok)
+            print "wcode=" + w.code
+            del = fs.delete(route, "/drop/to-delete.txt")
+            print "dok=" + str(del.ok)
+            print "dcode=" + del.code
+            d2 = ssh.disconnect(r2.session)
+            d1 = ssh.disconnect(r1.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        first.Users["guest"].Privilege.Write = false;
+        last.Users["guest"].Privilege.Write = true;
+        var firstWriteDeniedButLastAllowed = Execute(harness, "miniscript /scripts/fs_route_write_perm.ms", terminalSessionId: "ts-ms-fs-route-write");
+        Assert.True(firstWriteDeniedButLastAllowed.Ok);
+        Assert.Contains(firstWriteDeniedButLastAllowed.Lines, static line => string.Equals(line, "wok=1", StringComparison.Ordinal));
+        Assert.Contains(firstWriteDeniedButLastAllowed.Lines, static line => string.Equals(line, "wcode=None", StringComparison.Ordinal));
+        Assert.Contains(firstWriteDeniedButLastAllowed.Lines, static line => string.Equals(line, "dok=1", StringComparison.Ordinal));
+        Assert.Contains(firstWriteDeniedButLastAllowed.Lines, static line => string.Equals(line, "dcode=None", StringComparison.Ordinal));
+        Assert.True(last.DiskOverlay.TryResolveEntry("/drop/new.txt", out _));
+        Assert.False(last.DiskOverlay.TryResolveEntry("/drop/to-delete.txt", out _));
+
+        first.Users["guest"].Privilege.Write = true;
+        last.Users["guest"].Privilege.Write = false;
+        var lastWriteDenied = Execute(harness, "miniscript /scripts/fs_route_write_perm.ms", terminalSessionId: "ts-ms-fs-route-write");
+        Assert.True(lastWriteDenied.Ok);
+        Assert.Contains(lastWriteDenied.Lines, static line => string.Equals(line, "wok=0", StringComparison.Ordinal));
+        Assert.Contains(lastWriteDenied.Lines, static line => string.Equals(line, "wcode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(lastWriteDenied.Lines, static line => string.Equals(line, "dok=0", StringComparison.Ordinal));
+        Assert.Contains(lastWriteDenied.Lines, static line => string.Equals(line, "dcode=PermissionDenied", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures route-scoped fs APIs return InvalidArgs when route.lastSession cannot be resolved.</summary>
+    [Fact]
+    public void Execute_Miniscript_Fs_WithRoute_InvalidLastSession_ReturnsInvalidArgs()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(
+            harness,
+            "node-2",
+            "hop-b",
+            "10.1.0.20",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Public,
+            netId: "alpha");
+        var last = AddRemoteServer(
+            harness,
+            "node-3",
+            "hop-c",
+            "10.1.0.30",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Lan,
+            netId: "alpha");
+        last.DiskOverlay.AddDirectory("/drop");
+        last.DiskOverlay.WriteFile("/drop/a.txt", "A", fileKind: VfsFileKind.Text, size: 1);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/fs_route_invalid_last.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            opts = {}
+            opts["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", opts)
+            route = r2.route
+            route["version"] = 999
+            route["sessions"] = []
+            route["prefixRoutes"] = []
+            route["hopCount"] = 0
+            bad = {}
+            bad["kind"] = "sshSession"
+            bad["sessionNodeId"] = "node-3"
+            bad["sessionId"] = 9999
+            route["lastSession"] = bad
+            rd = fs.read(route, "/drop/a.txt")
+            print "ok=" + str(rd.ok)
+            print "code=" + rd.code
+            d2 = ssh.disconnect(r2.session)
+            d1 = ssh.disconnect(r1.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/fs_route_invalid_last.ms", terminalSessionId: "ts-ms-fs-route-invalid-last");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=InvalidArgs", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures async miniscript fs.write/delete are validate-only in sandbox mode.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_FsSandbox_WriteDelete_ValidateOnly_DoesNotMutateWorld()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/sandbox");
+        harness.BaseFileSystem.AddFile("/sandbox/keep.txt", "KEEP", fileKind: VfsFileKind.Text, size: 4);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/fs_async_validate.ms",
+            """
+            w = fs.write("/sandbox/new.txt", "N")
+            d = fs.delete("/sandbox/keep.txt")
+            print "wok=" + str(w.ok)
+            print "wcode=" + w.code
+            print "dok=" + str(d.ok)
+            print "dcode=" + d.code
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "miniscript /scripts/fs_async_validate.ms",
+            "ts-ms-fs-async");
+        Assert.True(start.Handled);
+        Assert.True(start.Started);
+
+        WaitForTerminalProgramStop(harness.World, "ts-ms-fs-async");
+        var outputLines = SnapshotTerminalEventLines(harness.World);
+        Assert.Contains("wok=1", outputLines);
+        Assert.Contains("wcode=None", outputLines);
+        Assert.Contains("dok=1", outputLines);
+        Assert.Contains("dcode=None", outputLines);
+
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/sandbox/new.txt", out _));
+        Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/sandbox/keep.txt", out _));
+        Assert.Empty(DrainQueuedGameEvents(harness.World));
+    }
+
     /// <summary>Ensures processor context creation requires userId and rejects unknown user ids.</summary>
     [Fact]
     public void Execute_ContextCreation_UsesUserIdLookup()

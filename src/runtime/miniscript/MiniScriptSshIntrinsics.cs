@@ -44,6 +44,11 @@ internal static partial class MiniScriptSshIntrinsics
             RegisterSshDisconnectIntrinsic();
             RegisterFtpGetIntrinsic();
             RegisterFtpPutIntrinsic();
+            RegisterFsListIntrinsic();
+            RegisterFsReadIntrinsic();
+            RegisterFsWriteIntrinsic();
+            RegisterFsDeleteIntrinsic();
+            RegisterFsStatIntrinsic();
             isRegistered = true;
         }
     }
@@ -75,6 +80,7 @@ internal static partial class MiniScriptSshIntrinsics
         sshModule["disconnect"] = Intrinsic.GetByName(SshDisconnectIntrinsicName).GetFunc();
         interpreter.SetGlobalValue("ssh", sshModule);
         InjectFtpModule(interpreter, moduleState);
+        InjectFsModule(interpreter, moduleState);
     }
 
     private static void RegisterSshConnectIntrinsic()

@@ -99,15 +99,15 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - `ports[port]`가 존재하고 `portType != none`이면 서비스가 존재한다.
 - `portType == none`이면 비할당 포트로 간주하며 `exposure`는 무시한다.
 
-### 0.7 [session] 오버로드 규칙(권장)
-여러 API는 **첫 인자로 session을 선택적으로 받을 수 있다.**
+### 0.7 [sessionOrRoute] 오버로드 규칙(권장)
+여러 API는 **첫 인자로 session/sessionOrRoute를 선택적으로 받을 수 있다.**
 - `foo(path, ...)`  : 현재 실행 컨텍스트(현재 host/user/cwd)에서 수행
 - `foo(session, path, ...)` : 해당 session의 원격 host/user 컨텍스트에서 수행
-- 일부 API(`ssh.exec`, `ftp.get`, `ftp.put`)는 `sessionOrRoute`를 받아 `Session|SshRoute`를 모두 허용한다.
+- 일부 API(`ssh.exec`, `ftp.get`, `ftp.put`, `fs.list/read/write/delete/stat`)는 `sessionOrRoute`를 받아 `Session|SshRoute`를 모두 허용한다.
 
 판정 규칙(v0.2):
 - 첫 인자가 맵이고 `kind == "sshSession"`이면 session으로 해석한다.
-- 첫 인자가 맵이고 `kind == "sshRoute"`이면 route로 해석한다. (단, `ssh.exec`, `ftp.get`, `ftp.put`에 한함)
+- 첫 인자가 맵이고 `kind == "sshRoute"`이면 route로 해석한다. (`ssh.exec`, `ftp.get`, `ftp.put`, `fs.list/read/write/delete/stat`)
 - 그 외에는 session 생략으로 간주한다.
 
 > 이 규칙은 MiniScript에서 오버로딩을 흉내 내기 위한 “인자 타입 기반 디스패치”이다.
@@ -116,6 +116,11 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 > - `first = route.sessions[0]`
 > - `last = route.lastSession` (`route.sessions[-1]`와 동일)
 > - 별도 `firstSession` 필드는 추가하지 않는다.
+>
+> fs route 검증 규칙(v0.2):
+> - `fs.*(route, ...)`는 `route.kind == "sshRoute"` 및 `route.lastSession` 해석 가능 여부만 필수로 본다.
+> - `route.sessions/prefixRoutes/hopCount/version`은 fs 실행 전 필수 검증 대상에서 제외한다.
+> - 실행 컨텍스트와 권한 판정은 항상 `route.lastSession` 기준이다.
 
 ### 0.8 비동기 작업(프로세스) 규약(권장)
 - 다운로드/업로드 같은 시간 작업은 **프로세스(processList)** 로 모델링할 수 있다.
@@ -172,24 +177,33 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 경로는 POSIX 스타일 문자열(`/` 시작 절대경로 권장)
 - 경로는 정규화한다: `.` 제거, `..` pop, 중복 `/` 제거
 - VFS 병합 우선순위: `tombstone > overlay > base`
-- 권한 2단계:
-  - `guestReadable`
-  - `rootOnly`
 
-### 3.1 `fs.list([session], path)`
+### 3.1 `fs.list([sessionOrRoute], path)`
 - 목적: 디렉토리 목록
 - 인자:
+  - `sessionOrRoute?: Session|SshRoute`
+    - `Session`이면 해당 session의 서버/계정/cwd 기준
+    - `SshRoute`이면 `route.lastSession`의 서버/계정/cwd 기준
   - `path: string` (디렉토리)
+- 권한:
+  - session 모드: 해당 session 사용자 `read`
+  - route 모드: `lastSession` 사용자 `read`
 - 반환 `data`:
   - `entries: List<{ name, entryKind: "File"|"Dir" }>`
 - 실패:
   - `ERR_NOT_FOUND`, `ERR_NOT_DIRECTORY`, `ERR_PERMISSION_DENIED`
 
-### 3.2 `fs.read([session], path, opts?)`
+### 3.2 `fs.read([sessionOrRoute], path, opts?)`
 - 목적: 텍스트 파일 읽기
 - 인자:
+  - `sessionOrRoute?: Session|SshRoute`
+    - `Session`이면 해당 session의 서버/계정/cwd 기준
+    - `SshRoute`이면 `route.lastSession`의 서버/계정/cwd 기준
   - `path: string`
   - `opts.maxBytes?: int` (기본 상한 권장)
+- 권한:
+  - session 모드: 해당 session 사용자 `read`
+  - route 모드: `lastSession` 사용자 `read`
 - 동작:
   - `fileKind == Text`만 읽기 허용
   - `fileKind != Text`면 `ERR_NOT_TEXT_FILE`
@@ -199,13 +213,19 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 실패:
   - `ERR_NOT_FOUND`, `ERR_IS_DIRECTORY`, `ERR_NOT_TEXT_FILE`, `ERR_PERMISSION_DENIED`, `ERR_TOO_LARGE`
 
-### 3.3 `fs.write([session], path, text, opts?)`
+### 3.3 `fs.write([sessionOrRoute], path, text, opts?)`
 - 목적: 텍스트 파일 쓰기/생성
 - 인자:
+  - `sessionOrRoute?: Session|SshRoute`
+    - `Session`이면 해당 session의 서버/계정/cwd 기준
+    - `SshRoute`이면 `route.lastSession`의 서버/계정/cwd 기준
   - `path: string`
   - `text: string`
   - `opts.overwrite?: bool` (기본 false 권장)
   - `opts.createParents?: bool` (기본 false 권장)
+- 권한:
+  - session 모드: 해당 session 사용자 `write`
+  - route 모드: `lastSession` 사용자 `write`
 - 동작:
   - 대상이 이미 존재하고 `overwrite=false`면 `ERR_ALREADY_EXISTS`
   - 기존 엔트리가 `Dir`이면 `ERR_IS_DIRECTORY`
@@ -218,8 +238,16 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 실패:
   - `ERR_INVALID_ARGS`, `ERR_ALREADY_EXISTS`, `ERR_IS_DIRECTORY`, `ERR_NOT_DIRECTORY`, `ERR_PERMISSION_DENIED`
 
-### 3.4 `fs.delete([session], path)`
+### 3.4 `fs.delete([sessionOrRoute], path)`
 - 목적: 파일/디렉토리 삭제
+- 인자:
+  - `sessionOrRoute?: Session|SshRoute`
+    - `Session`이면 해당 session의 서버/계정/cwd 기준
+    - `SshRoute`이면 `route.lastSession`의 서버/계정/cwd 기준
+  - `path: string`
+- 권한:
+  - session 모드: 해당 session 사용자 `write`
+  - route 모드: `lastSession` 사용자 `write`
 - 동작:
   - base 파일 삭제는 tombstone으로 가림 처리
   - overlay 파일 삭제는 overlay 엔트리 제거
@@ -229,10 +257,18 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 실패:
   - `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`, `ERR_NOT_DIRECTORY`(rmdir 조건 불일치 시), `ERR_INVALID_ARGS`
 
-### 3.5 `fs.stat([session], path)`
+### 3.5 `fs.stat([sessionOrRoute], path)`
 - 목적: 메타 조회
+- 인자:
+  - `sessionOrRoute?: Session|SshRoute`
+    - `Session`이면 해당 session의 서버/계정/cwd 기준
+    - `SshRoute`이면 `route.lastSession`의 서버/계정/cwd 기준
+  - `path: string`
+- 권한:
+  - session 모드: 해당 session 사용자 `read`
+  - route 모드: `lastSession` 사용자 `read`
 - 반환 `data`(권장 최소):
-  - `{ entryKind, fileKind?, size?, perms? }`
+  - `{ entryKind, fileKind?, size? }`
 - 실패:
   - `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`
 

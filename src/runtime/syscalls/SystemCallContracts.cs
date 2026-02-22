@@ -18,6 +18,10 @@ public enum SystemCallErrorCode
     NotDirectory,
     Conflict,
     InternalError,
+    AlreadyExists,
+    IsDirectory,
+    NotTextFile,
+    TooLarge,
 }
 
 /// <summary>Request payload for executing one terminal system call.</summary>
@@ -123,6 +127,26 @@ internal static class SystemCallResultFactory
     internal static SystemCallResult Conflict(string path)
     {
         return Failure(SystemCallErrorCode.Conflict, "path conflict: " + path);
+    }
+
+    internal static SystemCallResult AlreadyExists(string path)
+    {
+        return Failure(SystemCallErrorCode.AlreadyExists, "already exists: " + path);
+    }
+
+    internal static SystemCallResult IsDirectory(string path)
+    {
+        return Failure(SystemCallErrorCode.IsDirectory, "is a directory: " + path);
+    }
+
+    internal static SystemCallResult NotTextFile(string path)
+    {
+        return Failure(SystemCallErrorCode.NotTextFile, "not a text file: " + path);
+    }
+
+    internal static SystemCallResult TooLarge(string path, long maxBytes, long actualBytes)
+    {
+        return Failure(SystemCallErrorCode.TooLarge, $"too large: {path} (max={maxBytes}, actual={actualBytes})");
     }
 }
 
