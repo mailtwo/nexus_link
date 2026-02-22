@@ -71,6 +71,23 @@ Session
 - remoteIp: string          # 실제 접속된 IP
 ```
 
+체인 연결(`opts.session`)을 사용할 때 `ssh.connect`는 `data.route`도 함께 반환한다.
+
+```text
+SshRoute
+- kind: "sshRoute"
+- version: 1
+- sessions: List<Session>          # hop 순서(A->B, B->C, C->D ...)
+- prefixRoutes: List<SshRoute>     # 자기 자신 제외 prefix route 목록
+- lastSession: Session             # sessions 마지막 요소
+- hopCount: int                    # sessions 길이
+```
+
+`prefixRoutes` 규칙(v0.2):
+- 각 prefix route의 `prefixRoutes`는 빈 리스트여야 한다(재귀 중첩 금지).
+- prefix route의 `sessions` 요소는 원 route `sessions`의 동일 요소를 재사용한다.
+- 최대 hop 수는 `8`로 제한한다.
+
 ### 0.6 네트워크 접근(exposure) 판정 규칙(v0.2)
 PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 용어: `source`는 접속/요청을 시도하는 서버, `target`은 해당 포트를 가진 서버
@@ -272,6 +289,12 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `userId: string` (플레이어 노출 식별자)
   - `password: string`
   - `port: int` (기본 22)
+  - `opts.session?: Session|SshRoute`
+    - `Session`이면 해당 세션의 `sessionNodeId`를 source로 사용해 다음 hop을 연다.
+    - `SshRoute`이면 `lastSession`을 source로 사용해 route 끝에 hop을 append 한다.
+  - 인자 파싱 규칙:
+    - `ssh.connect(host,user,pw,{session:x})` 허용 (4번째 인자 맵이면 `opts`로 해석)
+    - `ssh.connect(host,user,pw,22,{session:x})` 허용
 - 사전 조건:
   - target 서버의 `ports[port].portType == ssh` 이어야 한다.
   - `exposure` 판정을 통과해야 한다(0.6 규칙).
@@ -279,19 +302,30 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - 서버의 계정 설정(authMode/daemon)에 따라 성공/실패를 결정한다.
   - 이 레이어에서는 “현실 SSH”가 아니라 **가상 인증 모듈**로 취급한다.
 - 반환 `data`:
-  - `{ session: Session }`
+  - 기본: `{ session: Session, route: null }`
+  - 체인(`opts.session` 사용): `{ session: Session, route: SshRoute }`
 - 실패:
   - `ERR_NOT_FOUND`(대상 없음), `ERR_PORT_CLOSED`, `ERR_NET_DENIED`, `ERR_AUTH_FAILED`, `ERR_RATE_LIMITED`
 - 부작용(필수):
   - 성공 시, 로그인 계정이 이미 보유한 `read/write/execute` 각각에 대해 `privilegeAcquire` 이벤트를 enqueue(중복 발행 금지).
   - `PrivilegeAcquireDto.via = "ssh.connect"`
 
-### 5.2 `ssh.disconnect(session)`
+### 5.2 `ssh.disconnect(sessionOrRoute)`
 - 목적: 세션 해제
 - 인자:
-  - `session: Session`
+  - `sessionOrRoute: Session|SshRoute`
 - 반환 `data`:
-  - `{ disconnected: 1|0 }` (idempotent)
+  - 공통: `{ disconnected: 1|0 }` (idempotent)
+  - route 입력일 때 summary 포함:
+    - `summary.requested`: dedupe 후 종료 시도한 hop 수
+    - `summary.closed`: 실제 종료된 hop 수
+    - `summary.alreadyClosed`: 이미 닫혀 있어 종료되지 않은 hop 수
+    - `summary.invalid`: 잘못된 hop 수
+- route 해제 규칙(v0.2):
+  - route `sessions`를 끝 hop부터 역순으로 처리한다.
+  - `(sessionNodeId, sessionId)` 기준 dedupe 후 1회만 종료 시도한다.
+  - 공유 hop이라도 route에 포함되면 종료 시도한다.
+  - 구조가 유효하면 일부 hop 실패가 있어도 `ok=1` + `summary`로 보고한다(best-effort).
 
 ### 5.3 `ssh.exec(session, cmd, opts?)`
 - 목적: 원격 호스트에서 커맨드 실행 + stdout 수집

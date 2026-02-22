@@ -766,6 +766,28 @@ public partial class WorldRuntime
         return true;
     }
 
+    internal bool TryResolveRemoteSession(
+        string nodeId,
+        int sessionId,
+        out ServerNodeRuntime server,
+        out SessionConfig session)
+    {
+        server = null!;
+        session = null!;
+        if (sessionId < 1 || string.IsNullOrWhiteSpace(nodeId))
+        {
+            return false;
+        }
+
+        if (!TryGetServer(nodeId, out server) ||
+            !server.Sessions.TryGetValue(sessionId, out session))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
     internal string ResolvePromptUser(ServerNodeRuntime server, string userKey)
     {
         if (server.Users.TryGetValue(userKey, out var userConfig) &&

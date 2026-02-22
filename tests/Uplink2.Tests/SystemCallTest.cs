@@ -733,6 +733,306 @@ public sealed class SystemCallTest
         Assert.Empty(events);
     }
 
+    /// <summary>Ensures ssh.connect supports opts.session chaining and returns an sshRoute payload.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshConnect_WithSessionOption_ReturnsRoute()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var hopB = AddRemoteServer(
+            harness,
+            "node-2",
+            "hop-b",
+            "10.1.0.20",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Public,
+            netId: "alpha");
+        var hopC = AddRemoteServer(
+            harness,
+            "node-3",
+            "hop-c",
+            "10.1.0.30",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Lan,
+            netId: "alpha");
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_route_basic.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            opts = {}
+            opts["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", opts)
+            print "r2ok=" + str(r2.ok)
+            print "routeKind=" + r2.route.kind
+            print "routeHop=" + str(r2.route.hopCount)
+            print "routeLast=" + r2.route.lastSession.sessionNodeId
+            print "prefixCount=" + str(len(r2.route.prefixRoutes))
+            print "prefix0Hop=" + str(r2.route.prefixRoutes[0].hopCount)
+            d = ssh.disconnect(r2.route)
+            print "closed=" + str(d.summary.closed)
+            print "alreadyClosed=" + str(d.summary.alreadyClosed)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_route_basic.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r2ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "routeKind=sshRoute", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "routeHop=2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "routeLast=node-3", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "prefixCount=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "prefix0Hop=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "closed=2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "alreadyClosed=0", StringComparison.Ordinal));
+        Assert.Empty(hopB.Sessions);
+        Assert.Empty(hopC.Sessions);
+    }
+
+    /// <summary>Ensures ssh.connect accepts route input and appends a new hop from the route tail.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshConnect_WithRouteOption_AppendsHop()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var hopB = AddRemoteServer(
+            harness,
+            "node-2",
+            "hop-b",
+            "10.1.0.20",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Public,
+            netId: "alpha");
+        var hopC = AddRemoteServer(
+            harness,
+            "node-3",
+            "hop-c",
+            "10.1.0.30",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Lan,
+            netId: "alpha");
+        var hopD = AddRemoteServer(
+            harness,
+            "node-4",
+            "hop-d",
+            "10.1.0.40",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Lan,
+            netId: "alpha");
+        var hopE = AddRemoteServer(
+            harness,
+            "node-5",
+            "hop-e",
+            "10.1.0.50",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Lan,
+            netId: "alpha");
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_route_append.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            o2 = {}
+            o2["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", o2)
+            o3 = {}
+            o3["session"] = r2.route
+            r3 = ssh.connect("10.1.0.40", "guest", "pw", o3)
+            o4 = {}
+            o4["session"] = r3.route.prefixRoutes[0]
+            r4 = ssh.connect("10.1.0.50", "guest", "pw", o4)
+            print "r3Hop=" + str(r3.route.hopCount)
+            print "r3Last=" + r3.route.lastSession.sessionNodeId
+            print "r4Hop=" + str(r4.route.hopCount)
+            print "r4Last=" + r4.route.lastSession.sessionNodeId
+            d3 = ssh.disconnect(r3.route)
+            d4 = ssh.disconnect(r4.route)
+            print "d3Closed=" + str(d3.summary.closed)
+            print "d4Closed=" + str(d4.summary.closed)
+            print "d4Already=" + str(d4.summary.alreadyClosed)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_route_append.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r3Hop=3", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r3Last=node-4", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r4Hop=2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r4Last=node-5", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d3Closed=3", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d4Closed=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d4Already=1", StringComparison.Ordinal));
+        Assert.Empty(hopB.Sessions);
+        Assert.Empty(hopC.Sessions);
+        Assert.Empty(hopD.Sessions);
+        Assert.Empty(hopE.Sessions);
+    }
+
+    /// <summary>Ensures ssh.disconnect(route) is idempotent and reports summary counters.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshDisconnectRoute_IsIdempotent()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var hopB = AddRemoteServer(
+            harness,
+            "node-2",
+            "hop-b",
+            "10.1.0.20",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Public,
+            netId: "alpha");
+        var hopC = AddRemoteServer(
+            harness,
+            "node-3",
+            "hop-c",
+            "10.1.0.30",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Lan,
+            netId: "alpha");
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_route_disconnect_twice.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            opts = {}
+            opts["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", opts)
+            d1 = ssh.disconnect(r2.route)
+            d2 = ssh.disconnect(r2.route)
+            print "d1Req=" + str(d1.summary.requested)
+            print "d1Closed=" + str(d1.summary.closed)
+            print "d1Already=" + str(d1.summary.alreadyClosed)
+            print "d2Req=" + str(d2.summary.requested)
+            print "d2Closed=" + str(d2.summary.closed)
+            print "d2Already=" + str(d2.summary.alreadyClosed)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_route_disconnect_twice.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d1Req=2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d1Closed=2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d1Already=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d2Req=2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d2Closed=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d2Already=2", StringComparison.Ordinal));
+        Assert.Empty(hopB.Sessions);
+        Assert.Empty(hopC.Sessions);
+    }
+
+    /// <summary>Ensures malformed route passed via opts.session returns InvalidArgs without opening sessions.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshConnect_WithMalformedRoute_ReturnsInvalidArgs()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var hopB = AddRemoteServer(
+            harness,
+            "node-2",
+            "hop-b",
+            "10.1.0.20",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Public,
+            netId: "alpha");
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_route_invalid.ms",
+            """
+            bad = {}
+            bad["kind"] = "sshRoute"
+            bad["version"] = 1
+            bad["sessions"] = []
+            bad["prefixRoutes"] = []
+            bad["lastSession"] = null
+            bad["hopCount"] = 0
+            opts = {}
+            opts["session"] = bad
+            r = ssh.connect("10.1.0.20", "guest", "pw", opts)
+            print "ok=" + str(r.ok)
+            print "code=" + r.code
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_route_invalid.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=InvalidArgs", StringComparison.Ordinal));
+        Assert.Empty(hopB.Sessions);
+    }
+
+    /// <summary>Ensures async sandbox mode supports route chaining but does not mutate world sessions.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_SshRouteSandbox_DoesNotMutateWorldSessions()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var hopB = AddRemoteServer(
+            harness,
+            "node-2",
+            "hop-b",
+            "10.1.0.20",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Public,
+            netId: "alpha");
+        var hopC = AddRemoteServer(
+            harness,
+            "node-3",
+            "hop-c",
+            "10.1.0.30",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Lan,
+            netId: "alpha");
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_route_async.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            opts = {}
+            opts["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", opts)
+            d = ssh.disconnect(r2.route)
+            print "r1ok=" + str(r1.ok)
+            print "r2ok=" + str(r2.ok)
+            print "closed=" + str(d.summary.closed)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "miniscript /scripts/ssh_route_async.ms",
+            "ts-ssh-route-async");
+        Assert.True(start.Handled);
+        Assert.True(start.Started);
+
+        WaitForTerminalProgramStop(harness.World, "ts-ssh-route-async");
+        var outputLines = SnapshotTerminalEventLines(harness.World);
+        Assert.Contains("r1ok=1", outputLines);
+        Assert.Contains("r2ok=1", outputLines);
+        Assert.Contains("closed=2", outputLines);
+        Assert.Empty(hopB.Sessions);
+        Assert.Empty(hopC.Sessions);
+        Assert.Empty(DrainQueuedGameEvents(harness.World));
+    }
+
     /// <summary>Ensures async launcher only handles user-script targets and ignores regular built-in commands.</summary>
     [Fact]
     public void TryStartTerminalProgramExecution_ReturnsHandledFalse_ForNonScriptCommand()
