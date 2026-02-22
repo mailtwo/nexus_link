@@ -19,6 +19,25 @@ ServerSpec:
         stepMs: 1000
         allowedDriftSteps: 1
         otpPairId: X2BW6QOI53QNUHBXCBYN6XADEQFPR5FJ
+  mediumGatewayServer:
+    initialStatus: online
+    initialReason: OK
+    hostname: medium_gateway
+    users:
+      mediumMainUser1:
+        userId: root
+        passwd: c5_numspecial
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
+    daemons:
+      OTP:
+        userKey: mediumMainUser1
+        stepMs: 1000
+        allowedDriftSteps: 1
+        otpPairId: X2BW6QOI53QNUHBXCBYN6XADEQFPR5FJ
   mediumOTPIssuerServer:
     initialStatus: online
     initialReason: OK
@@ -45,6 +64,12 @@ Scenario:
         specId: mediumMainServer
         role: terminal
         interfaces:
+          - netId: mediumSubnet
+            initiallyExposed: true
+      mediumScenario/mediumGatewayServer:
+        specId: mediumGatewayServer
+        role: terminal
+        interfaces:
           - netId: internet
             initiallyExposed: true
           - netId: mediumSubnet
@@ -59,8 +84,10 @@ Scenario:
       mediumSubnet:
         addressPlan: 10.0.0.0/24
         links:
-        - a: mediumScenario/mediumMainServer
+        - a: mediumScenario/mediumGatewayServer
           b: mediumScenario/mediumOTPIssuerServer
+        - a: mediumScenario/mediumGatewayServer
+          b: mediumScenario/mediumMainServer
     events:
       mediumScenarioWinEvent:
         conditionType: privilegeAcquire

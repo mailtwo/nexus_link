@@ -10,6 +10,9 @@ extends Control
 
 const EDITOR_HELP_TEXT := "Ctrl+S: save | Esc: exit"
 const EDITOR_STATUS_TIMEOUT_SECONDS: float = 3.0
+const OUTPUT_SCROLL_MODE_NORMAL_BOTTOM := "normal_bottom"
+const OUTPUT_SCROLL_MODE_MOTD_ANCHOR_ACTIVATE := "motd_anchor_activate"
+const OUTPUT_SCROLL_MODE_MOTD_ANCHOR_CONTINUE := "motd_anchor_continue"
 
 var text_buffer: Array[String] = []
 var world_runtime: Node = null
@@ -26,11 +29,18 @@ var current_editor_display_mode: String = "text"
 var current_editor_path_exists: bool = false
 var editor_status_revision: int = 0
 var is_program_running: bool = false
+var is_motd_anchor_active: bool = false
+var motd_anchor_blank_px: float = 0.0
+var motd_anchor_base_content_px: float = 0.0
+var is_programmatic_scroll_change: bool = false
+var has_pending_scroll_settle: bool = false
+var has_pending_anchor_overflow_check: bool = false
 
 @onready var background: ColorRect = $Background
 @onready var terminal_vbox: VBoxContainer = $VBox
 @onready var output_scroll: ScrollContainer = $VBox/OutputScroll
-@onready var output_label: RichTextLabel = $VBox/OutputScroll/Output
+@onready var output_label: RichTextLabel = $VBox/OutputScroll/OutputContent/Output
+@onready var bottom_spacer: Control = $VBox/OutputScroll/OutputContent/BottomSpacer
 @onready var prompt_label: Label = $VBox/InputRow/Prompt
 @onready var input_line: LineEdit = $VBox/InputRow/Input
 @onready var editor_overlay: Control = $EditorOverlay
@@ -43,6 +53,9 @@ func _ready() -> void:
 	input_line.text_submitted.connect(_on_input_submitted)
 	editor.gui_input.connect(_on_editor_gui_input)
 	editor.shortcut_keys_enabled = true
+	var v_scroll := output_scroll.get_v_scroll_bar()
+	if v_scroll:
+		v_scroll.value_changed.connect(_on_output_scroll_value_changed)
 	_apply_terminal_theme()
 	_initialize_runtime_bridge()
 	_refresh_prompt()
@@ -86,10 +99,8 @@ func _process(delta: float) -> void:
 
 	event_poll_elapsed = 0.0
 	var lines_variant: Variant = world_runtime.call("DrainTerminalEventLines", current_node_id, current_user_id)
-	if lines_variant is Array:
-		var lines_array: Array = lines_variant
-		for line in lines_array:
-			_append_output(str(line))
+	var lines := _variant_lines_to_string_array(lines_variant)
+	_append_output_batch(lines)
 
 
 func _on_input_submitted(command_text: String) -> void:
@@ -154,24 +165,162 @@ func _on_input_submitted(command_text: String) -> void:
 
 
 func _append_command_echo(command_text: String) -> void:
+	var lines: Array[String] = []
 	if text_buffer.size() > 0 and text_buffer[text_buffer.size() - 1] != "":
-		_append_output("")
+		lines.append("")
 
-	_append_output("%s%s" % [prompt_label.text, command_text])
+	lines.append("%s%s" % [prompt_label.text, command_text])
+	_append_output_batch(lines)
 
 
-func _append_output(line: String) -> void:
-	text_buffer.append(line)
+func _append_output(line: String, mode: String = "") -> void:
+	var lines: Array[String] = []
+	lines.append(line)
+	_append_output_batch(lines, mode)
+
+
+func _append_output_batch(lines: Array[String], mode: String = "") -> void:
+	if lines.is_empty():
+		return
+
+	var resolved_mode := mode
+	if resolved_mode.is_empty():
+		resolved_mode = _resolve_default_output_mode()
+
+	var content_before := _get_output_content_height()
+	for line in lines:
+		text_buffer.append(line)
 	if text_buffer.size() > max_scrollback_lines:
 		text_buffer = text_buffer.slice(text_buffer.size() - max_scrollback_lines, text_buffer.size())
 	output_label.text = "\n".join(text_buffer)
-	call_deferred("_scroll_to_bottom")
+	call_deferred("_post_append_output", resolved_mode, content_before)
+
+
+func _post_append_output(mode: String, content_before: float) -> void:
+	if mode == OUTPUT_SCROLL_MODE_MOTD_ANCHOR_ACTIVATE:
+		_activate_motd_anchor(content_before)
+		return
+
+	_apply_default_scroll_policy_after_append()
+
+
+func _apply_default_scroll_policy_after_append() -> void:
+	if is_motd_anchor_active:
+		var grown_px := maxf(0.0, _get_output_content_height() - motd_anchor_base_content_px)
+		if grown_px > motd_anchor_blank_px:
+			_dismiss_motd_anchor()
+			_scroll_to_bottom()
+		else:
+			_schedule_anchor_overflow_check()
+		return
+
+	_scroll_to_bottom()
+
+
+func _activate_motd_anchor(content_before: float) -> void:
+	var content_after := _get_output_content_height()
+	var motd_height_px := maxf(0.0, content_after - content_before)
+	var viewport_height_px := output_scroll.size.y
+	if viewport_height_px <= 0.0:
+		call_deferred("_activate_motd_anchor", content_before)
+		return
+
+	var blank_px := maxf(0.0, viewport_height_px - motd_height_px)
+	is_programmatic_scroll_change = true
+	_set_bottom_spacer_height(blank_px)
+
+	is_motd_anchor_active = blank_px > 0.0
+	motd_anchor_blank_px = blank_px
+	motd_anchor_base_content_px = content_after
+	has_pending_anchor_overflow_check = false
+	_scroll_to_bottom()
+
+
+func _dismiss_motd_anchor() -> void:
+	is_programmatic_scroll_change = true
+	_set_bottom_spacer_height(0.0)
+	call_deferred("_clear_programmatic_scroll_change")
+	is_motd_anchor_active = false
+	motd_anchor_blank_px = 0.0
+	motd_anchor_base_content_px = 0.0
+	has_pending_anchor_overflow_check = false
+
+
+func _set_bottom_spacer_height(height_px: float) -> void:
+	var spacer_size := bottom_spacer.custom_minimum_size
+	bottom_spacer.custom_minimum_size = Vector2(spacer_size.x, maxf(0.0, height_px))
+
+
+func _schedule_anchor_overflow_check() -> void:
+	if has_pending_anchor_overflow_check:
+		return
+	has_pending_anchor_overflow_check = true
+	var overflow_timer := get_tree().create_timer(0.0)
+	overflow_timer.timeout.connect(_on_anchor_overflow_check_timeout)
+
+
+func _on_anchor_overflow_check_timeout() -> void:
+	has_pending_anchor_overflow_check = false
+	if not is_motd_anchor_active:
+		return
+
+	var grown_px := maxf(0.0, _get_output_content_height() - motd_anchor_base_content_px)
+	if grown_px <= motd_anchor_blank_px:
+		return
+
+	_dismiss_motd_anchor()
+	_scroll_to_bottom()
+
+
+func _resolve_default_output_mode() -> String:
+	if is_motd_anchor_active:
+		return OUTPUT_SCROLL_MODE_MOTD_ANCHOR_CONTINUE
+	return OUTPUT_SCROLL_MODE_NORMAL_BOTTOM
+
+
+func _get_output_content_height() -> float:
+	return float(output_label.get_content_height())
 
 
 func _scroll_to_bottom() -> void:
+	if not _set_scroll_to_max():
+		return
+
+	is_programmatic_scroll_change = true
+	call_deferred("_set_scroll_to_max")
+
+	if has_pending_scroll_settle:
+		return
+
+	has_pending_scroll_settle = true
+	var settle_timer := get_tree().create_timer(0.0)
+	settle_timer.timeout.connect(_on_scroll_settle_timeout)
+
+
+func _set_scroll_to_max() -> bool:
 	var v_scroll := output_scroll.get_v_scroll_bar()
-	if v_scroll:
-		output_scroll.scroll_vertical = int(v_scroll.max_value)
+	if v_scroll == null:
+		return false
+
+	output_scroll.scroll_vertical = int(v_scroll.max_value)
+	return true
+
+
+func _on_scroll_settle_timeout() -> void:
+	has_pending_scroll_settle = false
+	_set_scroll_to_max()
+	call_deferred("_clear_programmatic_scroll_change")
+
+
+func _clear_programmatic_scroll_change() -> void:
+	is_programmatic_scroll_change = false
+
+
+func _on_output_scroll_value_changed(_value: float) -> void:
+	if is_programmatic_scroll_change:
+		return
+	if is_motd_anchor_active:
+		_dismiss_motd_anchor()
 
 
 func _apply_terminal_theme() -> void:
@@ -318,14 +467,23 @@ func _clear_editor_status() -> void:
 
 func _resolve_editor_save_message(response: Dictionary, fallback: String) -> String:
 	var lines_variant: Variant = response.get("lines", [])
+	var lines := _variant_lines_to_string_array(lines_variant)
+	for line in lines:
+		var message := str(line)
+		if not message.is_empty():
+			return message
+
+	return fallback
+
+
+func _variant_lines_to_string_array(lines_variant: Variant) -> Array[String]:
+	var lines: Array[String] = []
 	if lines_variant is Array:
 		var lines_array: Array = lines_variant
 		for line in lines_array:
-			var message := str(line)
-			if not message.is_empty():
-				return message
+			lines.append(str(line))
 
-	return fallback
+	return lines
 
 
 func _initialize_runtime_bridge() -> void:
@@ -352,23 +510,24 @@ func _initialize_runtime_bridge() -> void:
 	prompt_user = str(context.get("promptUser", current_user_id))
 	prompt_host = str(context.get("promptHost", current_node_id))
 	var motd_lines_variant: Variant = context.get("motdLines", [])
-	if motd_lines_variant is Array:
-		var motd_lines: Array = motd_lines_variant
-		for line in motd_lines:
-			_append_output(str(line))
+	var motd_lines := _variant_lines_to_string_array(motd_lines_variant)
+	if motd_lines.size() > 0:
+		_append_output_batch(motd_lines, OUTPUT_SCROLL_MODE_MOTD_ANCHOR_ACTIVATE)
 
 
 func _apply_systemcall_response(response: Dictionary) -> void:
-	var lines_variant: Variant = response.get("lines", [])
-	if lines_variant is Array:
-		var lines_array: Array = lines_variant
-		for line in lines_array:
-			_append_output(str(line))
+	var previous_node_id := current_node_id
+	var next_node_id: String = str(response.get("nextNodeId", ""))
+	var lines := _variant_lines_to_string_array(response.get("lines", []))
+	var is_connect_motd := lines.size() > 0 and not next_node_id.is_empty() and next_node_id != previous_node_id
+	if is_connect_motd:
+		_append_output_batch(lines, OUTPUT_SCROLL_MODE_MOTD_ANCHOR_ACTIVATE)
+	else:
+		_append_output_batch(lines)
 
 	var next_cwd: String = str(response.get("nextCwd", ""))
 	if not next_cwd.is_empty():
 		current_cwd = next_cwd
-	var next_node_id: String = str(response.get("nextNodeId", ""))
 	if not next_node_id.is_empty():
 		current_node_id = next_node_id
 	var next_user_id: String = str(response.get("nextUserId", ""))

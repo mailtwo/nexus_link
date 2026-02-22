@@ -39,16 +39,24 @@ size_flags_vertical = 3
 follow_focus = true
 horizontal_scroll_mode = 0
 
-[node name="Output" type="RichTextLabel" parent="VBox/OutputScroll"]
+[node name="OutputContent" type="VBoxContainer" parent="VBox/OutputScroll"]
 layout_mode = 2
 size_flags_horizontal = 3
-size_flags_vertical = 3
+
+[node name="Output" type="RichTextLabel" parent="VBox/OutputScroll/OutputContent"]
+layout_mode = 2
+size_flags_horizontal = 3
 bbcode_enabled = false
 fit_content = true
 scroll_active = false
 selection_enabled = true
 autowrap_mode = 3
 theme_override_colors/default_color = Color(0.682353, 0.952941, 0.713726, 1)
+
+[node name="BottomSpacer" type="Control" parent="VBox/OutputScroll/OutputContent"]
+custom_minimum_size = Vector2(0, 0)
+layout_mode = 2
+size_flags_horizontal = 3
 
 [node name="InputRow" type="HBoxContainer" parent="VBox"]
 layout_mode = 2

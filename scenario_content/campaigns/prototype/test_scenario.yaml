@@ -7,7 +7,7 @@ ServerSpec:
     users:
       testUser1:
         userId: root
-        passwd: AUTO:5c_numspecial
+        passwd: root
         authMode: static
         privilege:
           read: true
