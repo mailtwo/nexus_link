@@ -209,6 +209,8 @@ public sealed class WorldRuntimeEventFlowTest
         SetField(world, "eventQueue", CreateInternal("Uplink2.Runtime.Events.EventQueue"));
         SetField(world, "firedHandlerIds", new HashSet<string>(StringComparer.Ordinal));
         SetField(world, "terminalEventLines", CreateGenericQueue("Uplink2.Runtime.Events.TerminalEventLine"));
+        SetField(world, "terminalEventLinesSync", new object());
+        SetField(world, "terminalProgramExecutionSync", new object());
         SetField(world, "initiallyExposedNodesByNet", CreateStringHashSetMap());
         SetField(world, "eventIndex", CreateInternal("Uplink2.Runtime.Events.EventIndex"));
         SetField(world, "processScheduler", CreateInternal("Uplink2.Runtime.Events.ProcessScheduler"));

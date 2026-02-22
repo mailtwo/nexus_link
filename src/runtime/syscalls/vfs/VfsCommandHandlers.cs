@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using Miniscript;
 using Uplink2.Runtime.MiniScript;
 using Uplink2.Vfs;
@@ -517,17 +518,58 @@ internal sealed class DebugMiniScriptCommandHandler : VfsCommandHandlerBase
     }
 }
 
+internal enum MiniScriptSshExecutionMode
+{
+    RealWorld = 0,
+    SandboxValidated,
+}
+
+internal sealed class MiniScriptExecutionOptions
+{
+    internal bool EnableTimeout { get; init; } = true;
+
+    internal double MaxRuntimeSeconds { get; init; } = 2.0;
+
+    internal CancellationToken CancellationToken { get; init; } = CancellationToken.None;
+
+    internal Action<string> StandardOutputLineSink { get; init; }
+
+    internal Action<string> StandardErrorLineSink { get; init; }
+
+    internal MiniScriptSshExecutionMode SshMode { get; init; } = MiniScriptSshExecutionMode.RealWorld;
+
+    internal bool CaptureOutputLines { get; init; } = true;
+}
+
+internal readonly record struct MiniScriptExecutionResult(SystemCallResult Result, bool WasCancelled);
+
 internal static class MiniScriptExecutionRunner
 {
     private const double TimeSliceSeconds = 0.01;
-    private const double MaxRuntimeSeconds = 2.0;
+    private const double DefaultMaxRuntimeSeconds = 2.0;
 
     internal static SystemCallResult ExecuteScript(
         string scriptSource,
         SystemCallExecutionContext executionContext = null)
     {
-        var standardOutput = new ScriptOutputCollector();
-        var errorOutput = new ScriptOutputCollector();
+        return ExecuteScriptWithOptions(scriptSource, executionContext).Result;
+    }
+
+    internal static MiniScriptExecutionResult ExecuteScriptWithOptions(
+        string scriptSource,
+        SystemCallExecutionContext executionContext = null,
+        MiniScriptExecutionOptions options = null)
+    {
+        if (options == null)
+        {
+            options = new MiniScriptExecutionOptions();
+        }
+        var standardOutput = new ScriptOutputCollector(
+            options.StandardOutputLineSink,
+            options.CaptureOutputLines);
+        var errorOutput = new ScriptOutputCollector(
+            options.StandardErrorLineSink,
+            options.CaptureOutputLines);
 
         try
         {
@@ -537,31 +579,66 @@ internal static class MiniScriptExecutionRunner
             };
 
             MiniScriptCryptoIntrinsics.InjectCryptoModule(interpreter);
-            MiniScriptSshIntrinsics.InjectSshModule(interpreter, executionContext);
-            var deadlineUtc = DateTime.UtcNow.AddSeconds(MaxRuntimeSeconds);
+            MiniScriptSshIntrinsics.InjectSshModule(interpreter, executionContext, options.SshMode);
+            var maxRuntimeSeconds = options.MaxRuntimeSeconds > 0
+                ? options.MaxRuntimeSeconds
+                : DefaultMaxRuntimeSeconds;
+            var deadlineUtc = DateTime.UtcNow.AddSeconds(maxRuntimeSeconds);
             while (!interpreter.done)
             {
-                interpreter.RunUntilDone(TimeSliceSeconds, returnEarly: false);
-                if (DateTime.UtcNow >= deadlineUtc)
+                if (options.CancellationToken.IsCancellationRequested)
                 {
-                    return SystemCallResultFactory.Failure(
-                        SystemCallErrorCode.InternalError,
-                        "miniscript execution timed out.");
+                    interpreter.Stop();
+                    return new MiniScriptExecutionResult(SystemCallResultFactory.Success(), true);
+                }
+
+                interpreter.RunUntilDone(TimeSliceSeconds, returnEarly: false);
+                if (options.EnableTimeout && DateTime.UtcNow >= deadlineUtc)
+                {
+                    return new MiniScriptExecutionResult(
+                        SystemCallResultFactory.Failure(
+                            SystemCallErrorCode.InternalError,
+                            "miniscript execution timed out."),
+                        false);
+                }
+
+                if (options.CancellationToken.IsCancellationRequested)
+                {
+                    interpreter.Stop();
+                    return new MiniScriptExecutionResult(SystemCallResultFactory.Success(), true);
                 }
             }
         }
+        catch (OperationCanceledException)
+        {
+            return new MiniScriptExecutionResult(SystemCallResultFactory.Success(), true);
+        }
         catch (Exception ex)
         {
-            return SystemCallResultFactory.Failure(
-                SystemCallErrorCode.InternalError,
-                "miniscript execution failed: " + ex.Message);
+            return new MiniScriptExecutionResult(
+                SystemCallResultFactory.Failure(
+                    SystemCallErrorCode.InternalError,
+                    "miniscript execution failed: " + ex.Message),
+                false);
         }
 
         var stdoutLines = standardOutput.ToLines();
         var stderrLines = errorOutput.ToLines();
-        if (stderrLines.Count == 0)
+        if (errorOutput.LineCount == 0)
         {
-            return SystemCallResultFactory.Success(lines: stdoutLines);
+            return new MiniScriptExecutionResult(SystemCallResultFactory.Success(lines: stdoutLines), false);
+        }
+
+        if (!options.CaptureOutputLines)
+        {
+            return new MiniScriptExecutionResult(
+                new SystemCallResult
+                {
+                    Ok = false,
+                    Code = SystemCallErrorCode.InternalError,
+                    Lines = Array.Empty<string>(),
+                },
+                false);
         }
 
         var lines = new List<string>(stdoutLines.Count + stderrLines.Count);
@@ -577,18 +654,30 @@ internal static class MiniScriptExecutionRunner
             lines.Add(line.StartsWith("error:", StringComparison.OrdinalIgnoreCase) ? line : "error: " + line);
         }
 
-        return new SystemCallResult
-        {
-            Ok = false,
-            Code = SystemCallErrorCode.InternalError,
-            Lines = lines,
-        };
+        return new MiniScriptExecutionResult(
+            new SystemCallResult
+            {
+                Ok = false,
+                Code = SystemCallErrorCode.InternalError,
+                Lines = lines,
+            },
+            false);
     }
 
     private sealed class ScriptOutputCollector
     {
         private readonly List<string> lines = new();
         private readonly StringBuilder pending = new();
+        private readonly Action<string> lineSink;
+        private readonly bool captureLines;
+
+        internal ScriptOutputCollector(Action<string> lineSink, bool captureLines)
+        {
+            this.lineSink = lineSink;
+            this.captureLines = captureLines;
+        }
+
+        internal int LineCount { get; private set; }
 
         internal void Append(string text, bool addLineBreak)
         {
@@ -599,8 +688,7 @@ internal static class MiniScriptExecutionRunner
 
             if (addLineBreak)
             {
-                lines.Add(pending.ToString());
-                pending.Clear();
+                FlushPendingLine();
             }
         }
 
@@ -608,11 +696,26 @@ internal static class MiniScriptExecutionRunner
         {
             if (pending.Length > 0)
             {
-                lines.Add(pending.ToString());
-                pending.Clear();
+                FlushPendingLine();
             }
 
-            return lines;
+            return captureLines ? lines : Array.Empty<string>();
+        }
+
+        private void FlushPendingLine()
+        {
+            var line = pending.ToString();
+            pending.Clear();
+            LineCount++;
+            if (captureLines)
+            {
+                lines.Add(line);
+            }
+
+            if (lineSink != null)
+            {
+                lineSink(line);
+            }
         }
     }
 }

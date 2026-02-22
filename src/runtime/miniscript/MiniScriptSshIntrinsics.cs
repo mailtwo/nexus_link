@@ -1,5 +1,6 @@
 using Miniscript;
 using System;
+using System.Collections.Generic;
 using Uplink2.Runtime.Syscalls;
 
 #nullable enable
@@ -35,7 +36,10 @@ internal static class MiniScriptSshIntrinsics
     }
 
     /// <summary>Injects SSH module globals into a compiled interpreter instance.</summary>
-    internal static void InjectSshModule(Interpreter interpreter, SystemCallExecutionContext? executionContext)
+    internal static void InjectSshModule(
+        Interpreter interpreter,
+        SystemCallExecutionContext? executionContext,
+        MiniScriptSshExecutionMode mode = MiniScriptSshExecutionMode.RealWorld)
     {
         if (interpreter is null)
         {
@@ -51,7 +55,7 @@ internal static class MiniScriptSshIntrinsics
 
         var sshModule = new ValMap
         {
-            userData = new SshModuleState(executionContext),
+            userData = new SshModuleState(executionContext, mode),
         };
         sshModule["connect"] = Intrinsic.GetByName(SshConnectIntrinsicName).GetFunc();
         sshModule["disconnect"] = Intrinsic.GetByName(SshDisconnectIntrinsicName).GetFunc();
@@ -72,7 +76,7 @@ internal static class MiniScriptSshIntrinsics
         intrinsic.AddParam("port", 22);
         intrinsic.code = (context, _) =>
         {
-            if (!TryGetExecutionContext(context, out var executionContext))
+            if (!TryGetExecutionState(context, out var state) || state.ExecutionContext is null)
             {
                 return new Intrinsic.Result(
                     CreateConnectFailureMap(
@@ -80,6 +84,7 @@ internal static class MiniScriptSshIntrinsics
                         "ssh.connect is unavailable in this execution context."));
             }
 
+            var executionContext = state.ExecutionContext;
             var hostOrIp = context.GetLocalString("hostOrIp", string.Empty) ?? string.Empty;
             var userId = context.GetLocalString("user", string.Empty) ?? string.Empty;
             var password = context.GetLocalString("password", string.Empty) ?? string.Empty;
@@ -92,20 +97,47 @@ internal static class MiniScriptSshIntrinsics
                         $"invalid port: {port}"));
             }
 
-            if (!executionContext.World.TryOpenSshSession(
+            if (state.Mode == MiniScriptSshExecutionMode.RealWorld)
+            {
+                if (!executionContext.World.TryOpenSshSession(
+                        executionContext.Server,
+                        hostOrIp,
+                        userId,
+                        password,
+                        port,
+                        via: "ssh.connect",
+                        out var openResult,
+                        out var failureResult))
+                {
+                    return new Intrinsic.Result(CreateConnectFailureMap(failureResult.Code, ExtractErrorText(failureResult)));
+                }
+
+                return new Intrinsic.Result(CreateConnectSuccessMap(openResult));
+            }
+
+            if (!executionContext.World.TryValidateSshSessionOpen(
                     executionContext.Server,
                     hostOrIp,
                     userId,
                     password,
                     port,
-                    via: "ssh.connect",
-                    out var openResult,
-                    out var failureResult))
+                    out var validated,
+                    out var sandboxFailure))
             {
-                return new Intrinsic.Result(CreateConnectFailureMap(failureResult.Code, ExtractErrorText(failureResult)));
+                return new Intrinsic.Result(CreateConnectFailureMap(sandboxFailure.Code, ExtractErrorText(sandboxFailure)));
             }
 
-            return new Intrinsic.Result(CreateConnectSuccessMap(openResult));
+            var sandboxSessionId = state.RegisterSandboxSession(validated.TargetNodeId);
+            return new Intrinsic.Result(CreateConnectSuccessMap(new WorldRuntime.SshSessionOpenResult
+            {
+                TargetServer = validated.TargetServer,
+                TargetNodeId = validated.TargetNodeId,
+                TargetUserKey = validated.TargetUserKey,
+                TargetUserId = validated.TargetUserId,
+                SessionId = sandboxSessionId,
+                RemoteIp = validated.RemoteIp,
+                HostOrIp = validated.HostOrIp,
+            }));
         };
     }
 
@@ -120,7 +152,7 @@ internal static class MiniScriptSshIntrinsics
         intrinsic.AddParam("session");
         intrinsic.code = (context, _) =>
         {
-            if (!TryGetExecutionContext(context, out var executionContext))
+            if (!TryGetExecutionState(context, out var state) || state.ExecutionContext is null)
             {
                 return new Intrinsic.Result(
                     CreateDisconnectFailureMap(
@@ -128,6 +160,7 @@ internal static class MiniScriptSshIntrinsics
                         "ssh.disconnect is unavailable in this execution context."));
             }
 
+            var executionContext = state.ExecutionContext;
             var session = context.GetLocal("session");
             if (session is not ValMap sessionMap)
             {
@@ -142,22 +175,23 @@ internal static class MiniScriptSshIntrinsics
                 return new Intrinsic.Result(CreateDisconnectFailureMap(SystemCallErrorCode.InvalidArgs, readError));
             }
 
-            var disconnected = executionContext.World.TryRemoveRemoteSession(sessionNodeId, sessionId);
+            var disconnected = state.Mode == MiniScriptSshExecutionMode.RealWorld
+                ? executionContext.World.TryRemoveRemoteSession(sessionNodeId, sessionId)
+                : state.TryRemoveSandboxSession(sessionNodeId, sessionId);
             return new Intrinsic.Result(CreateDisconnectSuccessMap(disconnected));
         };
     }
 
-    private static bool TryGetExecutionContext(TAC.Context context, out SystemCallExecutionContext executionContext)
+    private static bool TryGetExecutionState(TAC.Context context, out SshModuleState state)
     {
-        executionContext = null!;
+        state = null!;
         if (context.self is not ValMap selfMap ||
-            selfMap.userData is not SshModuleState state ||
-            state.ExecutionContext is null)
+            selfMap.userData is not SshModuleState sshState)
         {
             return false;
         }
 
-        executionContext = state.ExecutionContext;
+        state = sshState;
         return true;
     }
 
@@ -287,11 +321,40 @@ internal static class MiniScriptSshIntrinsics
 
     private sealed class SshModuleState
     {
-        internal SshModuleState(SystemCallExecutionContext? executionContext)
+        private readonly Dictionary<int, string> sandboxSessionNodeIdById = new();
+        private int nextSandboxSessionId = 1;
+
+        internal SshModuleState(SystemCallExecutionContext? executionContext, MiniScriptSshExecutionMode mode)
         {
             ExecutionContext = executionContext;
+            Mode = mode;
         }
 
         internal SystemCallExecutionContext? ExecutionContext { get; }
+
+        internal MiniScriptSshExecutionMode Mode { get; }
+
+        internal int RegisterSandboxSession(string sessionNodeId)
+        {
+            var sessionId = nextSandboxSessionId++;
+            sandboxSessionNodeIdById[sessionId] = sessionNodeId;
+            return sessionId;
+        }
+
+        internal bool TryRemoveSandboxSession(string sessionNodeId, int sessionId)
+        {
+            if (!sandboxSessionNodeIdById.TryGetValue(sessionId, out var storedNodeId))
+            {
+                return false;
+            }
+
+            if (!string.Equals(storedNodeId, sessionNodeId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            sandboxSessionNodeIdById.Remove(sessionId);
+            return true;
+        }
     }
 }

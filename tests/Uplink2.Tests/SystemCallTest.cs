@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using Uplink2.Blueprint;
 using Uplink2.Runtime;
 using Uplink2.Runtime.Syscalls;
@@ -730,6 +731,139 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "sessionNull=1", StringComparison.Ordinal));
         var events = DrainQueuedGameEvents(harness.World);
         Assert.Empty(events);
+    }
+
+    /// <summary>Ensures async launcher only handles user-script targets and ignores regular built-in commands.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_ReturnsHandledFalse_ForNonScriptCommand()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+
+        var response = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "pwd",
+            "ts-non-script");
+
+        Assert.False(response.Handled);
+        Assert.False(response.Started);
+    }
+
+    /// <summary>Ensures async miniscript execution enters running state and can be interrupted with Ctrl+C bridge API.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_MiniScriptInfiniteLoop_CanBeInterrupted()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/infinite.ms",
+            """
+            while true
+            	x = 1
+            end while
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "miniscript /scripts/infinite.ms",
+            "ts-async-loop");
+        Assert.True(start.Handled);
+        Assert.True(start.Started);
+        Assert.True(harness.World.IsTerminalProgramRunning("ts-async-loop"));
+
+        var interrupt = InterruptTerminalProgramExecutionCore(harness.World, "ts-async-loop");
+        Assert.Contains(interrupt.Lines, static line => string.Equals(line, "program killed by Ctrl+C", StringComparison.Ordinal));
+
+        WaitForTerminalProgramStop(harness.World, "ts-async-loop");
+        Assert.False(harness.World.IsTerminalProgramRunning("ts-async-loop"));
+    }
+
+    /// <summary>Ensures one terminal session cannot start a second async script while one is still running.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_BlocksDuplicateStartPerSession()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/infinite.ms",
+            """
+            while true
+            	x = 1
+            end while
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var first = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "miniscript /scripts/infinite.ms",
+            "ts-dup");
+        Assert.True(first.Started);
+
+        var second = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "miniscript /scripts/infinite.ms",
+            "ts-dup");
+        Assert.True(second.Handled);
+        Assert.False(second.Started);
+        Assert.Contains(second.Response.Lines, static line => line.Contains("program already running", StringComparison.Ordinal));
+
+        _ = InterruptTerminalProgramExecutionCore(harness.World, "ts-dup");
+        WaitForTerminalProgramStop(harness.World, "ts-dup");
+    }
+
+    /// <summary>Ensures async miniscript ssh.connect/disconnect runs in sandbox mode (validated only, no world session mutation).</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_SshSandbox_DoesNotMutateWorldSessions()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_async.ms",
+            """
+            result = ssh.connect("10.0.1.20", "guest", "pw")
+            print "ok=" + str(result.ok)
+            print "code=" + result.code
+            d1 = ssh.disconnect(result.session)
+            d2 = ssh.disconnect(result.session)
+            print "d1=" + str(d1.disconnected)
+            print "d2=" + str(d2.disconnected)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "miniscript /scripts/ssh_async.ms",
+            "ts-ssh-async");
+        Assert.True(start.Handled);
+        Assert.True(start.Started);
+
+        WaitForTerminalProgramStop(harness.World, "ts-ssh-async");
+        var outputLines = SnapshotTerminalEventLines(harness.World);
+        Assert.Contains("ok=1", outputLines);
+        Assert.Contains("code=None", outputLines);
+        Assert.Contains("d1=1", outputLines);
+        Assert.Contains("d2=0", outputLines);
+        Assert.Empty(remote.Sessions);
+        Assert.Empty(DrainQueuedGameEvents(harness.World));
     }
 
     /// <summary>Ensures processor context creation requires userId and rejects unknown user ids.</summary>
@@ -1777,6 +1911,82 @@ public sealed class SystemCallTest
         Assert.True(foundDifferent, "Expected at least one different output when worldSeed changes.");
     }
 
+    private static (bool Handled, bool Started, SystemCallResult Response) TryStartTerminalProgramExecutionCore(
+        WorldRuntime world,
+        string nodeId,
+        string userId,
+        string cwd,
+        string commandLine,
+        string terminalSessionId)
+    {
+        var method = typeof(WorldRuntime).GetMethod(
+            "TryStartTerminalProgramExecutionCore",
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
+            ?? typeof(WorldRuntime).GetMethods(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
+                .FirstOrDefault(static candidate => string.Equals(candidate.Name, "TryStartTerminalProgramExecutionCore", StringComparison.Ordinal));
+        Assert.NotNull(method);
+
+        var coreResult = method!.Invoke(world, new object?[] { nodeId, userId, cwd, commandLine, terminalSessionId });
+        Assert.NotNull(coreResult);
+        var handledProperty = coreResult!.GetType().GetProperty(
+            "Handled",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        var startedProperty = coreResult.GetType().GetProperty(
+            "Started",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        var responseProperty = coreResult.GetType().GetProperty(
+            "Response",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        Assert.NotNull(handledProperty);
+        Assert.NotNull(startedProperty);
+        Assert.NotNull(responseProperty);
+
+        var handled = (bool)handledProperty!.GetValue(coreResult)!;
+        var started = (bool)startedProperty!.GetValue(coreResult)!;
+        var response = (SystemCallResult)responseProperty!.GetValue(coreResult)!;
+        return (handled, started, response);
+    }
+
+    private static SystemCallResult InterruptTerminalProgramExecutionCore(WorldRuntime world, string terminalSessionId)
+    {
+        var method = typeof(WorldRuntime).GetMethod(
+            "InterruptTerminalProgramExecutionCore",
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
+            ?? typeof(WorldRuntime).GetMethods(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
+                .FirstOrDefault(static candidate => string.Equals(candidate.Name, "InterruptTerminalProgramExecutionCore", StringComparison.Ordinal));
+        Assert.NotNull(method);
+        var result = method!.Invoke(world, new object?[] { terminalSessionId }) as SystemCallResult;
+        Assert.NotNull(result);
+        return result!;
+    }
+
+    private static void WaitForTerminalProgramStop(WorldRuntime world, string terminalSessionId, int timeoutMs = 3000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (world.IsTerminalProgramRunning(terminalSessionId))
+        {
+            if (DateTime.UtcNow >= deadline)
+            {
+                throw new TimeoutException($"Timed out waiting for terminal program stop. sessionId='{terminalSessionId}'.");
+            }
+
+            Thread.Sleep(10);
+        }
+    }
+
+    private static string[] SnapshotTerminalEventLines(WorldRuntime world)
+    {
+        var queue = GetPrivateField(world, "terminalEventLines");
+        var lines = new List<string>();
+        foreach (var queued in (System.Collections.IEnumerable)queue)
+        {
+            var text = (string?)GetPropertyValue(queued, "Text") ?? string.Empty;
+            lines.Add(text);
+        }
+
+        return lines.ToArray();
+    }
+
     private static int IndexOfCall(IReadOnlyList<MethodBase> calledMethods, Type declaringType, string methodName)
     {
         for (var index = 0; index < calledMethods.Count; index++)
@@ -2000,6 +2210,15 @@ public sealed class SystemCallTest
         var terminalQueue = Activator.CreateInstance(terminalQueueType);
         Assert.NotNull(terminalQueue);
         SetPrivateField(world, "terminalEventLines", terminalQueue!);
+        SetPrivateField(world, "terminalEventLinesSync", new object());
+        SetPrivateField(world, "terminalProgramExecutionSync", new object());
+        var terminalExecutionsField = typeof(WorldRuntime).GetField(
+            "terminalProgramExecutionsBySessionId",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(terminalExecutionsField);
+        var terminalExecutions = Activator.CreateInstance(terminalExecutionsField!.FieldType);
+        Assert.NotNull(terminalExecutions);
+        terminalExecutionsField.SetValue(world, terminalExecutions);
         SetPrivateField(world, "initiallyExposedNodesByNet", new Dictionary<string, HashSet<string>>(StringComparer.Ordinal));
         SetPrivateField(world, "scheduledProcessEndAtById", new Dictionary<int, long>());
         SetPrivateField(world, "eventIndex", CreateInternalInstance("Uplink2.Runtime.Events.EventIndex", Array.Empty<object?>()));

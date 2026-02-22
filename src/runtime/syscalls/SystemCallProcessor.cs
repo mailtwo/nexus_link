@@ -77,6 +77,94 @@ internal sealed class SystemCallProcessor
         }
     }
 
+    internal bool TryPrepareTerminalProgramExecution(
+        SystemCallRequest request,
+        out MiniScriptProgramLaunch? launch,
+        out SystemCallResult? immediateResult)
+    {
+        launch = null;
+        immediateResult = null;
+
+        if (request is null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        if (!SystemCallParser.TryParse(request.CommandLine, out var command, out var arguments, out _))
+        {
+            return false;
+        }
+
+        var contextResult = TryCreateContext(request, out var context);
+        if (!contextResult.Ok)
+        {
+            return false;
+        }
+
+        if (registry.TryGetHandler(command, out _))
+        {
+            if (!string.Equals(command, "DEBUG_miniscript", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return TryPrepareDebugMiniScriptLaunch(
+                context!,
+                request.CommandLine ?? string.Empty,
+                command,
+                arguments,
+                out launch,
+                out immediateResult);
+        }
+
+        if (!TryResolveProgramPath(context!, command, out var resolvedProgramPath, out var resolvedProgramEntry))
+        {
+            return false;
+        }
+
+        if (!context!.User.Privilege.Read || !context.User.Privilege.Execute)
+        {
+            immediateResult = SystemCallResultFactory.PermissionDenied(command);
+            return true;
+        }
+
+        if (resolvedProgramEntry!.FileKind == VfsFileKind.ExecutableScript)
+        {
+            return TryPrepareExecutableScriptLaunch(
+                context,
+                command,
+                request.CommandLine ?? string.Empty,
+                resolvedProgramPath,
+                out launch,
+                out immediateResult);
+        }
+
+        if (resolvedProgramEntry.FileKind != VfsFileKind.ExecutableHardcode)
+        {
+            return false;
+        }
+
+        if (!context.Server.DiskOverlay.TryReadFileText(resolvedProgramPath, out var executablePayload))
+        {
+            return false;
+        }
+
+        if (!TryParseExecutableHardcodePayload(executablePayload, out var executableId) ||
+            !string.Equals(executableId, "miniscript", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return TryPrepareMiniScriptSourceLaunch(
+            context,
+            command,
+            request.CommandLine ?? string.Empty,
+            resolvedProgramPath,
+            arguments,
+            out launch,
+            out immediateResult);
+    }
+
     private SystemCallResult TryCreateContext(SystemCallRequest request, out SystemCallExecutionContext? context)
     {
         context = null;
@@ -122,6 +210,148 @@ internal sealed class SystemCallProcessor
             normalizedCwd,
             request.TerminalSessionId?.Trim() ?? string.Empty);
         return SystemCallResultFactory.Success();
+    }
+
+    private static bool TryPrepareExecutableScriptLaunch(
+        SystemCallExecutionContext context,
+        string command,
+        string commandLine,
+        string resolvedProgramPath,
+        out MiniScriptProgramLaunch? launch,
+        out SystemCallResult? immediateResult)
+    {
+        launch = null;
+        if (!context.Server.DiskOverlay.TryReadFileText(resolvedProgramPath, out var scriptSource))
+        {
+            immediateResult = SystemCallResultFactory.NotFile(resolvedProgramPath);
+            return true;
+        }
+
+        launch = new MiniScriptProgramLaunch(
+            context,
+            scriptSource,
+            resolvedProgramPath,
+            command,
+            commandLine);
+        immediateResult = SystemCallResultFactory.Success();
+        return true;
+    }
+
+    private static bool TryPrepareDebugMiniScriptLaunch(
+        SystemCallExecutionContext context,
+        string commandLine,
+        string command,
+        IReadOnlyList<string> arguments,
+        out MiniScriptProgramLaunch? launch,
+        out SystemCallResult? immediateResult)
+    {
+        launch = null;
+        if (!context.User.Privilege.Read)
+        {
+            immediateResult = SystemCallResultFactory.PermissionDenied(command);
+            return true;
+        }
+
+        if (!context.User.Privilege.Execute)
+        {
+            immediateResult = SystemCallResultFactory.PermissionDenied(command);
+            return true;
+        }
+
+        if (arguments.Count != 1)
+        {
+            immediateResult = SystemCallResultFactory.Usage("DEBUG_miniscript <script>");
+            return true;
+        }
+
+        var scriptPath = BaseFileSystem.NormalizePath(context.Cwd, arguments[0]);
+        if (!context.Server.DiskOverlay.TryResolveEntry(scriptPath, out var scriptEntry))
+        {
+            immediateResult = SystemCallResultFactory.NotFound(scriptPath);
+            return true;
+        }
+
+        if (scriptEntry.EntryKind != VfsEntryKind.File)
+        {
+            immediateResult = SystemCallResultFactory.NotFile(scriptPath);
+            return true;
+        }
+
+        if (scriptEntry.FileKind != VfsFileKind.Text && scriptEntry.FileKind != VfsFileKind.ExecutableScript)
+        {
+            immediateResult = SystemCallResultFactory.Failure(
+                SystemCallErrorCode.InvalidArgs,
+                "DEBUG_miniscript source must be text or executable script: " + scriptPath);
+            return true;
+        }
+
+        if (!context.Server.DiskOverlay.TryReadFileText(scriptPath, out var scriptSource))
+        {
+            immediateResult = SystemCallResultFactory.NotFile(scriptPath);
+            return true;
+        }
+
+        launch = new MiniScriptProgramLaunch(
+            context,
+            scriptSource,
+            scriptPath,
+            command,
+            commandLine);
+        immediateResult = SystemCallResultFactory.Success();
+        return true;
+    }
+
+    private static bool TryPrepareMiniScriptSourceLaunch(
+        SystemCallExecutionContext context,
+        string command,
+        string commandLine,
+        string resolvedProgramPath,
+        IReadOnlyList<string> arguments,
+        out MiniScriptProgramLaunch? launch,
+        out SystemCallResult? immediateResult)
+    {
+        launch = null;
+        if (arguments.Count != 1)
+        {
+            immediateResult = SystemCallResultFactory.Usage("miniscript <script>");
+            return true;
+        }
+
+        var scriptPath = BaseFileSystem.NormalizePath(context.Cwd, arguments[0]);
+        if (!context.Server.DiskOverlay.TryResolveEntry(scriptPath, out var scriptEntry))
+        {
+            immediateResult = SystemCallResultFactory.NotFound(scriptPath);
+            return true;
+        }
+
+        if (scriptEntry.EntryKind != VfsEntryKind.File)
+        {
+            immediateResult = SystemCallResultFactory.NotFile(scriptPath);
+            return true;
+        }
+
+        if (scriptEntry.FileKind != VfsFileKind.Text)
+        {
+            immediateResult = SystemCallResultFactory.Failure(
+                SystemCallErrorCode.InvalidArgs,
+                "miniscript source must be text: " + scriptPath);
+            return true;
+        }
+
+        if (!context.Server.DiskOverlay.TryReadFileText(scriptPath, out var scriptSource))
+        {
+            immediateResult = SystemCallResultFactory.NotFile(scriptPath);
+            return true;
+        }
+
+        launch = new MiniScriptProgramLaunch(
+            context,
+            scriptSource,
+            resolvedProgramPath,
+            command,
+            commandLine);
+        immediateResult = SystemCallResultFactory.Success();
+        return true;
     }
 
     private bool TryExecuteProgram(

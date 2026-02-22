@@ -16,6 +16,7 @@ public partial class WorldRuntime
     private readonly EventQueue eventQueue = new();
     private readonly HashSet<string> firedHandlerIds = new(StringComparer.Ordinal);
     private readonly Queue<TerminalEventLine> terminalEventLines = new();
+    private readonly object terminalEventLinesSync = new();
     private readonly Dictionary<string, HashSet<string>> initiallyExposedNodesByNet = new(StringComparer.Ordinal);
     private readonly Dictionary<int, long> scheduledProcessEndAtById = new();
     private readonly EventIndex eventIndex = new();
@@ -131,32 +132,35 @@ public partial class WorldRuntime
     public Godot.Collections.Array<string> DrainTerminalEventLines(string nodeId, string userId)
     {
         var drainedLines = new Godot.Collections.Array<string>();
-        if (terminalEventLines.Count == 0)
+        lock (terminalEventLinesSync)
         {
-            return drainedLines;
-        }
-
-        var normalizedNodeId = nodeId?.Trim() ?? string.Empty;
-        var normalizedUserId = userId?.Trim() ?? string.Empty;
-        var retained = new Queue<TerminalEventLine>();
-        while (terminalEventLines.Count > 0)
-        {
-            var line = terminalEventLines.Dequeue();
-            var matchNode = string.IsNullOrEmpty(normalizedNodeId) || string.Equals(line.NodeId, normalizedNodeId, StringComparison.Ordinal);
-            var lineUserId = ResolveUserIdForTerminalEventLine(line);
-            var matchUser = string.IsNullOrEmpty(normalizedUserId) || string.Equals(lineUserId, normalizedUserId, StringComparison.Ordinal);
-            if (matchNode && matchUser)
+            if (terminalEventLines.Count == 0)
             {
-                drainedLines.Add(line.Text);
-                continue;
+                return drainedLines;
             }
 
-            retained.Enqueue(line);
-        }
+            var normalizedNodeId = nodeId?.Trim() ?? string.Empty;
+            var normalizedUserId = userId?.Trim() ?? string.Empty;
+            var retained = new Queue<TerminalEventLine>();
+            while (terminalEventLines.Count > 0)
+            {
+                var line = terminalEventLines.Dequeue();
+                var matchNode = string.IsNullOrEmpty(normalizedNodeId) || string.Equals(line.NodeId, normalizedNodeId, StringComparison.Ordinal);
+                var lineUserId = ResolveUserIdForTerminalEventLine(line);
+                var matchUser = string.IsNullOrEmpty(normalizedUserId) || string.Equals(lineUserId, normalizedUserId, StringComparison.Ordinal);
+                if (matchNode && matchUser)
+                {
+                    drainedLines.Add(line.Text);
+                    continue;
+                }
 
-        while (retained.Count > 0)
-        {
-            terminalEventLines.Enqueue(retained.Dequeue());
+                retained.Enqueue(line);
+            }
+
+            while (retained.Count > 0)
+            {
+                terminalEventLines.Enqueue(retained.Dequeue());
+            }
         }
 
         return drainedLines;
@@ -176,7 +180,10 @@ public partial class WorldRuntime
 
     internal void QueueTerminalEventLine(TerminalEventLine line)
     {
-        terminalEventLines.Enqueue(line);
+        lock (terminalEventLinesSync)
+        {
+            terminalEventLines.Enqueue(line);
+        }
     }
 
     internal void InitializeEventRuntime(ScenarioBlueprint scenario)
@@ -189,7 +196,10 @@ public partial class WorldRuntime
         EnsureEventRuntimeServices();
         eventQueue.Clear();
         firedHandlerIds.Clear();
-        terminalEventLines.Clear();
+        lock (terminalEventLinesSync)
+        {
+            terminalEventLines.Clear();
+        }
         ScenarioFlags.Clear();
         eventIndex.Clear();
 
@@ -219,7 +229,10 @@ public partial class WorldRuntime
         eventSeq = 0;
         eventQueue.Clear();
         firedHandlerIds.Clear();
-        terminalEventLines.Clear();
+        lock (terminalEventLinesSync)
+        {
+            terminalEventLines.Clear();
+        }
         ScenarioFlags.Clear();
         eventIndex.Clear();
         processScheduler.Clear();

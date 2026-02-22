@@ -25,6 +25,7 @@ var current_editor_read_only: bool = false
 var current_editor_display_mode: String = "text"
 var current_editor_path_exists: bool = false
 var editor_status_revision: int = 0
+var is_program_running: bool = false
 
 @onready var background: ColorRect = $Background
 @onready var terminal_vbox: VBoxContainer = $VBox
@@ -48,6 +49,20 @@ func _ready() -> void:
 	input_line.grab_focus()
 
 
+func _input(event: InputEvent) -> void:
+	if editor_overlay.visible or not is_program_running:
+		return
+	if event is not InputEventKey:
+		return
+
+	var key_event := event as InputEventKey
+	if not key_event.pressed or key_event.echo:
+		return
+	if key_event.ctrl_pressed and key_event.keycode == KEY_C:
+		_request_program_interrupt()
+		get_viewport().set_input_as_handled()
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if editor_overlay.visible:
 		return
@@ -58,6 +73,9 @@ func _unhandled_input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if world_runtime == null:
 		return
+	if is_program_running and world_runtime.has_method("IsTerminalProgramRunning"):
+		var running_variant: Variant = world_runtime.call("IsTerminalProgramRunning", current_terminal_session_id)
+		is_program_running = bool(running_variant)
 	if not world_runtime.has_method("DrainTerminalEventLines"):
 		return
 
@@ -75,6 +93,9 @@ func _process(delta: float) -> void:
 
 
 func _on_input_submitted(command_text: String) -> void:
+	if is_program_running:
+		return
+
 	var trimmed: String = command_text.strip_edges()
 	if trimmed.is_empty():
 		input_line.clear()
@@ -94,6 +115,29 @@ func _on_input_submitted(command_text: String) -> void:
 		input_line.clear()
 		input_line.call_deferred("grab_focus")
 		return
+
+	if world_runtime.has_method("TryStartTerminalProgramExecution"):
+		var async_variant: Variant = world_runtime.call(
+			"TryStartTerminalProgramExecution",
+			current_node_id,
+			current_user_id,
+			current_cwd,
+			trimmed,
+			current_terminal_session_id)
+		if async_variant is Dictionary:
+			var async_start: Dictionary = async_variant
+			var handled_async: bool = bool(async_start.get("handled", false))
+			if handled_async:
+				var async_response_variant: Variant = async_start.get("response", {})
+				if async_response_variant is Dictionary:
+					var async_response: Dictionary = async_response_variant
+					_apply_systemcall_response(async_response)
+
+				is_program_running = bool(async_start.get("started", false))
+				input_line.clear()
+				if not editor_overlay.visible:
+					input_line.call_deferred("grab_focus")
+				return
 
 	var response: Dictionary = world_runtime.call(
 		"ExecuteTerminalCommand",
@@ -352,6 +396,26 @@ func _apply_systemcall_response(response: Dictionary) -> void:
 			editor_read_only,
 			editor_display_mode,
 			editor_path_exists)
+
+
+func _request_program_interrupt() -> void:
+	if world_runtime == null:
+		return
+	if not world_runtime.has_method("InterruptTerminalProgramExecution"):
+		return
+
+	var response_variant: Variant = world_runtime.call(
+		"InterruptTerminalProgramExecution",
+		current_terminal_session_id)
+	if response_variant is Dictionary:
+		var response: Dictionary = response_variant
+		_apply_systemcall_response(response)
+
+	if world_runtime.has_method("IsTerminalProgramRunning"):
+		var running_variant: Variant = world_runtime.call("IsTerminalProgramRunning", current_terminal_session_id)
+		is_program_running = bool(running_variant)
+	else:
+		is_program_running = false
 
 
 func _refresh_prompt() -> void:

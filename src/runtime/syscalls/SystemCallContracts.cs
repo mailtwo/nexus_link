@@ -161,6 +161,14 @@ internal sealed class SystemCallExecutionContext
     internal string TerminalSessionId { get; }
 }
 
+/// <summary>Prepared MiniScript launch payload for asynchronous terminal execution.</summary>
+internal readonly record struct MiniScriptProgramLaunch(
+    SystemCallExecutionContext Context,
+    string ScriptSource,
+    string ProgramPath,
+    string Command,
+    string CommandLine);
+
 /// <summary>Context transition payload returned by system calls that switch terminal target.</summary>
 internal sealed class TerminalContextTransition
 {

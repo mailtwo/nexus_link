@@ -280,6 +280,8 @@ public sealed class EventHandlerTest
         var queueInstance = Activator.CreateInstance(queueType);
         Assert.NotNull(queueInstance);
         SetField(world, "terminalEventLines", queueInstance!);
+        SetField(world, "terminalEventLinesSync", new object());
+        SetField(world, "terminalProgramExecutionSync", new object());
 
         var blobStore = new BlobStore();
         var baseFileSystem = new BaseFileSystem(blobStore);

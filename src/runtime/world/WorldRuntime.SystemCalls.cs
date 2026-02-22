@@ -2,6 +2,9 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Uplink2.Runtime.Events;
 using Uplink2.Runtime.Syscalls;
 using Uplink2.Vfs;
 
@@ -16,9 +19,12 @@ public partial class WorldRuntime
 
     private Dictionary<string, Stack<TerminalConnectionFrame>>? terminalConnectionFramesBySessionId =
         new(StringComparer.Ordinal);
+    private Dictionary<string, TerminalProgramExecutionState>? terminalProgramExecutionsBySessionId =
+        new(StringComparer.Ordinal);
 
     private int nextTerminalSessionSerial = 1;
     private int nextTerminalRemoteSessionId = 1;
+    private readonly object terminalProgramExecutionSync = new();
 
     /// <summary>Initializes system-call modules and command dispatch processor.</summary>
     private void InitializeSystemCalls()
@@ -131,32 +137,164 @@ public partial class WorldRuntime
             TerminalSessionId = terminalSessionId ?? string.Empty,
         });
 
-        var responsePayload = BuildTerminalCommandResponsePayload(result);
-        var lines = new Godot.Collections.Array<string>();
-        foreach (var line in (IReadOnlyList<string>)responsePayload["lines"])
-        {
-            lines.Add(line);
-        }
+        return BuildGodotTerminalCommandResponse(result);
+    }
 
+    /// <summary>Attempts to start asynchronous user program execution for script-like commands.</summary>
+    public Godot.Collections.Dictionary TryStartTerminalProgramExecution(
+        string nodeId,
+        string userId,
+        string cwd,
+        string commandLine,
+        string terminalSessionId)
+    {
+        var core = TryStartTerminalProgramExecutionCore(nodeId, userId, cwd, commandLine, terminalSessionId);
         var response = new Godot.Collections.Dictionary
         {
-            ["ok"] = (bool)responsePayload["ok"],
-            ["code"] = (string)responsePayload["code"],
-            ["lines"] = lines,
-            ["nextCwd"] = (string)responsePayload["nextCwd"],
-            ["nextNodeId"] = (string)responsePayload["nextNodeId"],
-            ["nextUserId"] = (string)responsePayload["nextUserId"],
-            ["nextPromptUser"] = (string)responsePayload["nextPromptUser"],
-            ["nextPromptHost"] = (string)responsePayload["nextPromptHost"],
-            ["openEditor"] = (bool)responsePayload["openEditor"],
-            ["editorPath"] = (string)responsePayload["editorPath"],
-            ["editorContent"] = (string)responsePayload["editorContent"],
-            ["editorReadOnly"] = (bool)responsePayload["editorReadOnly"],
-            ["editorDisplayMode"] = (string)responsePayload["editorDisplayMode"],
-            ["editorPathExists"] = (bool)responsePayload["editorPathExists"],
+            ["handled"] = core.Handled,
+            ["started"] = core.Started,
+            ["response"] = core.Handled
+                ? BuildGodotTerminalCommandResponse(core.Response)
+                : new Godot.Collections.Dictionary(),
+        };
+        return response;
+    }
+
+    /// <summary>Returns true while a terminal session has an active asynchronous user program.</summary>
+    public bool IsTerminalProgramRunning(string terminalSessionId)
+    {
+        var normalizedSessionId = NormalizeTerminalSessionId(terminalSessionId);
+        lock (terminalProgramExecutionSync)
+        {
+            EnsureTerminalProgramExecutionStorage();
+            return terminalProgramExecutionsBySessionId!.TryGetValue(normalizedSessionId, out var state) &&
+                   state.IsRunning;
+        }
+    }
+
+    /// <summary>Requests interruption of an asynchronous terminal program via cooperative cancellation.</summary>
+    public Godot.Collections.Dictionary InterruptTerminalProgramExecution(string terminalSessionId)
+    {
+        return BuildGodotTerminalCommandResponse(InterruptTerminalProgramExecutionCore(terminalSessionId));
+    }
+
+    internal TerminalProgramExecutionStartResult TryStartTerminalProgramExecutionCore(
+        string nodeId,
+        string userId,
+        string cwd,
+        string commandLine,
+        string terminalSessionId)
+    {
+        if (systemCallProcessor is null)
+        {
+            return new TerminalProgramExecutionStartResult
+            {
+                Handled = true,
+                Started = false,
+                Response = SystemCallResultFactory.Failure(
+                    SystemCallErrorCode.InternalError,
+                    "system call processor is not initialized."),
+            };
+        }
+
+        var request = new SystemCallRequest
+        {
+            NodeId = nodeId ?? string.Empty,
+            UserId = userId ?? string.Empty,
+            Cwd = cwd ?? "/",
+            CommandLine = commandLine ?? string.Empty,
+            TerminalSessionId = terminalSessionId ?? string.Empty,
         };
 
-        return response;
+        if (!systemCallProcessor.TryPrepareTerminalProgramExecution(request, out var launch, out var immediateResult))
+        {
+            return new TerminalProgramExecutionStartResult
+            {
+                Handled = false,
+                Started = false,
+                Response = SystemCallResultFactory.Success(),
+            };
+        }
+
+        if (launch is null)
+        {
+            return new TerminalProgramExecutionStartResult
+            {
+                Handled = true,
+                Started = false,
+                Response = immediateResult ?? SystemCallResultFactory.Failure(
+                    SystemCallErrorCode.InternalError,
+                    "failed to prepare program execution."),
+            };
+        }
+
+        var normalizedSessionId = NormalizeTerminalSessionId(terminalSessionId);
+        var state = new TerminalProgramExecutionState(normalizedSessionId, launch.Value);
+        lock (terminalProgramExecutionSync)
+        {
+            EnsureTerminalProgramExecutionStorage();
+            if (terminalProgramExecutionsBySessionId!.TryGetValue(normalizedSessionId, out var existingState) &&
+                existingState.IsRunning)
+            {
+                return new TerminalProgramExecutionStartResult
+                {
+                    Handled = true,
+                    Started = false,
+                    Response = SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, "program already running."),
+                };
+            }
+
+            terminalProgramExecutionsBySessionId[normalizedSessionId] = state;
+        }
+
+        state.WorkerTask = Task.Run(() => RunTerminalProgramExecution(state));
+        return new TerminalProgramExecutionStartResult
+        {
+            Handled = true,
+            Started = true,
+            Response = SystemCallResultFactory.Success(),
+        };
+    }
+
+    internal SystemCallResult InterruptTerminalProgramExecutionCore(string terminalSessionId)
+    {
+        var normalizedSessionId = NormalizeTerminalSessionId(terminalSessionId);
+        TerminalProgramExecutionState? state;
+        lock (terminalProgramExecutionSync)
+        {
+            EnsureTerminalProgramExecutionStorage();
+            if (!terminalProgramExecutionsBySessionId!.TryGetValue(normalizedSessionId, out state) ||
+                !state.IsRunning)
+            {
+                return SystemCallResultFactory.Success();
+            }
+
+            state.CancelRequested = true;
+            state.CancellationTokenSource.Cancel();
+        }
+
+        var stoppedWithinGrace = false;
+        try
+        {
+            stoppedWithinGrace = state.WorkerTask.Wait(TimeSpan.FromMilliseconds(250));
+        }
+        catch (AggregateException)
+        {
+            stoppedWithinGrace = true;
+        }
+
+        if (stoppedWithinGrace)
+        {
+            return SystemCallResultFactory.Success(lines: new[] { "program killed by Ctrl+C" });
+        }
+
+        lock (terminalProgramExecutionSync)
+        {
+            state.IsRunning = false;
+            state.SuppressOutput = true;
+        }
+
+        return SystemCallResultFactory.Success(lines: new[] { "program interrupt failed: unable to stop script thread." });
     }
 
     /// <summary>Saves editor buffer content to a server-local overlay file path.</summary>
@@ -276,6 +414,34 @@ public partial class WorldRuntime
         return payload;
     }
 
+    private static Godot.Collections.Dictionary BuildGodotTerminalCommandResponse(SystemCallResult result)
+    {
+        var responsePayload = BuildTerminalCommandResponsePayload(result);
+        var lines = new Godot.Collections.Array<string>();
+        foreach (var line in (IReadOnlyList<string>)responsePayload["lines"])
+        {
+            lines.Add(line);
+        }
+
+        return new Godot.Collections.Dictionary
+        {
+            ["ok"] = (bool)responsePayload["ok"],
+            ["code"] = (string)responsePayload["code"],
+            ["lines"] = lines,
+            ["nextCwd"] = (string)responsePayload["nextCwd"],
+            ["nextNodeId"] = (string)responsePayload["nextNodeId"],
+            ["nextUserId"] = (string)responsePayload["nextUserId"],
+            ["nextPromptUser"] = (string)responsePayload["nextPromptUser"],
+            ["nextPromptHost"] = (string)responsePayload["nextPromptHost"],
+            ["openEditor"] = (bool)responsePayload["openEditor"],
+            ["editorPath"] = (string)responsePayload["editorPath"],
+            ["editorContent"] = (string)responsePayload["editorContent"],
+            ["editorReadOnly"] = (bool)responsePayload["editorReadOnly"],
+            ["editorDisplayMode"] = (string)responsePayload["editorDisplayMode"],
+            ["editorPathExists"] = (bool)responsePayload["editorPathExists"],
+        };
+    }
+
     private static Godot.Collections.Dictionary BuildEditorSaveResponse(SystemCallResult result, string savedPath)
     {
         var lines = new Godot.Collections.Array<string>();
@@ -291,6 +457,91 @@ public partial class WorldRuntime
             ["lines"] = lines,
             ["savedPath"] = savedPath,
         };
+    }
+
+    private void RunTerminalProgramExecution(TerminalProgramExecutionState state)
+    {
+        try
+        {
+            var options = new MiniScriptExecutionOptions
+            {
+                EnableTimeout = false,
+                CancellationToken = state.CancellationTokenSource.Token,
+                StandardOutputLineSink = line => TryQueueTerminalProgramOutputLine(state, line),
+                StandardErrorLineSink = line => TryQueueTerminalProgramOutputLine(state, NormalizeMiniScriptErrorLine(line)),
+                SshMode = MiniScriptSshExecutionMode.SandboxValidated,
+                CaptureOutputLines = false,
+            };
+
+            var execution = MiniScriptExecutionRunner.ExecuteScriptWithOptions(
+                state.Launch.ScriptSource,
+                state.Launch.Context,
+                options);
+
+            if (!execution.WasCancelled)
+            {
+                foreach (var line in execution.Result.Lines)
+                {
+                    TryQueueTerminalProgramOutputLine(state, line);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            TryQueueTerminalProgramOutputLine(state, "error: miniscript execution failed: " + ex.Message);
+        }
+        finally
+        {
+            lock (terminalProgramExecutionSync)
+            {
+                if (terminalProgramExecutionsBySessionId is not null &&
+                    terminalProgramExecutionsBySessionId.TryGetValue(state.TerminalSessionId, out var registeredState) &&
+                    ReferenceEquals(registeredState, state))
+                {
+                    terminalProgramExecutionsBySessionId.Remove(state.TerminalSessionId);
+                }
+
+                state.IsRunning = false;
+            }
+
+            state.CancellationTokenSource.Dispose();
+        }
+    }
+
+    private void TryQueueTerminalProgramOutputLine(TerminalProgramExecutionState state, string line)
+    {
+        if (line is null)
+        {
+            return;
+        }
+
+        var shouldOutput = true;
+        lock (terminalProgramExecutionSync)
+        {
+            if (state.SuppressOutput)
+            {
+                shouldOutput = false;
+            }
+        }
+
+        if (!shouldOutput)
+        {
+            return;
+        }
+
+        QueueTerminalEventLine(new TerminalEventLine(state.NodeId, state.UserKey, line));
+    }
+
+    private static string NormalizeMiniScriptErrorLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return "error: miniscript execution failed.";
+        }
+
+        return line.StartsWith("error:", StringComparison.OrdinalIgnoreCase)
+            ? line
+            : "error: " + line;
     }
 
     private bool TryCreateEditorSaveContext(
@@ -363,6 +614,11 @@ public partial class WorldRuntime
         }
 
         return normalizedPath[..index];
+    }
+
+    private void EnsureTerminalProgramExecutionStorage()
+    {
+        terminalProgramExecutionsBySessionId ??= new Dictionary<string, TerminalProgramExecutionState>(StringComparer.Ordinal);
     }
 
     internal string NormalizeTerminalSessionId(string? terminalSessionId)
@@ -553,6 +809,50 @@ public partial class WorldRuntime
         out SystemCallResult failureResult)
     {
         openResult = null!;
+        if (!TryValidateSshSessionOpen(
+                sourceServer,
+                hostOrIp,
+                userId,
+                password,
+                port,
+                out var validated,
+                out failureResult))
+        {
+            return false;
+        }
+
+        var sessionId = AllocateTerminalRemoteSessionId();
+        validated.TargetServer.UpsertSession(sessionId, new SessionConfig
+        {
+            UserKey = validated.TargetUserKey,
+            RemoteIp = validated.RemoteIp,
+            Cwd = "/",
+        });
+
+        EmitPrivilegeAcquireForLogin(validated.TargetNodeId, validated.TargetUserKey, via);
+        openResult = new SshSessionOpenResult
+        {
+            TargetServer = validated.TargetServer,
+            TargetNodeId = validated.TargetNodeId,
+            TargetUserKey = validated.TargetUserKey,
+            TargetUserId = validated.TargetUserId,
+            SessionId = sessionId,
+            RemoteIp = validated.RemoteIp,
+            HostOrIp = validated.HostOrIp,
+        };
+        return true;
+    }
+
+    internal bool TryValidateSshSessionOpen(
+        ServerNodeRuntime sourceServer,
+        string hostOrIp,
+        string userId,
+        string password,
+        int port,
+        out SshSessionValidationResult validationResult,
+        out SystemCallResult failureResult)
+    {
+        validationResult = null!;
         failureResult = SystemCallResultFactory.Success();
 
         var normalizedHostOrIp = hostOrIp?.Trim() ?? string.Empty;
@@ -598,24 +898,13 @@ public partial class WorldRuntime
             return false;
         }
 
-        var sessionId = AllocateTerminalRemoteSessionId();
-        var remoteIp = ResolveRemoteIpForSession(sourceServer, targetServer);
-        targetServer.UpsertSession(sessionId, new SessionConfig
-        {
-            UserKey = targetUserKey,
-            RemoteIp = remoteIp,
-            Cwd = "/",
-        });
-
-        EmitPrivilegeAcquireForLogin(targetServer.NodeId, targetUserKey, via);
-        openResult = new SshSessionOpenResult
+        validationResult = new SshSessionValidationResult
         {
             TargetServer = targetServer,
             TargetNodeId = targetServer.NodeId,
             TargetUserKey = targetUserKey,
             TargetUserId = ResolvePromptUser(targetServer, targetUserKey),
-            SessionId = sessionId,
-            RemoteIp = remoteIp,
+            RemoteIp = ResolveRemoteIpForSession(sourceServer, targetServer),
             HostOrIp = normalizedHostOrIp,
         };
         return true;
@@ -757,9 +1046,26 @@ public partial class WorldRuntime
     internal void ResetTerminalSessionState()
     {
         EnsureTerminalConnectionStorage();
+        ResetTerminalProgramExecutionState();
         terminalConnectionFramesBySessionId!.Clear();
         nextTerminalSessionSerial = 1;
         nextTerminalRemoteSessionId = 1;
+    }
+
+    private void ResetTerminalProgramExecutionState()
+    {
+        List<TerminalProgramExecutionState> activeStates;
+        lock (terminalProgramExecutionSync)
+        {
+            EnsureTerminalProgramExecutionStorage();
+            activeStates = terminalProgramExecutionsBySessionId!.Values.ToList();
+            terminalProgramExecutionsBySessionId.Clear();
+        }
+
+        foreach (var state in activeStates)
+        {
+            state.CancellationTokenSource.Cancel();
+        }
     }
 
     private void EnsureTerminalConnectionStorage()
@@ -787,6 +1093,44 @@ public partial class WorldRuntime
         }
 
         return stack;
+    }
+
+    private sealed class TerminalProgramExecutionState
+    {
+        internal TerminalProgramExecutionState(string terminalSessionId, MiniScriptProgramLaunch launch)
+        {
+            TerminalSessionId = terminalSessionId;
+            Launch = launch;
+            NodeId = launch.Context.NodeId;
+            UserKey = launch.Context.UserKey;
+        }
+
+        internal string TerminalSessionId { get; }
+
+        internal MiniScriptProgramLaunch Launch { get; }
+
+        internal string NodeId { get; }
+
+        internal string UserKey { get; }
+
+        internal CancellationTokenSource CancellationTokenSource { get; } = new();
+
+        internal Task WorkerTask { get; set; } = Task.CompletedTask;
+
+        internal bool IsRunning { get; set; } = true;
+
+        internal bool CancelRequested { get; set; }
+
+        internal bool SuppressOutput { get; set; }
+    }
+
+    internal sealed class TerminalProgramExecutionStartResult
+    {
+        internal bool Handled { get; init; }
+
+        internal bool Started { get; init; }
+
+        internal SystemCallResult Response { get; init; } = SystemCallResultFactory.Success();
     }
 
     internal sealed class TerminalConnectionFrame
@@ -817,6 +1161,21 @@ public partial class WorldRuntime
         internal string TargetUserId { get; init; } = string.Empty;
 
         internal int SessionId { get; init; }
+
+        internal string RemoteIp { get; init; } = string.Empty;
+
+        internal string HostOrIp { get; init; } = string.Empty;
+    }
+
+    internal sealed class SshSessionValidationResult
+    {
+        internal ServerNodeRuntime TargetServer { get; init; } = null!;
+
+        internal string TargetNodeId { get; init; } = string.Empty;
+
+        internal string TargetUserKey { get; init; } = string.Empty;
+
+        internal string TargetUserId { get; init; } = string.Empty;
 
         internal string RemoteIp { get; init; } = string.Empty;
 
