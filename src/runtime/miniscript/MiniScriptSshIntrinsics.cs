@@ -1,6 +1,7 @@
 using Miniscript;
 using System;
 using System.Collections.Generic;
+using System.Text;
 using Uplink2.Runtime.Syscalls;
 
 #nullable enable
@@ -12,6 +13,7 @@ internal static partial class MiniScriptSshIntrinsics
 {
     private const string SshConnectIntrinsicName = "uplink_ssh_connect";
     private const string SshDisconnectIntrinsicName = "uplink_ssh_disconnect";
+    private const string SshExecIntrinsicName = "uplink_ssh_exec";
     private const string KindKey = "kind";
     private const string SessionKind = "sshSession";
     private const string RouteKind = "sshRoute";
@@ -42,6 +44,7 @@ internal static partial class MiniScriptSshIntrinsics
 
             RegisterSshConnectIntrinsic();
             RegisterSshDisconnectIntrinsic();
+            RegisterSshExecIntrinsic();
             RegisterFtpGetIntrinsic();
             RegisterFtpPutIntrinsic();
             RegisterFsListIntrinsic();
@@ -78,6 +81,7 @@ internal static partial class MiniScriptSshIntrinsics
         };
         sshModule["connect"] = Intrinsic.GetByName(SshConnectIntrinsicName).GetFunc();
         sshModule["disconnect"] = Intrinsic.GetByName(SshDisconnectIntrinsicName).GetFunc();
+        sshModule["exec"] = Intrinsic.GetByName(SshExecIntrinsicName).GetFunc();
         interpreter.SetGlobalValue("ssh", sshModule);
         InjectFtpModule(interpreter, moduleState);
         InjectFsModule(interpreter, moduleState);
@@ -304,6 +308,86 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
+    private static void RegisterSshExecIntrinsic()
+    {
+        if (Intrinsic.GetByName(SshExecIntrinsicName) is not null)
+        {
+            return;
+        }
+
+        var intrinsic = Intrinsic.Create(SshExecIntrinsicName);
+        intrinsic.AddParam("sessionOrRoute");
+        intrinsic.AddParam("cmd");
+        intrinsic.AddParam("opts");
+        intrinsic.code = (context, partialResult) =>
+        {
+            if (!TryGetExecutionState(context, out var state) || state.ExecutionContext is null)
+            {
+                return new Intrinsic.Result(
+                    CreateExecFailureMap(
+                        SystemCallErrorCode.InternalError,
+                        "ssh.exec is unavailable in this execution context."));
+            }
+
+            if (!TryParseExecArguments(
+                    context,
+                    out var sessionOrRouteMap,
+                    out var commandLine,
+                    out var maxBytes,
+                    out var parseError))
+            {
+                return new Intrinsic.Result(CreateExecFailureMap(SystemCallErrorCode.InvalidArgs, parseError));
+            }
+
+            var executionContext = state.ExecutionContext;
+            if (!TryResolveExecEndpoint(
+                    state,
+                    executionContext,
+                    sessionOrRouteMap,
+                    out var endpoint,
+                    out var endpointUserId,
+                    out var endpointError))
+            {
+                return new Intrinsic.Result(CreateExecFailureMap(SystemCallErrorCode.InvalidArgs, endpointError));
+            }
+
+            var temporaryTerminalSessionId = executionContext.World.AllocateTerminalSessionId();
+            SystemCallResult commandResult;
+            try
+            {
+                commandResult = executionContext.World.ExecuteSystemCall(new SystemCallRequest
+                {
+                    NodeId = endpoint.NodeId,
+                    UserId = endpointUserId,
+                    Cwd = endpoint.Cwd,
+                    CommandLine = commandLine,
+                    TerminalSessionId = temporaryTerminalSessionId,
+                });
+            }
+            finally
+            {
+                executionContext.World.CleanupTerminalSessionConnections(temporaryTerminalSessionId);
+            }
+
+            var stdout = JoinResultLines(commandResult);
+            if (maxBytes.HasValue)
+            {
+                var stdoutBytes = Encoding.UTF8.GetByteCount(stdout);
+                if (stdoutBytes > maxBytes.Value)
+                {
+                    return new Intrinsic.Result(
+                        CreateExecFailureMap(
+                            SystemCallErrorCode.TooLarge,
+                            $"stdout exceeds opts.maxBytes (max={maxBytes.Value}, actual={stdoutBytes})."));
+                }
+            }
+
+            return new Intrinsic.Result(commandResult.Ok
+                ? CreateExecSuccessMap(commandResult.Code, stdout)
+                : CreateExecFailureMap(commandResult.Code, ExtractErrorText(commandResult), stdout));
+        };
+    }
+
     private static bool TryGetExecutionState(TAC.Context context, out SshModuleState state)
     {
         state = null!;
@@ -359,6 +443,121 @@ internal static partial class MiniScriptSshIntrinsics
 
         optsMap = parsedOpts;
         return true;
+    }
+
+    private static bool TryParseExecArguments(
+        TAC.Context context,
+        out ValMap sessionOrRouteMap,
+        out string commandLine,
+        out int? maxBytes,
+        out string error)
+    {
+        sessionOrRouteMap = null!;
+        commandLine = string.Empty;
+        maxBytes = null;
+        error = string.Empty;
+
+        if (context.GetLocal("sessionOrRoute") is not ValMap parsedSessionOrRouteMap)
+        {
+            error = "sessionOrRoute object is required.";
+            return false;
+        }
+
+        if (!TryReadKind(parsedSessionOrRouteMap, out var kind, out var kindError, "sessionOrRoute"))
+        {
+            error = kindError;
+            return false;
+        }
+
+        if (!string.Equals(kind, SessionKind, StringComparison.Ordinal) &&
+            !string.Equals(kind, RouteKind, StringComparison.Ordinal))
+        {
+            error = "sessionOrRoute.kind must be sshSession or sshRoute.";
+            return false;
+        }
+
+        sessionOrRouteMap = parsedSessionOrRouteMap;
+        var rawCommand = context.GetLocal("cmd");
+        if (rawCommand is null || rawCommand is ValMap)
+        {
+            error = "cmd is required.";
+            return false;
+        }
+
+        commandLine = rawCommand.ToString().Trim();
+        if (string.IsNullOrWhiteSpace(commandLine))
+        {
+            error = "cmd is required.";
+            return false;
+        }
+
+        ValMap? optsMap = null;
+        var rawOpts = context.GetLocal("opts");
+        if (rawOpts is null)
+        {
+            return true;
+        }
+
+        if (rawOpts is not ValMap parsedOptsMap)
+        {
+            error = "opts must be a map.";
+            return false;
+        }
+
+        optsMap = parsedOptsMap;
+        return TryParseExecOpts(optsMap, out maxBytes, out error);
+    }
+
+    private static bool TryParseExecOpts(
+        ValMap? optsMap,
+        out int? maxBytes,
+        out string error)
+    {
+        maxBytes = null;
+        error = string.Empty;
+        if (optsMap is null)
+        {
+            return true;
+        }
+
+        foreach (var key in optsMap.Keys)
+        {
+            var keyText = key?.ToString().Trim() ?? string.Empty;
+            if (!string.Equals(keyText, "maxBytes", StringComparison.Ordinal))
+            {
+                error = $"unsupported opts key: {keyText}";
+                return false;
+            }
+        }
+
+        if (!optsMap.TryGetValue("maxBytes", out var rawMaxBytes))
+        {
+            return true;
+        }
+
+        if (rawMaxBytes is null)
+        {
+            error = "opts.maxBytes must be a non-negative integer.";
+            return false;
+        }
+
+        try
+        {
+            var parsedMaxBytes = rawMaxBytes.IntValue();
+            if (parsedMaxBytes < 0)
+            {
+                error = "opts.maxBytes must be a non-negative integer.";
+                return false;
+            }
+
+            maxBytes = parsedMaxBytes;
+            return true;
+        }
+        catch (Exception)
+        {
+            error = "opts.maxBytes must be a non-negative integer.";
+            return false;
+        }
     }
 
     private static bool TryReadPort(Value rawPort, out int port, out string error)
@@ -531,6 +730,76 @@ internal static partial class MiniScriptSshIntrinsics
             sandboxSession.UserId,
             sandboxSession.HostOrIp,
             sandboxSession.RemoteIp);
+        return true;
+    }
+
+    private static bool TryResolveExecEndpoint(
+        SshModuleState state,
+        SystemCallExecutionContext executionContext,
+        ValMap sessionOrRouteMap,
+        out FtpEndpoint endpoint,
+        out string endpointUserId,
+        out string error)
+    {
+        endpoint = default;
+        endpointUserId = string.Empty;
+        error = string.Empty;
+        if (!TryReadKind(sessionOrRouteMap, out var kind, out var kindError, "sessionOrRoute"))
+        {
+            error = kindError;
+            return false;
+        }
+
+        ValMap endpointSessionMap;
+        if (string.Equals(kind, SessionKind, StringComparison.Ordinal))
+        {
+            if (!TryResolveCanonicalSessionMap(state, executionContext, sessionOrRouteMap, out endpointSessionMap, out var sessionError))
+            {
+                error = sessionError;
+                return false;
+            }
+        }
+        else if (string.Equals(kind, RouteKind, StringComparison.Ordinal))
+        {
+            if (!TryReadRouteSessionMaps(sessionOrRouteMap, out var routeSessions, out var routeError))
+            {
+                error = routeError;
+                return false;
+            }
+
+            var canonicalRouteSessions = new List<ValMap>(routeSessions.Count);
+            foreach (var routeSession in routeSessions)
+            {
+                if (!TryResolveCanonicalSessionMap(state, executionContext, routeSession, out var canonicalSession, out var sessionError))
+                {
+                    error = sessionError;
+                    return false;
+                }
+
+                canonicalRouteSessions.Add(canonicalSession);
+            }
+
+            endpointSessionMap = canonicalRouteSessions[canonicalRouteSessions.Count - 1];
+        }
+        else
+        {
+            error = "sessionOrRoute.kind must be sshSession or sshRoute.";
+            return false;
+        }
+
+        if (!TryResolveSessionFtpEndpoint(state, executionContext, endpointSessionMap, out endpoint, out var endpointError))
+        {
+            error = endpointError;
+            return false;
+        }
+
+        endpointUserId = executionContext.World.ResolvePromptUser(endpoint.Server, endpoint.UserKey);
+        if (string.IsNullOrWhiteSpace(endpointUserId))
+        {
+            error = $"user not found: {endpoint.NodeId}/{endpoint.UserKey}.";
+            return false;
+        }
+
         return true;
     }
 
@@ -1064,6 +1333,40 @@ internal static partial class MiniScriptSshIntrinsics
             ["alreadyClosed"] = new ValNumber(alreadyClosed),
             ["invalid"] = new ValNumber(invalid),
         };
+    }
+
+    private static ValMap CreateExecSuccessMap(SystemCallErrorCode code, string stdout)
+    {
+        return new ValMap
+        {
+            ["ok"] = ValNumber.one,
+            ["code"] = new ValString(code.ToString()),
+            ["err"] = ValNull.instance,
+            ["stdout"] = new ValString(stdout ?? string.Empty),
+            ["exitCode"] = ValNumber.zero,
+        };
+    }
+
+    private static ValMap CreateExecFailureMap(SystemCallErrorCode code, string err, string stdout = "")
+    {
+        return new ValMap
+        {
+            ["ok"] = ValNumber.zero,
+            ["code"] = new ValString(code.ToString()),
+            ["err"] = new ValString(err),
+            ["stdout"] = new ValString(stdout ?? string.Empty),
+            ["exitCode"] = ValNumber.one,
+        };
+    }
+
+    private static string JoinResultLines(SystemCallResult result)
+    {
+        if (result.Lines.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return string.Join("\n", result.Lines);
     }
 
     private static string ExtractErrorText(SystemCallResult result)

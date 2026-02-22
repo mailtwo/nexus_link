@@ -1118,6 +1118,298 @@ public sealed class SystemCallTest
         Assert.Empty(hopB.Sessions);
     }
 
+    /// <summary>Ensures ssh.exec executes in session endpoint and returns stdout with exitCode.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshExec_WithSession_ReturnsStdoutAndExitCode()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.DiskOverlay.AddDirectory("/etc");
+        remote.DiskOverlay.WriteFile("/etc/motd", "remote motd", fileKind: VfsFileKind.Text);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_exec_session.ms",
+            """
+            r = ssh.connect("10.0.1.20", "guest", "pw")
+            e = ssh.exec(r.session, "cat /etc/motd")
+            print "ok=" + str(e.ok)
+            print "code=" + e.code
+            print "exitCode=" + str(e.exitCode)
+            print "stdout=" + e.stdout
+            d = ssh.disconnect(r.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_exec_session.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "stdout=remote motd", StringComparison.Ordinal));
+        Assert.Empty(remote.Sessions);
+    }
+
+    /// <summary>Ensures ssh.exec(route, ...) resolves execution target from route.lastSession.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshExec_WithRoute_UsesRouteLastSession()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var hopB = AddRemoteServer(
+            harness,
+            "node-2",
+            "hop-b",
+            "10.1.0.20",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Public,
+            netId: "alpha");
+        hopB.DiskOverlay.AddDirectory("/etc");
+        hopB.DiskOverlay.WriteFile("/etc/motd", "motd-b", fileKind: VfsFileKind.Text);
+        var hopC = AddRemoteServer(
+            harness,
+            "node-3",
+            "hop-c",
+            "10.1.0.30",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Lan,
+            netId: "alpha");
+        hopC.DiskOverlay.AddDirectory("/etc");
+        hopC.DiskOverlay.WriteFile("/etc/motd", "motd-c", fileKind: VfsFileKind.Text);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_exec_route.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            opts = {}
+            opts["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", opts)
+            e = ssh.exec(r2.route, "cat /etc/motd")
+            print "ok=" + str(e.ok)
+            print "code=" + e.code
+            print "stdout=" + e.stdout
+            d = ssh.disconnect(r2.route)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_exec_route.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "stdout=motd-c", StringComparison.Ordinal));
+        Assert.Empty(hopB.Sessions);
+        Assert.Empty(hopC.Sessions);
+    }
+
+    /// <summary>Ensures ssh.exec validates sessionOrRoute/cmd/opts arguments and returns InvalidArgs.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshExec_InvalidArgs_ReturnsInvalidArgs()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_exec_invalid.ms",
+            """
+            r = ssh.connect("10.0.1.20", "guest", "pw")
+            badType = ssh.exec(1, "pwd")
+            badKind = {}
+            badKind["kind"] = "oops"
+            badKindRes = ssh.exec(badKind, "pwd")
+            badRoute = {}
+            badRoute["kind"] = "sshRoute"
+            badRoute["version"] = 1
+            badRoute["sessions"] = []
+            badRoute["prefixRoutes"] = []
+            badRoute["lastSession"] = null
+            badRoute["hopCount"] = 0
+            badRouteRes = ssh.exec(badRoute, "pwd")
+            badCmd = ssh.exec(r.session, "   ")
+            badOpts = {}
+            badOpts["port"] = 22
+            badOptsRes = ssh.exec(r.session, "pwd", badOpts)
+            badMax = {}
+            badMax["maxBytes"] = -1
+            badMaxRes = ssh.exec(r.session, "pwd", badMax)
+            print "badType=" + badType.code
+            print "badKind=" + badKindRes.code
+            print "badRoute=" + badRouteRes.code
+            print "badCmd=" + badCmd.code
+            print "badOpts=" + badOptsRes.code
+            print "badMax=" + badMaxRes.code
+            d = ssh.disconnect(r.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_exec_invalid.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badType=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badKind=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badRoute=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badCmd=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badOpts=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badMax=InvalidArgs", StringComparison.Ordinal));
+        Assert.Empty(remote.Sessions);
+    }
+
+    /// <summary>Ensures ssh.exec enforces opts.maxBytes on collected stdout output.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshExec_MaxBytes_Exceed_ReturnsTooLarge()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.DiskOverlay.AddDirectory("/etc");
+        remote.DiskOverlay.WriteFile("/etc/motd", "remote motd", fileKind: VfsFileKind.Text);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_exec_max_bytes.ms",
+            """
+            r = ssh.connect("10.0.1.20", "guest", "pw")
+            opts = {}
+            opts["maxBytes"] = 3
+            e = ssh.exec(r.session, "cat /etc/motd", opts)
+            print "ok=" + str(e.ok)
+            print "code=" + e.code
+            print "exitCode=" + str(e.exitCode)
+            d = ssh.disconnect(r.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_exec_max_bytes.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=TooLarge", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=1", StringComparison.Ordinal));
+        Assert.Empty(remote.Sessions);
+    }
+
+    /// <summary>Ensures ssh.exec auto-cleans temporary connect stack and does not persist connection state.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshExec_ConnectAutoCleanup_DoesNotPersistState()
+    {
+        var harness = CreateHarness(includeVfsModule: true, includeConnectModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var hopA = AddRemoteServer(harness, "node-2", "hop-a", "10.0.1.20", AuthMode.Static, "pw");
+        var hopB = AddRemoteServer(harness, "node-3", "hop-b", "10.0.1.30", AuthMode.Static, "pw");
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_exec_connect_cleanup.ms",
+            """
+            r = ssh.connect("10.0.1.20", "guest", "pw")
+            e1 = ssh.exec(r.session, "connect 10.0.1.30 guest pw")
+            e2 = ssh.exec(r.session, "disconnect")
+            print "e1ok=" + str(e1.ok)
+            print "e1code=" + e1.code
+            print "e2ok=" + str(e2.ok)
+            print "e2code=" + e2.code
+            print "e2stdout=" + e2.stdout
+            d = ssh.disconnect(r.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_exec_connect_cleanup.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "e1ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "e1code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "e2ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "e2code=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "e2stdout=error: not connected.", StringComparison.Ordinal));
+        Assert.Empty(hopA.Sessions);
+        Assert.Empty(hopB.Sessions);
+    }
+
+    /// <summary>Ensures ssh.exec can run miniscript command synchronously on remote endpoint.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshExec_MiniScriptCommand_ReturnsCapturedStdout()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.DiskOverlay.AddDirectory("/opt");
+        remote.DiskOverlay.AddDirectory("/opt/bin");
+        remote.DiskOverlay.WriteFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        remote.DiskOverlay.AddDirectory("/scripts");
+        remote.DiskOverlay.WriteFile("/scripts/inner.ms", "print \"inner-ok\"", fileKind: VfsFileKind.Text);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_exec_miniscript.ms",
+            """
+            r = ssh.connect("10.0.1.20", "guest", "pw")
+            e = ssh.exec(r.session, "miniscript /scripts/inner.ms")
+            print "ok=" + str(e.ok)
+            print "code=" + e.code
+            print "exitCode=" + str(e.exitCode)
+            print "stdout=" + e.stdout
+            d = ssh.disconnect(r.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_exec_miniscript.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "stdout=inner-ok", StringComparison.Ordinal));
+        Assert.Empty(remote.Sessions);
+    }
+
+    /// <summary>Ensures sandbox async miniscript can mutate world through ssh.exec command execution.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_SshExecSandbox_AllowsWorldMutation()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_exec_async_mutation.ms",
+            """
+            r = ssh.connect("10.0.1.20", "guest", "pw")
+            e = ssh.exec(r.session, "mkdir /loot")
+            print "ok=" + str(e.ok)
+            print "code=" + e.code
+            print "exitCode=" + str(e.exitCode)
+            d = ssh.disconnect(r.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "miniscript /scripts/ssh_exec_async_mutation.ms",
+            "ts-ssh-exec-async-mutation");
+        Assert.True(start.Handled);
+        Assert.True(start.Started);
+
+        WaitForTerminalProgramStop(harness.World, "ts-ssh-exec-async-mutation");
+        var outputLines = SnapshotTerminalEventLines(harness.World);
+        Assert.Contains("ok=1", outputLines);
+        Assert.Contains("code=None", outputLines);
+        Assert.Contains("exitCode=0", outputLines);
+        Assert.True(remote.DiskOverlay.TryResolveEntry("/loot", out var lootEntry));
+        Assert.Equal(VfsEntryKind.Dir, lootEntry.EntryKind);
+        Assert.Empty(remote.Sessions);
+    }
+
     /// <summary>Ensures async sandbox mode supports route chaining but does not mutate world sessions.</summary>
     [Fact]
     public void TryStartTerminalProgramExecution_SshRouteSandbox_DoesNotMutateWorldSessions()

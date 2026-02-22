@@ -910,6 +910,19 @@ public partial class WorldRuntime
         return true;
     }
 
+    internal void CleanupTerminalSessionConnections(string terminalSessionId)
+    {
+        var normalizedSessionId = NormalizeTerminalSessionId(terminalSessionId);
+        var stack = GetOrCreateTerminalSessionStack(normalizedSessionId);
+        while (stack.Count > 0)
+        {
+            var frame = stack.Pop();
+            _ = TryRemoveRemoteSession(frame.SessionNodeId, frame.SessionId);
+        }
+
+        terminalConnectionFramesBySessionId?.Remove(normalizedSessionId);
+    }
+
     internal bool TryResolveActiveRemoteSessionAccount(
         string terminalSessionId,
         out ServerNodeRuntime sessionServer,
