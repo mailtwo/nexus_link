@@ -15,7 +15,7 @@ ServerSpec:
           execute: true
     diskOverlay:
       overlayEntries:
-        /opt/bin/miniscript:
+        /opt/bin/ms:
           entryKind: File
           contentId: exec:miniscript
           fileKind: ExecutableHardcode

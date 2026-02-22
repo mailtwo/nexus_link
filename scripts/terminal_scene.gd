@@ -7,6 +7,7 @@ extends Control
 @export var terminal_selection_color: Color = Color(0.22, 0.35, 0.24, 1.0)
 @export var terminal_font_size: int = 18
 @export var event_poll_interval_seconds: float = 0.10
+@export var max_command_history_entries: int = 200
 
 const EDITOR_HELP_TEXT := "Ctrl+S: save | Esc: exit"
 const EDITOR_STATUS_TIMEOUT_SECONDS: float = 3.0
@@ -35,6 +36,10 @@ var motd_anchor_base_content_px: float = 0.0
 var is_programmatic_scroll_change: bool = false
 var has_pending_scroll_settle: bool = false
 var has_pending_anchor_overflow_check: bool = false
+var command_history: Array[String] = []
+var history_nav_index: int = -1
+var history_nav_draft: String = ""
+var is_applying_history_text: bool = false
 
 @onready var background: ColorRect = $Background
 @onready var terminal_vbox: VBoxContainer = $VBox
@@ -51,6 +56,7 @@ var has_pending_anchor_overflow_check: bool = false
 func _ready() -> void:
 	input_line.keep_editing_on_text_submit = true
 	input_line.text_submitted.connect(_on_input_submitted)
+	input_line.gui_input.connect(_on_input_line_gui_input)
 	editor.gui_input.connect(_on_editor_gui_input)
 	editor.shortcut_keys_enabled = true
 	var v_scroll := output_scroll.get_v_scroll_bar()
@@ -109,10 +115,13 @@ func _on_input_submitted(command_text: String) -> void:
 
 	var trimmed: String = command_text.strip_edges()
 	if trimmed.is_empty():
+		_reset_history_navigation()
 		input_line.clear()
 		input_line.call_deferred("grab_focus")
 		return
 
+	_record_command_history(trimmed)
+	_reset_history_navigation()
 	_append_command_echo(trimmed)
 
 	if world_runtime == null:
@@ -162,6 +171,90 @@ func _on_input_submitted(command_text: String) -> void:
 	input_line.clear()
 	if not editor_overlay.visible:
 		input_line.call_deferred("grab_focus")
+
+
+func _on_input_line_gui_input(event: InputEvent) -> void:
+	if is_applying_history_text:
+		return
+	if event is not InputEventKey:
+		return
+
+	var key_event := event as InputEventKey
+	if not key_event.pressed:
+		return
+	if editor_overlay.visible or is_program_running:
+		return
+	if not input_line.has_focus():
+		return
+	if _try_handle_history_navigation(key_event):
+		input_line.accept_event()
+
+
+func _try_handle_history_navigation(event: InputEventKey) -> bool:
+	if event.keycode == KEY_UP:
+		_navigate_history(-1)
+		return true
+
+	if event.keycode == KEY_DOWN:
+		_navigate_history(1)
+		return true
+
+	return false
+
+
+func _navigate_history(direction: int) -> void:
+	if command_history.is_empty():
+		return
+	if direction < 0:
+		if history_nav_index == -1:
+			history_nav_draft = input_line.text
+			history_nav_index = command_history.size() - 1
+		else:
+			history_nav_index = maxi(0, history_nav_index - 1)
+		_set_input_text_and_caret_to_end(command_history[history_nav_index])
+		return
+
+	if direction > 0:
+		if history_nav_index == -1:
+			return
+
+		var last_index := command_history.size() - 1
+		if history_nav_index >= last_index:
+			history_nav_index = -1
+			_set_input_text_and_caret_to_end(history_nav_draft)
+			return
+
+		history_nav_index += 1
+		_set_input_text_and_caret_to_end(command_history[history_nav_index])
+
+
+func _record_command_history(command_text: String) -> void:
+	var trimmed := command_text.strip_edges()
+	if trimmed.is_empty():
+		return
+
+	var limit := maxi(0, max_command_history_entries)
+	if limit == 0:
+		command_history.clear()
+		return
+
+	command_history.append(trimmed)
+	if command_history.size() <= limit:
+		return
+
+	command_history = command_history.slice(command_history.size() - limit, command_history.size())
+
+
+func _reset_history_navigation() -> void:
+	history_nav_index = -1
+	history_nav_draft = ""
+
+
+func _set_input_text_and_caret_to_end(value: String) -> void:
+	is_applying_history_text = true
+	input_line.text = value
+	input_line.caret_column = value.length()
+	is_applying_history_text = false
 
 
 func _append_command_echo(command_text: String) -> void:
