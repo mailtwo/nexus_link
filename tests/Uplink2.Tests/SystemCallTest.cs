@@ -2583,6 +2583,302 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "code=InvalidArgs", StringComparison.Ordinal));
     }
 
+    /// <summary>Ensures miniscript net.scan returns sorted unique LAN neighbor IPs.</summary>
+    [Fact]
+    public void Execute_Miniscript_Net_Scan_LocalLan_SucceedsAndReturnsIps()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.Server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "alpha",
+                Ip = "10.1.0.10",
+            },
+        });
+
+        AddRemoteServer(harness, "node-2", "remote-a", "10.1.0.20", AuthMode.Static, "pw", netId: "alpha");
+        AddRemoteServer(harness, "node-3", "remote-b", "10.1.0.30", AuthMode.Static, "pw", netId: "alpha");
+        harness.Server.LanNeighbors.Add("node-3");
+        harness.Server.LanNeighbors.Add("node-2");
+        harness.Server.LanNeighbors.Add("node-2");
+        harness.Server.LanNeighbors.Add("missing-node");
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/net_scan_local.ms",
+            """
+            s = net.scan("lan")
+            print "ok=" + str(s.ok)
+            print "code=" + s.code
+            print "count=" + str(len(s.ips))
+            print "ip0=" + s.ips[0]
+            print "ip1=" + s.ips[1]
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/net_scan_local.ms", terminalSessionId: "ts-ms-net-scan-local");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "count=2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ip0=10.1.0.20", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ip1=10.1.0.30", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures route-scoped net.scan resolves source/permissions from route.lastSession only.</summary>
+    [Fact]
+    public void Execute_Miniscript_Net_Scan_Route_UsesLastSessionOnly()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var first = AddRemoteServer(
+            harness,
+            "node-2",
+            "hop-b",
+            "10.1.0.20",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Public,
+            netId: "alpha");
+        var last = AddRemoteServer(
+            harness,
+            "node-3",
+            "hop-c",
+            "10.1.0.30",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Lan,
+            netId: "alpha");
+        AddRemoteServer(
+            harness,
+            "node-4",
+            "hop-d",
+            "10.1.0.40",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Lan,
+            netId: "alpha");
+        last.LanNeighbors.Add("node-4");
+        last.LanNeighbors.Add("node-2");
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/net_scan_route.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            opts = {}
+            opts["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", opts)
+            route = r2.route
+            route["version"] = 999
+            route["sessions"] = []
+            route["prefixRoutes"] = []
+            route["hopCount"] = 0
+            s = net.scan(route, "lan")
+            print "ok=" + str(s.ok)
+            print "code=" + s.code
+            if s.ok == 1 then print "count=" + str(len(s.ips))
+            d2 = ssh.disconnect(r2.session)
+            d1 = ssh.disconnect(r1.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        first.Users["guest"].Privilege.Execute = false;
+        last.Users["guest"].Privilege.Execute = true;
+        var firstDeniedButLastAllowed = Execute(harness, "miniscript /scripts/net_scan_route.ms", terminalSessionId: "ts-ms-net-scan-route");
+        Assert.True(firstDeniedButLastAllowed.Ok);
+        Assert.Contains(firstDeniedButLastAllowed.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(firstDeniedButLastAllowed.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(firstDeniedButLastAllowed.Lines, static line => string.Equals(line, "count=2", StringComparison.Ordinal));
+
+        first.Users["guest"].Privilege.Execute = true;
+        last.Users["guest"].Privilege.Execute = false;
+        var lastDenied = Execute(harness, "miniscript /scripts/net_scan_route.ms", terminalSessionId: "ts-ms-net-scan-route");
+        Assert.True(lastDenied.Ok);
+        Assert.Contains(lastDenied.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
+        Assert.Contains(lastDenied.Lines, static line => string.Equals(line, "code=PermissionDenied", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures net.ports hides ports denied by exposure policy instead of failing the full call.</summary>
+    [Fact]
+    public void Execute_Miniscript_Net_Ports_HidesDeniedPorts()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        AddFtpPort(remote, exposure: PortExposure.Public);
+        remote.Ports[80] = new PortConfig
+        {
+            PortType = PortType.Http,
+            Exposure = PortExposure.Localhost,
+            ServiceId = "hidden-http",
+        };
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/net_ports_hidden.ms",
+            """
+            p = net.ports("10.0.1.20")
+            print "ok=" + str(p.ok)
+            print "code=" + p.code
+            print "count=" + str(len(p.ports))
+            has80 = 0
+            for entry in p.ports
+                if entry.port == 80 then has80 = 1
+            end for
+            print "has80=" + str(has80)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/net_ports_hidden.ms", terminalSessionId: "ts-ms-net-ports-hidden");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "count=2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "has80=0", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures net.banner returns PortConfig.serviceId and empty string when serviceId is blank.</summary>
+    [Fact]
+    public void Execute_Miniscript_Net_Banner_UsesServiceId()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.Ports[22].ServiceId = "OpenSSH_8.2p1 easy-box";
+        AddFtpPort(remote, exposure: PortExposure.Public);
+        remote.Ports[21].ServiceId = "   ";
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/net_banner_service_id.ms",
+            """
+            b1 = net.banner("10.0.1.20", 22)
+            print "b1ok=" + str(b1.ok)
+            print "b1code=" + b1.code
+            print "b1=" + b1.banner
+            b2 = net.banner("10.0.1.20", 21)
+            print "b2ok=" + str(b2.ok)
+            print "b2code=" + b2.code
+            print "b2len=" + str(len(b2.banner))
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/net_banner_service_id.ms", terminalSessionId: "ts-ms-net-banner-service-id");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "b1ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "b1code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "b1=OpenSSH_8.2p1 easy-box", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "b2ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "b2code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "b2len=0", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures net.banner returns PortClosed for missing or unassigned ports.</summary>
+    [Fact]
+    public void Execute_Miniscript_Net_Banner_ReturnsPortClosed_ForUnassignedPort()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.Ports[2222] = new PortConfig
+        {
+            PortType = PortType.None,
+            Exposure = PortExposure.Public,
+        };
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/net_banner_port_closed.ms",
+            """
+            a = net.banner("10.0.1.20", 9999)
+            print "aok=" + str(a.ok)
+            print "acode=" + a.code
+            b = net.banner("10.0.1.20", 2222)
+            print "bok=" + str(b.ok)
+            print "bcode=" + b.code
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/net_banner_port_closed.ms", terminalSessionId: "ts-ms-net-banner-port-closed");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "aok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "acode=PortClosed", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "bok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "bcode=PortClosed", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures net.banner returns NetDenied when target port exposure blocks source access.</summary>
+    [Fact]
+    public void Execute_Miniscript_Net_Banner_ReturnsNetDenied_OnExposureViolation()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.Ports[22].Exposure = PortExposure.Localhost;
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/net_banner_net_denied.ms",
+            """
+            b = net.banner("10.0.1.20", 22)
+            print "ok=" + str(b.ok)
+            print "code=" + b.code
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/net_banner_net_denied.ms", terminalSessionId: "ts-ms-net-banner-net-denied");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=NetDenied", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures net intrinsics validate malformed arguments and return InvalidArgs.</summary>
+    [Fact]
+    public void Execute_Miniscript_Net_InvalidArgs_ReturnsInvalidArgs()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/net_invalid_args.ms",
+            """
+            s = net.scan("wan")
+            print "scode=" + s.code
+            bad = {}
+            bad["kind"] = "nope"
+            p = net.ports(bad, "10.0.1.20")
+            print "pcode=" + p.code
+            b1 = net.banner("10.0.1.20", 0)
+            print "b1code=" + b1.code
+            b2 = net.banner("   ", 22)
+            print "b2code=" + b2.code
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/net_invalid_args.ms", terminalSessionId: "ts-ms-net-invalid-args");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "scode=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "pcode=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "b1code=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "b2code=InvalidArgs", StringComparison.Ordinal));
+    }
+
     /// <summary>Ensures async miniscript fs.write/delete are validate-only in sandbox mode.</summary>
     [Fact]
     public void TryStartTerminalProgramExecution_FsSandbox_WriteDelete_ValidateOnly_DoesNotMutateWorld()

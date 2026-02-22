@@ -103,11 +103,11 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 여러 API는 **첫 인자로 session/sessionOrRoute를 선택적으로 받을 수 있다.**
 - `foo(path, ...)`  : 현재 실행 컨텍스트(현재 host/user/cwd)에서 수행
 - `foo(session, path, ...)` : 해당 session의 원격 host/user 컨텍스트에서 수행
-- 일부 API(`ssh.exec`, `ftp.get`, `ftp.put`, `fs.list/read/write/delete/stat`)는 `sessionOrRoute`를 받아 `Session|SshRoute`를 모두 허용한다.
+- 일부 API(`ssh.exec`, `ftp.get`, `ftp.put`, `fs.list/read/write/delete/stat`, `net.scan/ports/banner`)는 `sessionOrRoute`를 받아 `Session|SshRoute`를 모두 허용한다.
 
 판정 규칙(v0.2):
 - 첫 인자가 맵이고 `kind == "sshSession"`이면 session으로 해석한다.
-- 첫 인자가 맵이고 `kind == "sshRoute"`이면 route로 해석한다. (`ssh.exec`, `ftp.get`, `ftp.put`, `fs.list/read/write/delete/stat`)
+- 첫 인자가 맵이고 `kind == "sshRoute"`이면 route로 해석한다. (`ssh.exec`, `ftp.get`, `ftp.put`, `fs.list/read/write/delete/stat`, `net.scan/ports/banner`)
 - 그 외에는 session 생략으로 간주한다.
 
 > 이 규칙은 MiniScript에서 오버로딩을 흉내 내기 위한 “인자 타입 기반 디스패치”이다.
@@ -286,42 +286,52 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 
 지원 함수(이번 버전): `scan/ports/banner`
 
-### 4.1 `net.scan([session], subnetOrHost)`
+### 4.1 `net.scan([sessionOrRoute], subnetOrHost)`
 - 목적: 네트워크 탐색(주로 LAN 이웃 탐색)
 - 인자:
+  - `sessionOrRoute?: Session|SshRoute`
+    - `Session`이면 해당 session의 서버/계정/netId 컨텍스트 기준
+    - `SshRoute`이면 `route.lastSession`의 서버/계정/netId 컨텍스트 기준
   - `subnetOrHost: string`
     - v0.2에서는 `"lan"`만 필수 지원
 - 동작(`net.scan("lan")` 고정 규칙):
-  1) 현재 컨텍스트 서버의 `lanNeighbors(nodeId)`를 읽는다.
-  2) 각 이웃 nodeId를 “현재 컨텍스트 netId” 기준 IP로 변환한다.
+  1) 실행 컨텍스트 서버의 `lanNeighbors(nodeId)`를 읽는다.
+  2) 각 이웃 nodeId를 “실행 컨텍스트 netId” 기준 IP로 변환한다.
   3) 최종 반환은 IP 문자열 리스트다.
 - 권한:
-  - 현재 컨텍스트 계정의 `execute=true`가 필요(권장)
+  - 실행 컨텍스트 계정의 `execute=true`가 필요(권장)
+    - route 모드에서는 `route.lastSession` 사용자 기준
 - 반환 `data`:
   - `{ ips: List<string> }`
 - 실패:
   - `ERR_PERMISSION_DENIED`, `ERR_INVALID_ARGS`
 
-### 4.2 `net.ports([session], hostOrIp, opts?)`
+### 4.2 `net.ports([sessionOrRoute], hostOrIp, opts?)`
 - 목적: 대상 호스트의 열린 포트(서비스) 조회
 - 인자:
+  - `sessionOrRoute?: Session|SshRoute`
+    - `Session`이면 해당 session을 source 컨텍스트로 사용
+    - `SshRoute`이면 `route.lastSession`을 source 컨텍스트로 사용
   - `hostOrIp: string` (v0.2에서는 IP 문자열을 권장)
 - 동작:
   - 대상 서버의 `ports` 중 `portType != none`인 항목을 반환한다.
-  - 네트워크 접근 가능 여부는 `exposure` 규칙으로 판정한다.
+  - 네트워크 접근 가능 여부는 `exposure` 규칙으로 판정한다(실행 source 컨텍스트 기준).
     - 접근 불가이면: v0에서는 전체 실패(`ERR_NET_DENIED`) 또는 결과 숨김 중 하나를 선택(일관되게 고정).
 - 반환 `data`(권장):
   - `{ ports: List<{ port:int, portType:string, exposure:string }> }`
 - 실패:
   - `ERR_NOT_FOUND`, `ERR_NET_DENIED`
 
-### 4.3 `net.banner([session], hostOrIp, port)`
+### 4.3 `net.banner([sessionOrRoute], hostOrIp, port)`
 - 목적: 서비스 배너/버전 단서 조회
 - 인자:
+  - `sessionOrRoute?: Session|SshRoute`
+    - `Session`이면 해당 session을 source 컨텍스트로 사용
+    - `SshRoute`이면 `route.lastSession`을 source 컨텍스트로 사용
   - `hostOrIp: string`
   - `port: int`
 - 조건:
-  - `net.ports`와 동일한 네트워크 접근 판정 적용
+  - `net.ports`와 동일한 네트워크 접근 판정 적용(실행 source 컨텍스트 기준)
   - 포트가 비할당(`portType==none`)이면 `ERR_PORT_CLOSED`
 - 반환 `data`:
   - `{ banner: string }` (없으면 빈 문자열 허용)

@@ -52,6 +52,9 @@ internal static partial class MiniScriptSshIntrinsics
             RegisterFsWriteIntrinsic();
             RegisterFsDeleteIntrinsic();
             RegisterFsStatIntrinsic();
+            RegisterNetScanIntrinsic();
+            RegisterNetPortsIntrinsic();
+            RegisterNetBannerIntrinsic();
             isRegistered = true;
         }
     }
@@ -85,6 +88,7 @@ internal static partial class MiniScriptSshIntrinsics
         interpreter.SetGlobalValue("ssh", sshModule);
         InjectFtpModule(interpreter, moduleState);
         InjectFsModule(interpreter, moduleState);
+        InjectNetModule(interpreter, moduleState);
     }
 
     private static void RegisterSshConnectIntrinsic()

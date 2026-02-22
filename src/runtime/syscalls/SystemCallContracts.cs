@@ -13,7 +13,11 @@ public enum SystemCallErrorCode
     UnknownCommand,
     InvalidArgs,
     PermissionDenied,
+    /// <summary>Network exposure/policy denied the requested access.</summary>
+    NetDenied,
     NotFound,
+    /// <summary>Requested port is unassigned or unavailable.</summary>
+    PortClosed,
     NotFile,
     NotDirectory,
     Conflict,
