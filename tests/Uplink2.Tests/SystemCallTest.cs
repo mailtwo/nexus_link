@@ -3539,6 +3539,27 @@ public sealed class SystemCallTest
             seed => InvokeResolvePassword("AUTO:c16_base64", seed, "node-alpha", "guestKey"));
     }
 
+    /// <summary>Ensures AUTO numeric+special password policy is deterministic for same worldSeed and changes across seeds.</summary>
+    [Fact]
+    public void ResolvePassword_AutoNumSpecialPolicy_IsDeterministicAndWorldSeedSensitive()
+    {
+        AssertDeterministicAndWorldSeedSensitive(
+            seed => InvokeResolvePassword("AUTO:4c_numspecial", seed, "node-alpha", "guestKey"));
+    }
+
+    /// <summary>Ensures AUTO numeric+special policy emits requested length using only allowed alphabet.</summary>
+    [Fact]
+    public void ResolvePassword_AutoNumSpecialPolicy_UsesRequestedAlphabetAndLength()
+    {
+        const string allowed = "0123456789!@#$%^&*()";
+        var resolved = InvokeResolvePassword("AUTO:12c_numspecial", 12345, "node-alpha", "guestKey");
+
+        Assert.Equal(12, resolved.Length);
+        Assert.All(
+            resolved,
+            ch => Assert.True(allowed.IndexOf(ch) >= 0, $"Unexpected character: {ch}"));
+    }
+
     /// <summary>Ensures AUTO fallback password policy is deterministic for same worldSeed and changes across seeds.</summary>
     [Fact]
     public void ResolvePassword_AutoFallbackPolicy_IsDeterministicAndWorldSeedSensitive()

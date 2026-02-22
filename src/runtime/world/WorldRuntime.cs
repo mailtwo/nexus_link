@@ -28,6 +28,7 @@ public partial class WorldRuntime : Node
     private const string DefaultInternetAddressPlan = "10.255.0.0/16";
     private const uint DefaultHostStart = 10;
     private const string Base64Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    private const string NumSpecialAlphabet = "0123456789!@#$%^&*()";
     private const string LowercaseAlphaNumericAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
     private static string[] dictionaryPasswordPool = Array.Empty<string>();
 

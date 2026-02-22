@@ -20,6 +20,15 @@ ServerSpec:
           contentId: exec:miniscript
           fileKind: ExecutableHardcode
           size: 32000
+        /opt/bin/password_breaker:
+          entryKind: File
+          contentId: res://scenario_content/resources/text/executions/password_breaker.ms
+          fileKind: ExecutableScript
+        /opt/bin/password_breaker.ms:
+          entryKind: File
+          contentId: res://scenario_content/resources/text/executions/password_breaker.ms
+          fileKind: Text
+          size: 32000
         /etc/motd:
           entryKind: File
           contentId: res://scenario_content/resources/text/myworkstation_prototype_motd.txt

@@ -526,10 +526,6 @@ internal enum MiniScriptSshExecutionMode
 
 internal sealed class MiniScriptExecutionOptions
 {
-    internal bool EnableTimeout { get; init; } = true;
-
-    internal double MaxRuntimeSeconds { get; init; } = 2.0;
-
     internal CancellationToken CancellationToken { get; init; } = CancellationToken.None;
 
     internal Action<string> StandardOutputLineSink { get; init; }
@@ -541,6 +537,8 @@ internal sealed class MiniScriptExecutionOptions
     internal bool CaptureOutputLines { get; init; } = true;
 
     internal IReadOnlyList<string> ScriptArguments { get; init; } = Array.Empty<string>();
+
+    internal double MaxIntrinsicCallsPerSecond { get; init; } = 50000;
 }
 
 internal readonly record struct MiniScriptExecutionResult(SystemCallResult Result, bool WasCancelled);
@@ -548,7 +546,6 @@ internal readonly record struct MiniScriptExecutionResult(SystemCallResult Resul
 internal static class MiniScriptExecutionRunner
 {
     private const double TimeSliceSeconds = 0.01;
-    private const double DefaultMaxRuntimeSeconds = 2.0;
 
     internal static SystemCallResult ExecuteScript(
         string scriptSource,
@@ -590,10 +587,7 @@ internal static class MiniScriptExecutionRunner
             MiniScriptCryptoIntrinsics.InjectCryptoModule(interpreter);
             MiniScriptSshIntrinsics.InjectSshModule(interpreter, executionContext, options.SshMode);
             ArgsIntrinsics.InjectArgs(interpreter, options.ScriptArguments);
-            var maxRuntimeSeconds = options.MaxRuntimeSeconds > 0
-                ? options.MaxRuntimeSeconds
-                : DefaultMaxRuntimeSeconds;
-            var deadlineUtc = DateTime.UtcNow.AddSeconds(maxRuntimeSeconds);
+            MiniScriptIntrinsicRateLimiter.ConfigureInterpreter(interpreter, options.MaxIntrinsicCallsPerSecond);
             while (!interpreter.done)
             {
                 if (options.CancellationToken.IsCancellationRequested)
@@ -603,14 +597,6 @@ internal static class MiniScriptExecutionRunner
                 }
 
                 interpreter.RunUntilDone(TimeSliceSeconds, returnEarly: false);
-                if (options.EnableTimeout && DateTime.UtcNow >= deadlineUtc)
-                {
-                    return new MiniScriptExecutionResult(
-                        SystemCallResultFactory.Failure(
-                            SystemCallErrorCode.InternalError,
-                            "miniscript execution timed out."),
-                        false);
-                }
 
                 if (options.CancellationToken.IsCancellationRequested)
                 {

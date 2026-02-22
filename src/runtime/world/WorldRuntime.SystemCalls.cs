@@ -487,7 +487,6 @@ public partial class WorldRuntime
         {
             var options = new MiniScriptExecutionOptions
             {
-                EnableTimeout = false,
                 CancellationToken = state.CancellationTokenSource.Token,
                 StandardOutputLineSink = line => TryQueueTerminalProgramOutputLine(state, line),
                 StandardErrorLineSink = line => TryQueueTerminalProgramOutputLine(state, NormalizeMiniScriptErrorLine(line)),

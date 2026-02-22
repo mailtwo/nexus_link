@@ -193,6 +193,12 @@ public partial class WorldRuntime
             return CreateDeterministicToken(tokenSeed, length, Base64Alphabet);
         }
 
+        if (TryReadNumSpecialLengthPolicy(policy, out var numSpecialLength))
+        {
+            var tokenSeed = BuildAutoSeed(worldSeed, nodeId, userKey, "passwd", policy);
+            return CreateDeterministicToken(tokenSeed, numSpecialLength, NumSpecialAlphabet);
+        }
+
         var fallbackSeed = BuildAutoSeed(worldSeed, nodeId, userKey, "passwd", "fallback");
         return CreateDeterministicToken(fallbackSeed, 12, Base64Alphabet);
     }
@@ -217,6 +223,23 @@ public partial class WorldRuntime
             policy.EndsWith("_base64", StringComparison.OrdinalIgnoreCase))
         {
             var numericPart = policy[1..^7];
+            if (int.TryParse(numericPart, out length) && length > 0)
+            {
+                return true;
+            }
+        }
+
+        length = 0;
+        return false;
+    }
+
+    /// <summary>Parses Nc_numspecial policy form and extracts requested length.</summary>
+    private static bool TryReadNumSpecialLengthPolicy(string policy, out int length)
+    {
+        const string suffix = "c_numspecial";
+        if (policy.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+        {
+            var numericPart = policy[..^suffix.Length];
             if (int.TryParse(numericPart, out length) && length > 0)
             {
                 return true;
