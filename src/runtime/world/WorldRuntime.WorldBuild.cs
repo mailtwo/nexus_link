@@ -78,7 +78,8 @@ public partial class WorldRuntime
     private Dictionary<string, ServerNodeRuntime> BuildServerRuntimes(
         ScenarioBlueprint scenario,
         IReadOnlyDictionary<string, ServerSpawnBlueprint> spawnByNodeId,
-        IReadOnlyDictionary<string, List<SpawnInterfaceSeed>> assignedInterfacesByNodeId)
+        IReadOnlyDictionary<string, List<SpawnInterfaceSeed>> assignedInterfacesByNodeId,
+        int worldSeed)
     {
         var serversByNodeId = new Dictionary<string, ServerNodeRuntime>(StringComparer.Ordinal);
         foreach (var spawn in scenario.Servers)
@@ -120,7 +121,7 @@ public partial class WorldRuntime
                 Ip = iface.Ip,
             }));
 
-            ApplyUsers(server, spec.Users, indexedSpawn.NodeId);
+            ApplyUsers(server, spec.Users, indexedSpawn.NodeId, worldSeed);
             ApplyPorts(server, spec.Ports, indexedSpawn.PortOverrides);
             ApplyDaemons(server, spec.Daemons, indexedSpawn.DaemonOverrides);
             ValidateOtpConsistency(server);

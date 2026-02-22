@@ -221,8 +221,11 @@ public sealed class BlueprintEntryMeta
     /// <summary>Blob content id or resource path reference for file content.</summary>
     public string ContentId { get; set; } = string.Empty;
 
-    /// <summary>Optional file size hint in bytes.</summary>
-    public long Size { get; set; }
+    /// <summary>Optional gameplay-visible file size hint in bytes.</summary>
+    public int? Size { get; set; }
+
+    /// <summary>Actual UTF-8 payload byte size computed from resolved content.</summary>
+    public int RealSize { get; set; }
 
     /// <summary>Optional owner text metadata.</summary>
     public string Owner { get; set; } = string.Empty;

@@ -13,6 +13,13 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    diskOverlay:
+      overlayEntries:
+        /opt/bin/miniscript:
+          entryKind: File
+          contentId: exec:miniscript
+          fileKind: ExecutableHardcode
+          size: 32000
 Scenario:
   startScenario:
     servers:

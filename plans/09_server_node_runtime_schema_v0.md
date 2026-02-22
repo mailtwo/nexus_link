@@ -14,7 +14,7 @@ Codex는 이 문서만 보고 런타임 모델(월드 `serverList`, `ipIndex`, `
 
 ## 0) 전역 런타임 컨테이너(World Runtime)
 
-월드는 최소 3개의 전역 컨테이너를 유지한다.
+월드는 최소 3개의 전역 컨테이너와 `worldSeed`를 유지한다.
 
 ### 0.1 `serverList`
 - 타입: `Dictionary<string /*nodeId*/, ServerStruct>`
@@ -32,15 +32,24 @@ Codex는 이 문서만 보고 런타임 모델(월드 `serverList`, `ipIndex`, `
 > 서버는 자신이 보유한 프로세스 id만 `server.process` set으로 참조한다.  
 > 실제 프로세스 데이터는 항상 `processList`에서 조회한다(단일 진실).
 
-### 0.4 키 전환 흡수 규칙(필수)
+### 0.4 `worldSeed`
+- 타입: `int`
+- 의미: 월드 초기화 시 생성되는 AUTO 값의 단일 결정 seed
+- 규칙:
+  - 초기화 전에 반드시 외부에서 주입되어야 하며, `0`은 허용하지 않는다.
+  - 초기 생성값(`AUTO:userId`, `AUTO:passwd`)은 `worldSeed + 고정 입력값`만으로 seed를 구성한다.
+  - seed 구성에는 현재 시각, 런타임 난수, 환경 상태값 같은 비결정 입력을 사용하지 않는다.
+  - 동일 `worldSeed`와 동일 입력이면 동일 월드 생성 결과를 보장해야 한다.
+
+### 0.5 키 전환 흡수 규칙(필수)
 - `serverList` 키를 `ip`에서 `nodeId`로 바꾼 대신, 서버의 IP 정보는 `ServerStruct.primaryIp/interfaces`에 보존한다.
 - `users` 키를 `userId`에서 `userKey`로 바꾼 대신, 표시용 계정 식별자는 `UserConfig.userId`에 보존한다.
 
-### 0.5 참조 규칙(필수)
+### 0.6 참조 규칙(필수)
 - 내부 참조/검증 키: `nodeId`, `userKey`
 - 표시/로그 텍스트: `userId`, `IP 문자열`
 
-### 0.6 공개 API 경계 규칙(필수)
+### 0.7 공개 API 경계 규칙(필수)
 - 플레이어 입력, 터미널 시스템콜 요청, Godot 공개 메서드 요청/응답에서는 **`userId`만 사용**한다.
 - `userKey`는 내부 런타임(세션/이벤트/권한 검사/데이터 참조) 전용으로 유지하며 외부에 노출하지 않는다.
 - 공개 응답 컨텍스트 전환 필드는 `nextUserId`를 사용하고 `nextUserKey`는 사용하지 않는다.
@@ -386,6 +395,9 @@ LogStruct
 ## 10) 구현 체크리스트(v0.2)
 
 - [ ] `serverList(nodeId key)`, `ipIndex`, `processList` 전역 컨테이너 구현
+- [ ] 월드 초기화 전에 `worldSeed` 필수 검증(`0` 금지) 구현
+- [ ] `AUTO userId/passwd` 결정 seed에 `worldSeed` 포함
+- [ ] 초기화 seed에 현재 시각/난수/환경 상태값 같은 비결정 입력 사용 금지
 - [ ] 서버 생성 시 `primaryIp/interfaces/subnetMembership/isExposedByNet` 초기화
 - [ ] `interfaces[].initiallyExposed` 입력으로 초기 `KnownNodes/isExposedByNet`을 계산한 뒤 런타임에는 저장하지 않음
 - [ ] `users`를 `userKey` 키로 관리하고 `UserConfig.userId`를 필수값으로 저장

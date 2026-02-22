@@ -144,6 +144,20 @@ public sealed class VFSTest
         Assert.Equal("noop", content);
     }
 
+    /// <summary>Ensures logical-size override can differ from payload real size.</summary>
+    [Fact]
+    public void WriteFile_TracksLogicalSizeAndRealSizeSeparately()
+    {
+        var (_, baseFileSystem, overlay) = CreateOverlay();
+        baseFileSystem.AddDirectory("/opt/app");
+
+        overlay.WriteFile("/opt/app/config.txt", "id", fileKind: VfsFileKind.ExecutableHardcode, size: 4096);
+
+        Assert.True(overlay.TryResolveEntry("/opt/app/config.txt", out var entry));
+        Assert.Equal(4096, entry.Size);
+        Assert.Equal(2, entry.RealSize);
+    }
+
     /// <summary>Ensures blob refcount and payload ownership update correctly on overwrite.</summary>
     [Fact]
     public void WriteFile_ReleasesPreviousBlobOnOverwrite()
@@ -195,7 +209,7 @@ public sealed class VFSTest
         var (blobStore, baseFileSystem, _) = CreateOverlay();
         baseFileSystem.AddDirectory("/opt/bin");
         baseFileSystem.AddDirectory("/scripts");
-        baseFileSystem.AddFile("/opt/bin/miniscript", "miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        baseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
         baseFileSystem.AddFile("/scripts/hello.ms", "print \"hello\"", fileKind: VfsFileKind.Text);
         baseFileSystem.AddFile("/scripts/job.ms", "print \"job\"", fileKind: VfsFileKind.ExecutableScript);
 

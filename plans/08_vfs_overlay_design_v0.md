@@ -60,7 +60,14 @@
 - `entryKind: File | Dir`
 - `fileKind` (File일 때): `Text | Binary | Image | ExecutableScript | ExecutableHardcode`
 - `contentId` (File일 때)
-- (선택) `size`, `mtime`, `owner`, `perms`
+- (선택) `size(Optional[int])`, `mtime`, `owner`, `perms`
+
+`size`/`realSize` 규칙:
+- `realSize`: 실제 UTF-8 payload 바이트 크기(런타임 계산값)
+- `size`: 게임에서 인식하는 논리 파일 크기
+  - `size` 생략 시 `size = realSize`
+  - `size` 지정 시 해당 값을 파일 크기로 사용
+- `BlueprintEntryMeta`는 `realSize`를 별도 필드로 유지한다(디버그/검증용)
 
 디렉토리 표현:
 - “숨김 파일(dir_entry)” 없음
@@ -73,8 +80,9 @@
   - 파일 내용은 MiniScript 소스 텍스트
   - 파일명을 직접 실행하면 내장 MiniScript 인터프리터로 실행
 - `ExecutableHardcode`:
-  - 파일 내용은 `executableId` 텍스트
+  - 파일 내용은 `exec:<executableId>` 텍스트
   - 파일명을 직접 실행하면 `executableId` 기반 dispatcher로 실행
+  - 예: `exec:miniscript`, `exec:noop`
 - MiniScript 스크립트 실행은 `miniscript <scriptPath>` 형태를 지원
   - `miniscript`는 **시스템콜이 아니라 VFS 실행 파일 이름**이다(예: `/opt/bin/miniscript`)
   - `<scriptPath>`는 `fileKind == Text`면 확장자와 무관하게 실행 시도 가능
@@ -85,6 +93,7 @@
 - 실행계열 파일(`ExecutableScript`, `ExecutableHardcode`)은 바이너리처럼 취급:
   - `cat` 대상에서 차단
   - `edit`은 열기는 허용하되 non-text read-only(16진수 유사 뷰)로만 표시
+  - `edit`의 표시 길이(유사 hex 길이)는 `size`(논리 크기) 기준으로 산정
   - 권장 오류 문구: `error: cannot read executable file: <path>`
 
 ---
@@ -129,10 +138,10 @@
   - 프로그램 실행은 `read + execute` 둘 다 필요
 
 ### 4.5 ExecutableHardcode 미등록 ID 처리
-- `ExecutableHardcode` 실행 시 `executableId`가 빈값/미등록이면 사용자 응답은 `unknown command: <command>`로 통일
+- `ExecutableHardcode` 실행 시 payload 형식이 잘못되었거나(`exec:` prefix 없음/빈 id), `executableId`가 미등록이면 사용자 응답은 `unknown command: <command>`로 통일
 - 내부 디버그 로그:
   - `WorldRuntime.DebugOption == true`일 때만 `GD.PushWarning(...)` 출력
-  - 권장 포함 필드: `command`, `resolvedProgramPath`, `executableId`, `nodeId`, `userKey`, `cwd`
+  - 권장 포함 필드: `command`, `resolvedProgramPath`, `rawContentId`, `executableId`, `nodeId`, `userKey`, `cwd`
 
 ---
 
@@ -186,8 +195,10 @@
 - `filePath = Normalize(cwd, input)`
 - `tombstones.remove(filePath)` (있으면 복구)
 - `contentId = BlobStore.Put(content)` (refCount++)
+- `realSize = UTF8ByteCount(content)`
 - `fileKind` 입력이 없으면 기본값 `Text`로 저장
 - 바이너리/이미지/실행 파일 업로드 경로에서는 `fileKind`를 명시적으로 지정
+- `size` 입력이 없으면 `size = realSize`, 입력이 있으면 입력값을 논리 파일 크기로 저장
 - 기존 overlay 파일이 있으면 old contentId refCount-- 후 교체
 - `overlayEntries[filePath] = FileEntryMeta(fileKind=..., contentId=...)`
 - `ApplyAddChild(parent, name)`
@@ -262,6 +273,7 @@
 - [ ] 경로 Normalize + cd .. 동작 확인
 - [ ] 현재 디렉토리 삭제 금지 처리(`rmdir .` 에러)
 - [ ] BlobStore(refCount) 기본 동작 + overlay 파일 교체/삭제 시 refCount 감소
+- [ ] `EntryMeta.size(Optional[int])` + `realSize` 분리 규칙 반영
 - [ ] `fileKind` 확장 반영(`ExecutableScript`, `ExecutableHardcode`)
 - [ ] 시스템콜 미일치 시 프로그램 fallback + `PATH=/opt/bin` + 상대경로 실행 확인
 - [ ] 실행계열 파일 `cat` 차단 + `edit` non-text read-only(16진수 유사 뷰) 규칙 적용

@@ -26,10 +26,18 @@ public partial class WorldRuntime
         BaseFileSystem.AddFile("/home/player/.profile", "export TERM=uplink2", fileKind: VfsFileKind.Text);
     }
 
-    /// <summary>Builds a fresh runtime world from blueprint YAML files.</summary>
+    /// <summary>Builds a fresh runtime world from blueprint YAML files after game systems are initialized.</summary>
     private void BuildInitialWorldFromBlueprint()
     {
+        if (systemCallProcessor is null)
+        {
+            throw new InvalidOperationException(
+                "BuildInitialWorldFromBlueprint requires game system initialization to complete first (InitializeSystemCalls).");
+        }
+
+        initializationStage = InitializationStage.WorldBuilding;
         ResetRuntimeState();
+        var worldSeedForBuild = InitializeWorldSeedForWorldBuild();
 
         BlueprintCatalog = LoadBlueprintCatalog();
         var startupScenarios = ResolveStartupScenarios(BlueprintCatalog);
@@ -38,7 +46,11 @@ public partial class WorldRuntime
 
         var spawnByNodeId = BuildSpawnIndex(worldScenario);
         var assignedInterfacesByNodeId = AllocateScenarioInterfaces(worldScenario, spawnByNodeId);
-        var serversByNodeId = BuildServerRuntimes(worldScenario, spawnByNodeId, assignedInterfacesByNodeId);
+        var serversByNodeId = BuildServerRuntimes(
+            worldScenario,
+            spawnByNodeId,
+            assignedInterfacesByNodeId,
+            worldSeedForBuild);
 
         BuildLanNeighborCache(serversByNodeId, worldScenario, assignedInterfacesByNodeId);
         InitializeVisibilityState(serversByNodeId, assignedInterfacesByNodeId);
@@ -52,6 +64,19 @@ public partial class WorldRuntime
         InitializeEventRuntime(startupScenarios);
         GD.Print(
             $"WorldRuntime initialized scenario bundle '{ActiveScenarioId}' ({ServerList.Count} servers, {startupScenarios.Count} source scenario(s)).");
+    }
+
+    private int InitializeWorldSeedForWorldBuild()
+    {
+        if (worldSeed != 0)
+        {
+            return worldSeed;
+        }
+
+        var unixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var generatedSeed = unchecked((int)unixMilliseconds);
+        worldSeed = generatedSeed == 0 ? 1 : generatedSeed;
+        return worldSeed;
     }
 
     /// <summary>Loads dictionary password pool from configured resource file.</summary>

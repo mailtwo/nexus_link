@@ -43,15 +43,16 @@ public partial class WorldRuntime
     private static void ApplyUsers(
         ServerNodeRuntime server,
         IReadOnlyDictionary<string, UserBlueprint> users,
-        string nodeId)
+        string nodeId,
+        int worldSeed)
     {
         var userIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var userPair in users)
         {
             var userKey = userPair.Key;
             var blueprintUser = userPair.Value;
-            var resolvedUserId = ResolveUserId(blueprintUser.UserId, nodeId, userKey);
-            var resolvedPassword = ResolvePassword(blueprintUser.Passwd, nodeId, userKey);
+            var resolvedUserId = ResolveUserId(blueprintUser.UserId, worldSeed, nodeId, userKey);
+            var resolvedPassword = ResolvePassword(blueprintUser.Passwd, worldSeed, nodeId, userKey);
 
             if (string.IsNullOrWhiteSpace(resolvedUserId))
             {
@@ -224,7 +225,8 @@ public partial class WorldRuntime
         }
 
         var content = ResolveBlueprintContent(entry.ContentId, entry.FileKind);
-        overlay.WriteFile(normalizedPath, content, fileKind: ConvertFileKind(entry.FileKind));
+        entry.RealSize = Encoding.UTF8.GetByteCount(content);
+        overlay.WriteFile(normalizedPath, content, fileKind: ConvertFileKind(entry.FileKind), size: entry.Size);
     }
 
     /// <summary>Ensures parent directories exist before writing overlay entries.</summary>

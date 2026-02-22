@@ -22,7 +22,7 @@ public sealed class SystemCallTest
     public void Execute_FallsBackToProgram_WhenSystemCallIsNotRegistered()
     {
         var harness = CreateHarness(includeVfsModule: true);
-        harness.BaseFileSystem.AddFile("/opt/bin/tool", "noop", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/tool", "exec:noop", fileKind: VfsFileKind.ExecutableHardcode);
 
         var result = Execute(harness, "tool");
 
@@ -36,7 +36,7 @@ public sealed class SystemCallTest
     {
         var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
         harness.BaseFileSystem.AddDirectory("/work");
-        harness.BaseFileSystem.AddFile("/opt/bin/pwd", "noop", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/pwd", "exec:noop", fileKind: VfsFileKind.ExecutableHardcode);
 
         var result = Execute(harness, "pwd");
 
@@ -51,7 +51,7 @@ public sealed class SystemCallTest
     {
         var harness = CreateHarness(includeVfsModule: true, cwd: "/home/guest");
         harness.BaseFileSystem.AddDirectory("/home/guest");
-        harness.BaseFileSystem.AddFile("/opt/bin/tool", "noop", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/tool", "exec:noop", fileKind: VfsFileKind.ExecutableHardcode);
 
         var result = Execute(harness, "./tool");
 
@@ -67,8 +67,8 @@ public sealed class SystemCallTest
     {
         var harness = CreateHarness(includeVfsModule: true, cwd: "/home/guest");
         harness.BaseFileSystem.AddDirectory("/home/guest");
-        harness.BaseFileSystem.AddFile("/home/guest/tool", "unregistered_exec_id", fileKind: VfsFileKind.ExecutableHardcode);
-        harness.BaseFileSystem.AddFile("/opt/bin/tool", "noop", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/home/guest/tool", "exec:missing_handler", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/tool", "exec:noop", fileKind: VfsFileKind.ExecutableHardcode);
 
         var result = Execute(harness, "tool");
 
@@ -84,7 +84,7 @@ public sealed class SystemCallTest
     {
         var harness = CreateHarness(includeVfsModule: true, cwd: "/home/guest");
         harness.BaseFileSystem.AddDirectory("/home/guest");
-        harness.BaseFileSystem.AddFile("/opt/bin/tool", "noop", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/tool", "exec:noop", fileKind: VfsFileKind.ExecutableHardcode);
 
         var result = Execute(harness, "tool");
 
@@ -98,7 +98,7 @@ public sealed class SystemCallTest
     {
         var harness = CreateHarness(includeVfsModule: true, cwd: "/home/guest/scripts");
         harness.BaseFileSystem.AddDirectory("/home/guest/scripts");
-        harness.BaseFileSystem.AddFile("/home/guest/bin/tool", "noop", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/home/guest/bin/tool", "exec:noop", fileKind: VfsFileKind.ExecutableHardcode);
 
         var result = Execute(harness, "../bin/tool");
 
@@ -122,7 +122,7 @@ public sealed class SystemCallTest
                 Execute = canExecute,
             });
 
-        harness.BaseFileSystem.AddFile("/opt/bin/tool", "noop", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/tool", "exec:noop", fileKind: VfsFileKind.ExecutableHardcode);
         var result = Execute(harness, "tool");
 
         Assert.Equal(expectedOk, result.Ok);
@@ -142,7 +142,28 @@ public sealed class SystemCallTest
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("missing_handler")]
+    [InlineData("noop")]
+    [InlineData("miniscript")]
     public void Execute_HardcodedExecutable_UnknownIdReturnsUnknownCommand(string executablePayload)
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/tool", executablePayload, fileKind: VfsFileKind.ExecutableHardcode);
+
+        var result = Execute(harness, "tool");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.UnknownCommand, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Contains("unknown command: tool", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures malformed or missing exec-prefixed hardcoded executable payloads return unknown command.</summary>
+    [Theory]
+    [InlineData("exec:")]
+    [InlineData("Exec:miniscript")]
+    [InlineData("badprefix:miniscript")]
+    [InlineData("exec:missing_handler")]
+    public void Execute_HardcodedExecutable_InvalidPrefixedPayloadReturnsUnknownCommand(string executablePayload)
     {
         var harness = CreateHarness(includeVfsModule: true);
         harness.BaseFileSystem.AddFile("/opt/bin/tool", executablePayload, fileKind: VfsFileKind.ExecutableHardcode);
@@ -177,7 +198,7 @@ public sealed class SystemCallTest
     public void Execute_Miniscript_RequiresSingleArgument()
     {
         var harness = CreateHarness(includeVfsModule: true);
-        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
 
         var result = Execute(harness, "miniscript");
 
@@ -192,7 +213,7 @@ public sealed class SystemCallTest
     public void Execute_Miniscript_ReturnsNotFoundForMissingScript()
     {
         var harness = CreateHarness(includeVfsModule: true);
-        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
 
         var result = Execute(harness, "miniscript /scripts/missing.ms");
 
@@ -205,7 +226,7 @@ public sealed class SystemCallTest
     public void Execute_Miniscript_ReturnsNotFileWhenTargetIsDirectory()
     {
         var harness = CreateHarness(includeVfsModule: true);
-        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
         harness.BaseFileSystem.AddDirectory("/scripts");
 
         var result = Execute(harness, "miniscript /scripts");
@@ -219,7 +240,7 @@ public sealed class SystemCallTest
     public void Execute_Miniscript_RejectsNonTextSource()
     {
         var harness = CreateHarness(includeVfsModule: true);
-        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
         harness.BaseFileSystem.AddFile("/scripts/job.ms", "print \"x\"", fileKind: VfsFileKind.ExecutableScript);
 
         var result = Execute(harness, "miniscript /scripts/job.ms");
@@ -235,7 +256,7 @@ public sealed class SystemCallTest
     public void Execute_Miniscript_ExecutesTextSource()
     {
         var harness = CreateHarness(includeVfsModule: true);
-        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
         harness.BaseFileSystem.AddFile("/scripts/hello.ms", "print \"Hello world!\"", fileKind: VfsFileKind.Text);
 
         var result = Execute(harness, "miniscript /scripts/hello.ms");
@@ -336,6 +357,86 @@ public sealed class SystemCallTest
         Assert.All(lines, static line => Assert.Equal(100, line.Length));
         Assert.All(lines, static line => Assert.Matches("^[0-9a-f]+$", line));
         Assert.True(hexView.Replace("\n", string.Empty, StringComparison.Ordinal).Length <= 20000);
+    }
+
+    /// <summary>Ensures edit pseudo-hex length follows logical file-size override instead of raw payload bytes.</summary>
+    [Fact]
+    public void Execute_Edit_NonTextFile_UsesLogicalSizeOverrideForPseudoHexLength()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddDirectory("/notes");
+        harness.Server.DiskOverlay.WriteFile(
+            "/notes/hard.bin",
+            "id",
+            fileKind: VfsFileKind.ExecutableHardcode,
+            size: 4096);
+
+        var result = Execute(harness, "edit /notes/hard.bin");
+
+        Assert.True(result.Ok);
+        var payload = BuildTerminalCommandResponsePayload(result);
+        var hexView = (string)payload["editorContent"];
+        var hexChars = hexView.Replace("\n", string.Empty, StringComparison.Ordinal);
+        Assert.Equal(8200, hexChars.Length);
+    }
+
+    /// <summary>Ensures pseudo-hex seed does not include path so identical payloads render the same in one world.</summary>
+    [Fact]
+    public void Execute_Edit_NonTextFile_PathDoesNotAffectPseudoHex()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.World.WorldSeed = 123456789;
+        harness.BaseFileSystem.AddDirectory("/notes");
+        harness.BaseFileSystem.AddDirectory("/notes/sub");
+        harness.Server.DiskOverlay.WriteFile(
+            "/notes/a.bin",
+            "id",
+            fileKind: VfsFileKind.ExecutableHardcode,
+            size: 4096);
+        harness.Server.DiskOverlay.WriteFile(
+            "/notes/sub/b.bin",
+            "id",
+            fileKind: VfsFileKind.ExecutableHardcode,
+            size: 4096);
+
+        var a = Execute(harness, "edit /notes/a.bin");
+        var b = Execute(harness, "edit /notes/sub/b.bin");
+
+        Assert.True(a.Ok);
+        Assert.True(b.Ok);
+        var aPayload = BuildTerminalCommandResponsePayload(a);
+        var bPayload = BuildTerminalCommandResponsePayload(b);
+        Assert.Equal((string)aPayload["editorContent"], (string)bPayload["editorContent"]);
+    }
+
+    /// <summary>Ensures worldSeed participates in pseudo-hex seed so different worlds render different views.</summary>
+    [Fact]
+    public void Execute_Edit_NonTextFile_WorldSeedAffectsPseudoHex()
+    {
+        var worldA = CreateHarness(includeVfsModule: true);
+        worldA.World.WorldSeed = 111;
+        worldA.BaseFileSystem.AddDirectory("/notes");
+        worldA.Server.DiskOverlay.WriteFile(
+            "/notes/a.bin",
+            "id",
+            fileKind: VfsFileKind.ExecutableHardcode,
+            size: 4096);
+
+        var worldB = CreateHarness(includeVfsModule: true);
+        worldB.World.WorldSeed = 222;
+        worldB.BaseFileSystem.AddDirectory("/notes");
+        worldB.Server.DiskOverlay.WriteFile(
+            "/notes/a.bin",
+            "id",
+            fileKind: VfsFileKind.ExecutableHardcode,
+            size: 4096);
+
+        var a = Execute(worldA, "edit /notes/a.bin");
+        var b = Execute(worldB, "edit /notes/a.bin");
+        var aPayload = BuildTerminalCommandResponsePayload(a);
+        var bPayload = BuildTerminalCommandResponsePayload(b);
+
+        Assert.NotEqual((string)aPayload["editorContent"], (string)bPayload["editorContent"]);
     }
 
     /// <summary>Ensures edit on missing path requires write privilege.</summary>
@@ -559,7 +660,7 @@ public sealed class SystemCallTest
     public void Execute_Miniscript_SshConnect_ReturnsSessionDto_AndDisconnectIsIdempotent()
     {
         var harness = CreateHarness(includeVfsModule: true);
-        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
         var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
         harness.BaseFileSystem.AddDirectory("/scripts");
         harness.BaseFileSystem.AddFile(
@@ -606,7 +707,7 @@ public sealed class SystemCallTest
     public void Execute_Miniscript_SshConnect_ReturnsStructuredFailure()
     {
         var harness = CreateHarness(includeVfsModule: true);
-        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
         harness.BaseFileSystem.AddDirectory("/scripts");
         harness.BaseFileSystem.AddFile(
             "/scripts/ssh_fail.ms",
@@ -1258,10 +1359,295 @@ public sealed class SystemCallTest
         var applyUsers = typeof(WorldRuntime).GetMethod("ApplyUsers", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(applyUsers);
         var ex = Assert.Throws<TargetInvocationException>(() =>
-            applyUsers!.Invoke(null, new object?[] { server, users, "node-dup" }));
+            applyUsers!.Invoke(null, new object?[] { server, users, "node-dup", 101 }));
         Assert.IsType<InvalidDataException>(ex.InnerException);
         Assert.Contains("node-dup", ex.InnerException!.Message, StringComparison.Ordinal);
         Assert.Contains("root", ex.InnerException.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures world-ready initialization order runs system initialization before world build.</summary>
+    [Fact]
+    public void Ready_InitializesSystemsBeforeWorldBuild()
+    {
+        var readyMethod = typeof(WorldRuntime).GetMethod("_Ready", BindingFlags.Instance | BindingFlags.Public);
+        Assert.NotNull(readyMethod);
+
+        var calledMethods = ExtractCalledMethods((MethodInfo)readyMethod!);
+        var runtimeType = typeof(WorldRuntime);
+        var buildBaseImageIndex = IndexOfCall(calledMethods, runtimeType, "BuildBaseOsImage");
+        var loadDictionaryIndex = IndexOfCall(calledMethods, runtimeType, "LoadDictionaryPasswordPool");
+        var initializeSystemCallsIndex = IndexOfCall(calledMethods, runtimeType, "InitializeSystemCalls");
+        var buildWorldIndex = IndexOfCall(calledMethods, runtimeType, "BuildInitialWorldFromBlueprint");
+        var validateWorldSeedIndex = IndexOfCall(calledMethods, runtimeType, "ValidateWorldSeedForWorldBuild");
+
+        Assert.True(buildBaseImageIndex >= 0, "BuildBaseOsImage call not found in _Ready.");
+        Assert.True(loadDictionaryIndex >= 0, "LoadDictionaryPasswordPool call not found in _Ready.");
+        Assert.True(initializeSystemCallsIndex >= 0, "InitializeSystemCalls call not found in _Ready.");
+        Assert.True(buildWorldIndex >= 0, "BuildInitialWorldFromBlueprint call not found in _Ready.");
+        Assert.True(validateWorldSeedIndex >= 0, "ValidateWorldSeedForWorldBuild call not found in _Ready.");
+        Assert.True(buildBaseImageIndex < loadDictionaryIndex);
+        Assert.True(loadDictionaryIndex < initializeSystemCallsIndex);
+        Assert.True(initializeSystemCallsIndex < buildWorldIndex);
+        Assert.True(buildWorldIndex < validateWorldSeedIndex);
+    }
+
+    /// <summary>Ensures WorldSeed getter is blocked during system initialization stage.</summary>
+    [Fact]
+    public void WorldSeed_Getter_Throws_DuringSystemInitializing()
+    {
+        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        world.WorldSeed = 123;
+        SetWorldInitializationStage(world, "SystemInitializing");
+
+        var ex = Assert.Throws<InvalidOperationException>(() => _ = world.WorldSeed);
+        Assert.Contains("WorldSeed cannot be read during initialization stage", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures WorldSeed getter is blocked during world-building stage.</summary>
+    [Fact]
+    public void WorldSeed_Getter_Throws_DuringWorldBuilding()
+    {
+        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        world.WorldSeed = 123;
+        SetWorldInitializationStage(world, "WorldBuilding");
+
+        var ex = Assert.Throws<InvalidOperationException>(() => _ = world.WorldSeed);
+        Assert.Contains("WorldSeed cannot be read during initialization stage", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures WorldSeed getter returns value after initialization reaches ready stage.</summary>
+    [Fact]
+    public void WorldSeed_Getter_Returns_WhenReady()
+    {
+        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        world.WorldSeed = 987654321;
+        SetWorldInitializationStage(world, "Ready");
+
+        Assert.Equal(987654321, world.WorldSeed);
+    }
+
+    /// <summary>Ensures world build is guarded behind system-call initialization completion.</summary>
+    [Fact]
+    public void BuildInitialWorldFromBlueprint_Throws_WhenSystemCallsAreNotInitialized()
+    {
+        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        var method = typeof(WorldRuntime).GetMethod(
+            "BuildInitialWorldFromBlueprint",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var ex = Assert.Throws<TargetInvocationException>(() => method!.Invoke(world, Array.Empty<object?>()));
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Contains("InitializeSystemCalls", ex.InnerException!.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures world-seed initializer keeps preset values unchanged.</summary>
+    [Fact]
+    public void InitializeWorldSeedForWorldBuild_UsesPresetWhenNonZero()
+    {
+        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        world.WorldSeed = 42;
+
+        var initializedSeed = InvokeInitializeWorldSeedForWorldBuild(world);
+
+        Assert.Equal(42, initializedSeed);
+        Assert.Equal(42, GetWorldSeedBackingField(world));
+    }
+
+    /// <summary>Ensures world-seed initializer generates non-zero seed when preset is zero.</summary>
+    [Fact]
+    public void InitializeWorldSeedForWorldBuild_GeneratesWhenZero()
+    {
+        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        world.WorldSeed = 0;
+
+        var initializedSeed = InvokeInitializeWorldSeedForWorldBuild(world);
+
+        Assert.NotEqual(0, initializedSeed);
+        Assert.NotEqual(0, GetWorldSeedBackingField(world));
+    }
+
+    /// <summary>Ensures world initialization rejects missing (zero) worldSeed before build starts.</summary>
+    [Fact]
+    public void ValidateWorldSeedForWorldBuild_Throws_WhenWorldSeedIsZero()
+    {
+        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        world.WorldSeed = 0;
+
+        var validate = typeof(WorldRuntime).GetMethod(
+            "ValidateWorldSeedForWorldBuild",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(validate);
+
+        var ex = Assert.Throws<TargetInvocationException>(() => validate!.Invoke(world, Array.Empty<object?>()));
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Contains("WorldSeed", ex.InnerException!.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures world initialization accepts non-zero worldSeed.</summary>
+    [Fact]
+    public void ValidateWorldSeedForWorldBuild_Allows_NonZeroWorldSeed()
+    {
+        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        world.WorldSeed = 42;
+
+        var validate = typeof(WorldRuntime).GetMethod(
+            "ValidateWorldSeedForWorldBuild",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(validate);
+
+        var ex = Record.Exception(() => validate!.Invoke(world, Array.Empty<object?>()));
+        Assert.Null(ex);
+    }
+
+    /// <summary>Ensures AUTO userId token policy is deterministic for same worldSeed and changes across seeds.</summary>
+    [Fact]
+    public void ResolveUserId_AutoPolicy_IsDeterministicAndWorldSeedSensitive()
+    {
+        AssertDeterministicAndWorldSeedSensitive(
+            seed => InvokeResolveUserId("AUTO:randomized", seed, "node-alpha", "guestKey"));
+    }
+
+    /// <summary>Ensures AUTO base64 password policy is deterministic for same worldSeed and changes across seeds.</summary>
+    [Fact]
+    public void ResolvePassword_AutoBase64Policy_IsDeterministicAndWorldSeedSensitive()
+    {
+        AssertDeterministicAndWorldSeedSensitive(
+            seed => InvokeResolvePassword("AUTO:c16_base64", seed, "node-alpha", "guestKey"));
+    }
+
+    /// <summary>Ensures AUTO fallback password policy is deterministic for same worldSeed and changes across seeds.</summary>
+    [Fact]
+    public void ResolvePassword_AutoFallbackPolicy_IsDeterministicAndWorldSeedSensitive()
+    {
+        AssertDeterministicAndWorldSeedSensitive(
+            seed => InvokeResolvePassword("AUTO:unsupported_policy", seed, "node-alpha", "guestKey"));
+    }
+
+    /// <summary>Ensures AUTO dictionary password policy is deterministic for same worldSeed and changes across seeds.</summary>
+    [Fact]
+    public void ResolvePassword_AutoDictionaryPolicy_IsDeterministicAndWorldSeedSensitive()
+    {
+        var pool = Enumerable.Range(0, 4096)
+            .Select(static index => $"pw_{index:D4}")
+            .ToArray();
+
+        WithDictionaryPasswordPool(
+            pool,
+            () => AssertDeterministicAndWorldSeedSensitive(
+                seed => InvokeResolvePassword("AUTO:dictionary", seed, "node-alpha", "guestKey")));
+    }
+
+    /// <summary>Ensures blueprint overlay apply propagates size override while recording computed realSize.</summary>
+    [Fact]
+    public void ApplyOverlayEntry_UsesSizeOverrideAndStoresRealSize()
+    {
+        var harness = CreateHarness(includeVfsModule: false);
+        var entry = new BlueprintEntryMeta
+        {
+            EntryKind = BlueprintEntryKind.File,
+            FileKind = BlueprintFileKind.ExecutableHardcode,
+            ContentId = "exec:noop",
+            Size = 4096,
+        };
+
+        var applyOverlayEntry = typeof(WorldRuntime).GetMethod("ApplyOverlayEntry", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(applyOverlayEntry);
+        applyOverlayEntry!.Invoke(harness.World, new object?[] { harness.Server.DiskOverlay, "/opt/bin/tool", entry });
+
+        Assert.Equal(9, entry.RealSize);
+        Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/opt/bin/tool", out var runtimeEntry));
+        Assert.Equal(4096, runtimeEntry.Size);
+        Assert.Equal(9, runtimeEntry.RealSize);
+    }
+
+    private static void AssertDeterministicAndWorldSeedSensitive(Func<int, string> resolve)
+    {
+        var baselineSeed = 12345;
+        var baseline = resolve(baselineSeed);
+        Assert.Equal(baseline, resolve(baselineSeed));
+
+        var foundDifferent = false;
+        for (var seed = baselineSeed + 1; seed <= baselineSeed + 2048; seed++)
+        {
+            if (!string.Equals(baseline, resolve(seed), StringComparison.Ordinal))
+            {
+                foundDifferent = true;
+                break;
+            }
+        }
+
+        Assert.True(foundDifferent, "Expected at least one different output when worldSeed changes.");
+    }
+
+    private static int IndexOfCall(IReadOnlyList<MethodBase> calledMethods, Type declaringType, string methodName)
+    {
+        for (var index = 0; index < calledMethods.Count; index++)
+        {
+            var called = calledMethods[index];
+            if (called.DeclaringType == declaringType &&
+                string.Equals(called.Name, methodName, StringComparison.Ordinal))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private static int InvokeInitializeWorldSeedForWorldBuild(WorldRuntime world)
+    {
+        var method = typeof(WorldRuntime).GetMethod(
+            "InitializeWorldSeedForWorldBuild",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return (int)method!.Invoke(world, Array.Empty<object?>())!;
+    }
+
+    private static int GetWorldSeedBackingField(WorldRuntime world)
+    {
+        var field = typeof(WorldRuntime).GetField("worldSeed", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return (int)field!.GetValue(world)!;
+    }
+
+    private static void SetWorldInitializationStage(WorldRuntime world, string stageName)
+    {
+        var stageField = typeof(WorldRuntime).GetField("initializationStage", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(stageField);
+        var stageValue = Enum.Parse(stageField!.FieldType, stageName, ignoreCase: false);
+        stageField.SetValue(world, stageValue);
+    }
+
+    private static string InvokeResolveUserId(string source, int worldSeed, string nodeId, string userKey)
+    {
+        var method = typeof(WorldRuntime).GetMethod("ResolveUserId", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return (string)method!.Invoke(null, new object?[] { source, worldSeed, nodeId, userKey })!;
+    }
+
+    private static string InvokeResolvePassword(string source, int worldSeed, string nodeId, string userKey)
+    {
+        var method = typeof(WorldRuntime).GetMethod("ResolvePassword", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return (string)method!.Invoke(null, new object?[] { source, worldSeed, nodeId, userKey })!;
+    }
+
+    private static void WithDictionaryPasswordPool(string[] pool, Action body)
+    {
+        var field = typeof(WorldRuntime).GetField("dictionaryPasswordPool", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        var originalPool = field!.GetValue(null) as string[] ?? Array.Empty<string>();
+        field.SetValue(null, pool);
+
+        try
+        {
+            body();
+        }
+        finally
+        {
+            field.SetValue(null, originalPool);
+        }
     }
 
     private static SystemCallHarness CreateHarness(
@@ -1364,6 +1750,8 @@ public sealed class SystemCallTest
         var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
         SetAutoPropertyBackingField(world, "DebugOption", debugOption);
         SetAutoPropertyBackingField(world, "ScenarioFlags", new Dictionary<string, object>(StringComparer.Ordinal));
+        world.WorldSeed = 1;
+        SetWorldInitializationStage(world, "Ready");
 
         var serverList = new Dictionary<string, ServerNodeRuntime>(StringComparer.Ordinal);
         var ipIndex = new Dictionary<string, string>(StringComparer.Ordinal);

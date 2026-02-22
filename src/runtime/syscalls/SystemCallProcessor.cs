@@ -10,6 +10,8 @@ namespace Uplink2.Runtime.Syscalls;
 
 internal sealed class SystemCallProcessor
 {
+    private const string ExecutableHardcodePrefix = "exec:";
+
     private static readonly string[] ProgramPathDirectories =
     {
         "/opt/bin",
@@ -17,12 +19,7 @@ internal sealed class SystemCallProcessor
 
     private readonly WorldRuntime world;
     private readonly SystemCallRegistry registry = new();
-    private readonly Dictionary<string, Func<SystemCallExecutionContext, IReadOnlyList<string>, SystemCallResult>> hardcodedExecutableHandlers =
-        new(StringComparer.Ordinal)
-        {
-            ["noop"] = static (_, _) => SystemCallResultFactory.Success(),
-            ["miniscript"] = ExecuteMiniScriptProgram,
-        };
+    private readonly ExecutableHardcodeRegistry hardcodedExecutableRegistry = new();
 
     internal SystemCallProcessor(WorldRuntime world, IEnumerable<ISystemCallModule> modules)
     {
@@ -31,6 +28,9 @@ internal sealed class SystemCallProcessor
         {
             throw new ArgumentNullException(nameof(modules));
         }
+
+        hardcodedExecutableRegistry.Register(new NoopExecutableHardcodeHandler());
+        hardcodedExecutableRegistry.Register(new MiniScriptExecutableHardcodeHandler());
 
         foreach (var module in modules)
         {
@@ -238,24 +238,30 @@ internal sealed class SystemCallProcessor
             return false;
         }
 
-        var executableId = executablePayload.Trim();
-        if (string.IsNullOrWhiteSpace(executableId))
+        var rawContentId = executablePayload;
+        if (!TryParseExecutableHardcodePayload(rawContentId, out var executableId))
         {
-            WarnUnknownExecutableId(context, command, resolvedProgramPath, executableId);
+            WarnUnknownExecutableId(context, command, resolvedProgramPath, rawContentId, executableId);
             result = SystemCallResultFactory.Failure(SystemCallErrorCode.UnknownCommand, $"unknown command: {command}");
             return true;
         }
 
-        if (!hardcodedExecutableHandlers.TryGetValue(executableId, out var handler))
+        if (!hardcodedExecutableRegistry.TryGetHandler(executableId, out var handler))
         {
-            WarnUnknownExecutableId(context, command, resolvedProgramPath, executableId);
+            WarnUnknownExecutableId(context, command, resolvedProgramPath, rawContentId, executableId);
             result = SystemCallResultFactory.Failure(SystemCallErrorCode.UnknownCommand, $"unknown command: {command}");
             return true;
         }
 
         try
         {
-            result = handler(context, arguments);
+            result = handler.Execute(new ExecutableHardcodeInvocation(
+                context,
+                command,
+                resolvedProgramPath,
+                rawContentId,
+                executableId,
+                arguments));
             return true;
         }
         catch (Exception ex)
@@ -270,6 +276,7 @@ internal sealed class SystemCallProcessor
         SystemCallExecutionContext context,
         string command,
         string resolvedProgramPath,
+        string rawContentId,
         string executableId)
     {
         if (!world.DebugOption)
@@ -278,42 +285,27 @@ internal sealed class SystemCallProcessor
         }
 
         var printableExecutableId = string.IsNullOrWhiteSpace(executableId) ? "<empty>" : executableId;
+        var printableRawContentId = string.IsNullOrWhiteSpace(rawContentId) ? "<empty>" : rawContentId;
         GD.PushWarning(
-            $"Unknown executableId mapping. command='{command}', resolvedProgramPath='{resolvedProgramPath}', executableId='{printableExecutableId}', nodeId='{context.NodeId}', userKey='{context.UserKey}', cwd='{context.Cwd}'.");
+            $"Unknown executableId mapping. command='{command}', resolvedProgramPath='{resolvedProgramPath}', rawContentId='{printableRawContentId}', executableId='{printableExecutableId}', nodeId='{context.NodeId}', userKey='{context.UserKey}', cwd='{context.Cwd}'.");
     }
 
-    private static SystemCallResult ExecuteMiniScriptProgram(
-        SystemCallExecutionContext context,
-        IReadOnlyList<string> arguments)
+    private static bool TryParseExecutableHardcodePayload(string rawContentId, out string executableId)
     {
-        if (arguments.Count != 1)
+        executableId = string.Empty;
+        var trimmed = rawContentId?.Trim() ?? string.Empty;
+        if (!trimmed.StartsWith(ExecutableHardcodePrefix, StringComparison.Ordinal))
         {
-            return SystemCallResultFactory.Usage("miniscript <script>");
+            return false;
         }
 
-        var scriptPath = BaseFileSystem.NormalizePath(context.Cwd, arguments[0]);
-        if (!context.Server.DiskOverlay.TryResolveEntry(scriptPath, out var scriptEntry))
+        var parsed = trimmed[ExecutableHardcodePrefix.Length..];
+        if (string.IsNullOrWhiteSpace(parsed))
         {
-            return SystemCallResultFactory.NotFound(scriptPath);
+            return false;
         }
 
-        if (scriptEntry.EntryKind != VfsEntryKind.File)
-        {
-            return SystemCallResultFactory.NotFile(scriptPath);
-        }
-
-        if (scriptEntry.FileKind != VfsFileKind.Text)
-        {
-            return SystemCallResultFactory.Failure(
-                SystemCallErrorCode.InvalidArgs,
-                "miniscript source must be text: " + scriptPath);
-        }
-
-        if (!context.Server.DiskOverlay.TryReadFileText(scriptPath, out var scriptSource))
-        {
-            return SystemCallResultFactory.NotFile(scriptPath);
-        }
-
-        return MiniScriptExecutionRunner.ExecuteScript(scriptSource, context);
+        executableId = parsed;
+        return true;
     }
 }

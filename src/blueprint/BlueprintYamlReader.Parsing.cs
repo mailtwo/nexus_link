@@ -1387,9 +1387,16 @@ public sealed partial class BlueprintYamlReader
 
         if (TryGetValueIgnoreCase(entryMap, "size", out var sizeValue))
         {
-            if (TryReadLong(sizeValue, out var size))
+            if (TryReadInt(sizeValue, out var size))
             {
-                entry.Size = size;
+                if (size < 0)
+                {
+                    errors.Add($"{filePath}: {context}.size must be a non-negative integer.");
+                }
+                else
+                {
+                    entry.Size = size;
+                }
             }
             else
             {

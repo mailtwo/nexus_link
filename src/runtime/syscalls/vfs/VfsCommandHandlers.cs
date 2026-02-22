@@ -329,11 +329,12 @@ internal sealed class EditCommandHandler : VfsCommandHandlerBase
 
         if (entry.FileKind != VfsFileKind.Text)
         {
+            var worldSeed = context.World is null ? 0 : context.World.WorldSeed;
             return SystemCallResultFactory.Success(
                 data: new EditorOpenTransition
                 {
                     TargetPath = targetPath,
-                    Content = BuildPseudoHexView(targetPath, entry),
+                    Content = BuildPseudoHexView(worldSeed, entry),
                     ReadOnly = true,
                     DisplayMode = HexDisplayMode,
                     PathExists = true,
@@ -356,7 +357,7 @@ internal sealed class EditCommandHandler : VfsCommandHandlerBase
             });
     }
 
-    private static string BuildPseudoHexView(string path, VfsEntryMeta entry)
+    private static string BuildPseudoHexView(int worldSeed, VfsEntryMeta entry)
     {
         var proportionalChars = entry.Size >= long.MaxValue / 2 ? long.MaxValue : entry.Size * 2L;
         var boundedChars = Math.Min(proportionalChars, MaxHexChars);
@@ -372,7 +373,7 @@ internal sealed class EditCommandHandler : VfsCommandHandlerBase
         }
 
         var hexChars = new StringBuilder(targetCharCount);
-        var seedText = $"{path}|{entry.ContentId}|{entry.Size}";
+        var seedText = $"{worldSeed}|{entry.ContentId}|{entry.Size}";
         var seedBytes = SHA256.HashData(Encoding.UTF8.GetBytes(seedText));
         var hashInput = new byte[seedBytes.Length + sizeof(int)];
         Buffer.BlockCopy(seedBytes, 0, hashInput, 0, seedBytes.Length);

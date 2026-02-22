@@ -182,6 +182,55 @@ public sealed class BlueprintTest
             spec.DiskOverlay.OverlayEntries["/opt/bin/hard_exec"].FileKind);
     }
 
+    /// <summary>Ensures disk overlay entry size parses as optional int and defaults to null when omitted.</summary>
+    [Fact]
+    public void ReadFiles_ParsesOptionalOverlayEntrySize()
+    {
+        using var scope = TempDirScope.Create();
+        var yamlPath = scope.WriteFile(
+            "entry_size.yaml",
+            """
+            ServerSpec:
+              spec_size:
+                diskOverlay:
+                  overlayEntries:
+                    /opt/bin/hard_exec:
+                      entryKind: File
+                      fileKind: ExecutableHardcode
+                      contentId: noop
+                      size: 4096
+                    /opt/bin/default_exec:
+                      entryKind: File
+                      fileKind: ExecutableHardcode
+                      contentId: noop2
+            """);
+
+        var reader = new BlueprintYamlReader();
+        var catalog = reader.ReadFiles(new[] { yamlPath });
+        var spec = catalog.ServerSpecs["spec_size"];
+
+        Assert.Equal(4096, spec.DiskOverlay.OverlayEntries["/opt/bin/hard_exec"].Size);
+        Assert.Null(spec.DiskOverlay.OverlayEntries["/opt/bin/default_exec"].Size);
+        Assert.Equal(0, spec.DiskOverlay.OverlayEntries["/opt/bin/hard_exec"].RealSize);
+    }
+
+    /// <summary>Ensures prototype start_scenario declares miniscript executable as exec-prefixed hardcode entry.</summary>
+    [Fact]
+    public void ReadFiles_StartScenario_DeclaresExecPrefixedMiniScriptHardcode()
+    {
+        var yamlPath = ResolveRepoPath("scenario_content", "campaigns", "prototype", "start_scenario.yaml");
+        Assert.True(File.Exists(yamlPath), $"Expected scenario file not found: {yamlPath}");
+
+        var reader = new BlueprintYamlReader();
+        var catalog = reader.ReadFiles(new[] { yamlPath });
+        var spec = catalog.ServerSpecs["myWorkstation"];
+        var entry = spec.DiskOverlay.OverlayEntries["/opt/bin/miniscript"];
+
+        Assert.Equal(BlueprintEntryKind.File, entry.EntryKind);
+        Assert.Equal(BlueprintFileKind.ExecutableHardcode, entry.FileKind);
+        Assert.Equal("exec:miniscript", entry.ContentId);
+    }
+
     /// <summary>Ensures PortConfig accepts portType none for unassigned-port declarations.</summary>
     [Fact]
     public void ReadFiles_ParsesPortTypeNone()
@@ -508,6 +557,23 @@ public sealed class BlueprintTest
             OperandType.InlineSwitch => 4 + (BitConverter.ToInt32(il, operandStart) * 4),
             _ => 0,
         };
+    }
+
+    private static string ResolveRepoPath(params string[] segments)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            var markerPath = System.IO.Path.Combine(current.FullName, "project.godot");
+            if (File.Exists(markerPath))
+            {
+                return System.IO.Path.Combine(new[] { current.FullName }.Concat(segments).ToArray());
+            }
+
+            current = current.Parent;
+        }
+
+        throw new InvalidOperationException("Could not locate repository root (project.godot).");
     }
 
     private sealed class TempDirScope : IDisposable

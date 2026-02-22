@@ -10,6 +10,14 @@ namespace Uplink2.Runtime;
 /// <summary>Global runtime root (register as Autoload).</summary>
 public partial class WorldRuntime : Node
 {
+    private enum InitializationStage
+    {
+        NotStarted = 0,
+        SystemInitializing,
+        WorldBuilding,
+        Ready,
+    }
+
     private const string InternetNetId = "internet";
     private const string DefaultBlueprintDirectory = "res://scenario_content/campaigns";
     private const string DefaultStartupCampaignId = "gameCampaign";
@@ -44,6 +52,19 @@ public partial class WorldRuntime : Node
     /// <summary>Enables debug-only runtime features such as DEBUG_* system calls.</summary>
     [Export]
     public bool DebugOption { get; set; }
+
+    /// <summary>Per-world stable seed used for deterministic runtime generation/rendering.</summary>
+    [Export]
+    public int WorldSeed
+    {
+        get
+        {
+            EnsureWorldSeedReadable();
+            return worldSeed;
+        }
+
+        set => worldSeed = value;
+    }
 
     /// <summary>Global runtime instance.</summary>
     public static WorldRuntime Instance { get; private set; }
@@ -82,6 +103,8 @@ public partial class WorldRuntime : Node
     private SystemCallProcessor systemCallProcessor = null!;
 
     // Runtime allocators/state.
+    private InitializationStage initializationStage = InitializationStage.NotStarted;
+    private int worldSeed;
     private int nextProcessId = 1;
     private int physicsTicksPerSecond = 60;
 
@@ -91,15 +114,38 @@ public partial class WorldRuntime : Node
         Instance = this;
     }
 
-    /// <inheritdoc/>
+    /// <summary>Initializes game systems, then builds initial world runtime from blueprints.</summary>
     public override void _Ready()
     {
         physicsTicksPerSecond = Math.Max(1, Engine.PhysicsTicksPerSecond);
+        initializationStage = InitializationStage.SystemInitializing;
+
         BlobStore = new BlobStore();
         BaseFileSystem = new BaseFileSystem(BlobStore);
         BuildBaseOsImage();
         LoadDictionaryPasswordPool();
-        BuildInitialWorldFromBlueprint();
         InitializeSystemCalls();
+        BuildInitialWorldFromBlueprint();
+        ValidateWorldSeedForWorldBuild();
+        initializationStage = InitializationStage.Ready;
+    }
+
+    /// <summary>Validates deterministic world-seed input before initial world build starts.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when worldSeed is missing (zero).</exception>
+    private void ValidateWorldSeedForWorldBuild()
+    {
+        if (worldSeed == 0)
+        {
+            throw new InvalidOperationException("WorldSeed must be non-zero after world build initialization.");
+        }
+    }
+
+    private void EnsureWorldSeedReadable()
+    {
+        if (initializationStage != InitializationStage.Ready)
+        {
+            throw new InvalidOperationException(
+                $"WorldSeed cannot be read during initialization stage '{initializationStage}'. WorldSeed is readable only after world initialization is complete.");
+        }
     }
 }

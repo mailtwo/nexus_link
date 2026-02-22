@@ -35,27 +35,46 @@ public sealed class VfsEntryMeta
     /// <summary>Blob content id for file entries (empty for directories).</summary>
     public string ContentId { get; }
 
-    /// <summary>UTF-8 file size in bytes (0 for directories).</summary>
+    /// <summary>Gameplay-visible file size in bytes (0 for directories).</summary>
     public long Size { get; }
 
-    private VfsEntryMeta(VfsEntryKind entryKind, VfsFileKind? fileKind, string contentId, long size)
+    /// <summary>Actual UTF-8 payload byte size in blob storage (0 for directories).</summary>
+    public long RealSize { get; }
+
+    private VfsEntryMeta(VfsEntryKind entryKind, VfsFileKind? fileKind, string contentId, long size, long realSize)
     {
         EntryKind = entryKind;
         FileKind = fileKind;
         ContentId = contentId;
         Size = size;
+        RealSize = realSize;
     }
 
     /// <summary>Creates directory metadata.</summary>
     public static VfsEntryMeta CreateDir()
     {
-        return new VfsEntryMeta(VfsEntryKind.Dir, null, string.Empty, 0);
+        return new VfsEntryMeta(VfsEntryKind.Dir, null, string.Empty, 0, 0);
     }
 
-    /// <summary>Creates file metadata.</summary>
-    public static VfsEntryMeta CreateFile(string contentId, long size, VfsFileKind fileKind = VfsFileKind.Text)
+    /// <summary>Creates file metadata with optional logical-size override.</summary>
+    public static VfsEntryMeta CreateFile(
+        string contentId,
+        long realSize,
+        VfsFileKind fileKind = VfsFileKind.Text,
+        long? size = null)
     {
-        return new VfsEntryMeta(VfsEntryKind.File, fileKind, contentId, size);
+        if (realSize < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(realSize), "File real size must be non-negative.");
+        }
+
+        if (size is < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(size), "File size override must be non-negative.");
+        }
+
+        var logicalSize = size ?? realSize;
+        return new VfsEntryMeta(VfsEntryKind.File, fileKind, contentId, logicalSize, realSize);
     }
 
     /// <summary>Returns true when this entry is directly executable as a command target.</summary>
@@ -226,15 +245,20 @@ public sealed class BaseFileSystem
     }
 
     /// <summary>Adds/replaces a base file and stores its payload in blob store.</summary>
-    public string AddFile(string path, string content, bool pinContent = true, VfsFileKind fileKind = VfsFileKind.Text)
+    public string AddFile(
+        string path,
+        string content,
+        bool pinContent = true,
+        VfsFileKind fileKind = VfsFileKind.Text,
+        long? size = null)
     {
         var normalized = NormalizePath("/", path);
         var parent = GetParentPath(normalized);
         AddDirectory(parent);
 
         var contentId = pinContent ? blobStore.PutPinned(content) : blobStore.Put(content);
-        var size = Encoding.UTF8.GetByteCount(content);
-        baseEntries[normalized] = VfsEntryMeta.CreateFile(contentId, size, fileKind);
+        var realSize = Encoding.UTF8.GetByteCount(content);
+        baseEntries[normalized] = VfsEntryMeta.CreateFile(contentId, realSize, fileKind, size);
         baseDirIndex[parent].Add(GetName(normalized));
         return normalized;
     }
@@ -541,8 +565,13 @@ public sealed class OverlayFileSystem
         return normalized;
     }
 
-    /// <summary>Writes file content into overlay space.</summary>
-    public string WriteFile(string path, string content, string cwd = "/", VfsFileKind fileKind = VfsFileKind.Text)
+    /// <summary>Writes file content into overlay space with optional logical-size override.</summary>
+    public string WriteFile(
+        string path,
+        string content,
+        string cwd = "/",
+        VfsFileKind fileKind = VfsFileKind.Text,
+        long? size = null)
     {
         var normalized = BaseFileSystem.NormalizePath(cwd, path);
         var parent = GetParentPath(normalized);
@@ -561,8 +590,8 @@ public sealed class OverlayFileSystem
         }
 
         var contentId = blobStore.Put(content);
-        var size = Encoding.UTF8.GetByteCount(content);
-        overlayEntries[normalized] = VfsEntryMeta.CreateFile(contentId, size, fileKind);
+        var realSize = Encoding.UTF8.GetByteCount(content);
+        overlayEntries[normalized] = VfsEntryMeta.CreateFile(contentId, realSize, fileKind, size);
         ApplyAddChild(parent, GetName(normalized));
         return normalized;
     }

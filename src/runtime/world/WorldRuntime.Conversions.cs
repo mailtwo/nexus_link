@@ -126,7 +126,7 @@ public partial class WorldRuntime
     }
 
     /// <summary>Resolves AUTO userId policy into deterministic runtime user id.</summary>
-    private static string ResolveUserId(string source, string nodeId, string userKey)
+    private static string ResolveUserId(string source, int worldSeed, string nodeId, string userKey)
     {
         if (!TryReadAutoPolicy(source, out var policy))
         {
@@ -138,11 +138,12 @@ public partial class WorldRuntime
             return userKey;
         }
 
-        return $"{userKey}_{CreateDeterministicToken($"{nodeId}:{userKey}:userid:{policy}", 4, LowercaseAlphaNumericAlphabet)}";
+        var seed = BuildAutoSeed(worldSeed, nodeId, userKey, "userid", policy);
+        return $"{userKey}_{CreateDeterministicToken(seed, 4, LowercaseAlphaNumericAlphabet)}";
     }
 
     /// <summary>Resolves AUTO password policy into deterministic runtime password.</summary>
-    private static string ResolvePassword(string source, string nodeId, string userKey)
+    private static string ResolvePassword(string source, int worldSeed, string nodeId, string userKey)
     {
         if (!TryReadAutoPolicy(source, out var policy))
         {
@@ -157,16 +158,19 @@ public partial class WorldRuntime
                     "Dictionary password pool is empty. Ensure LoadDictionaryPasswordPool runs before world initialization.");
             }
 
-            var index = CreateDeterministicIndex($"{nodeId}:{userKey}:dictionary", dictionaryPasswordPool.Length);
+            var indexSeed = BuildAutoSeed(worldSeed, nodeId, userKey, "passwd", "dictionary");
+            var index = CreateDeterministicIndex(indexSeed, dictionaryPasswordPool.Length);
             return dictionaryPasswordPool[index];
         }
 
         if (TryReadBase64LengthPolicy(policy, out var length))
         {
-            return CreateDeterministicToken($"{nodeId}:{userKey}:base64:{policy}", length, Base64Alphabet);
+            var tokenSeed = BuildAutoSeed(worldSeed, nodeId, userKey, "passwd", policy);
+            return CreateDeterministicToken(tokenSeed, length, Base64Alphabet);
         }
 
-        return CreateDeterministicToken($"{nodeId}:{userKey}:fallback", 12, Base64Alphabet);
+        var fallbackSeed = BuildAutoSeed(worldSeed, nodeId, userKey, "passwd", "fallback");
+        return CreateDeterministicToken(fallbackSeed, 12, Base64Alphabet);
     }
 
     /// <summary>Parses AUTO:&lt;policy&gt; token.</summary>
@@ -197,6 +201,12 @@ public partial class WorldRuntime
 
         length = 0;
         return false;
+    }
+
+    /// <summary>Builds deterministic seed text for AUTO user/password generation.</summary>
+    private static string BuildAutoSeed(int worldSeed, string nodeId, string userKey, string purpose, string policyOrTag)
+    {
+        return $"{worldSeed}|{nodeId}|{userKey}|{purpose}|{policyOrTag}";
     }
 
     /// <summary>Creates deterministic token text from arbitrary seed using fixed alphabet.</summary>
