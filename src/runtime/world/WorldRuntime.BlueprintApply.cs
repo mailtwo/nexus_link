@@ -44,14 +44,15 @@ public partial class WorldRuntime
         ServerNodeRuntime server,
         IReadOnlyDictionary<string, UserBlueprint> users,
         string nodeId,
-        int worldSeed)
+        int worldSeed,
+        string defaultUserId)
     {
         var userIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var userPair in users)
         {
             var userKey = userPair.Key;
             var blueprintUser = userPair.Value;
-            var resolvedUserId = ResolveUserId(blueprintUser.UserId, worldSeed, nodeId, userKey);
+            var resolvedUserId = ResolveUserId(blueprintUser.UserId, worldSeed, nodeId, userKey, defaultUserId);
             var resolvedPassword = ResolvePassword(blueprintUser.Passwd, worldSeed, nodeId, userKey);
 
             if (string.IsNullOrWhiteSpace(resolvedUserId))

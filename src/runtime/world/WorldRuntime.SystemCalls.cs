@@ -12,6 +12,7 @@ namespace Uplink2.Runtime;
 public partial class WorldRuntime
 {
     private const string DefaultTerminalSessionKey = "default";
+    private const string MotdPath = "/etc/motd";
 
     private Dictionary<string, Stack<TerminalConnectionFrame>>? terminalConnectionFramesBySessionId =
         new(StringComparer.Ordinal);
@@ -53,6 +54,8 @@ public partial class WorldRuntime
     public Godot.Collections.Dictionary GetDefaultTerminalContext(string preferredUserId = "player")
     {
         var result = new Godot.Collections.Dictionary();
+        var motdLines = new Godot.Collections.Array<string>();
+        result["motdLines"] = motdLines;
         if (PlayerWorkstationServer is null)
         {
             result["ok"] = false;
@@ -86,6 +89,10 @@ public partial class WorldRuntime
             : PlayerWorkstationServer.Name;
         var terminalSessionId = AllocateTerminalSessionId();
         GetOrCreateTerminalSessionStack(terminalSessionId).Clear();
+        foreach (var line in ResolveMotdLinesForLogin(PlayerWorkstationServer, userKey))
+        {
+            motdLines.Add(line);
+        }
 
         result["ok"] = true;
         result["nodeId"] = PlayerWorkstationServer.NodeId;
@@ -456,6 +463,36 @@ public partial class WorldRuntime
         }
 
         return userKey;
+    }
+
+    /// <summary>Resolves printable /etc/motd lines for a login target when readable text exists.</summary>
+    internal IReadOnlyList<string> ResolveMotdLinesForLogin(ServerNodeRuntime server, string userKey)
+    {
+        if (server is null ||
+            string.IsNullOrWhiteSpace(userKey) ||
+            !server.Users.TryGetValue(userKey, out var user) ||
+            !user.Privilege.Read)
+        {
+            return Array.Empty<string>();
+        }
+
+        if (!server.DiskOverlay.TryResolveEntry(MotdPath, out var entry) ||
+            entry.EntryKind != VfsEntryKind.File ||
+            entry.FileKind != VfsFileKind.Text)
+        {
+            return Array.Empty<string>();
+        }
+
+        if (!server.DiskOverlay.TryReadFileText(MotdPath, out var content) ||
+            string.IsNullOrEmpty(content))
+        {
+            return Array.Empty<string>();
+        }
+
+        var normalizedContent = content
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n');
+        return normalizedContent.Split('\n');
     }
 
     internal bool TryResolveUserKeyByUserId(ServerNodeRuntime server, string userId, out string userKey)

@@ -662,6 +662,8 @@ public sealed class SystemCallTest
         var harness = CreateHarness(includeVfsModule: true);
         harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
         var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.DiskOverlay.AddDirectory("/etc");
+        remote.DiskOverlay.WriteFile("/etc/motd", "remote motd", fileKind: VfsFileKind.Text);
         harness.BaseFileSystem.AddDirectory("/scripts");
         harness.BaseFileSystem.AddFile(
             "/scripts/ssh_ok.ms",
@@ -691,6 +693,7 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "hasUserKey=0", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "d1=1", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "d2=0", StringComparison.Ordinal));
+        Assert.DoesNotContain(result.Lines, static line => string.Equals(line, "remote motd", StringComparison.Ordinal));
         Assert.Empty(remote.Sessions);
 
         var events = DrainQueuedGameEvents(harness.World);
@@ -841,6 +844,66 @@ public sealed class SystemCallTest
         Assert.Single(remote.Sessions);
         var session = Assert.Single(remote.Sessions);
         Assert.Equal("guest", session.Value.UserKey);
+    }
+
+    /// <summary>Ensures connect success prints /etc/motd when target account can read text MOTD.</summary>
+    [Fact]
+    public void Execute_Connect_Succeeds_PrintsMotd_WhenReadableTextExists()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.DiskOverlay.AddDirectory("/etc");
+        remote.DiskOverlay.WriteFile("/etc/motd", "Welcome\nAuthorized use only.", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-motd-text");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Equal(new[] { "Welcome", "Authorized use only." }, result.Lines);
+    }
+
+    /// <summary>Ensures connect success skips MOTD output when target account lacks read privilege.</summary>
+    [Fact]
+    public void Execute_Connect_Succeeds_SkipsMotd_WhenReadPrivilegeMissing()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.Users["guest"].Privilege.Read = false;
+        remote.DiskOverlay.AddDirectory("/etc");
+        remote.DiskOverlay.WriteFile("/etc/motd", "hidden", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-motd-noread");
+
+        Assert.True(result.Ok);
+        Assert.Empty(result.Lines);
+    }
+
+    /// <summary>Ensures connect success skips MOTD output when /etc/motd is missing.</summary>
+    [Fact]
+    public void Execute_Connect_Succeeds_SkipsMotd_WhenMotdFileIsMissing()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var result = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-motd-missing");
+
+        Assert.True(result.Ok);
+        Assert.Empty(result.Lines);
+    }
+
+    /// <summary>Ensures connect success skips MOTD output when /etc/motd is not text file-kind.</summary>
+    [Fact]
+    public void Execute_Connect_Succeeds_SkipsMotd_WhenMotdIsNotText()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.DiskOverlay.AddDirectory("/etc");
+        remote.DiskOverlay.WriteFile("/etc/motd", "010203", fileKind: VfsFileKind.Binary);
+
+        var result = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-motd-nontext");
+
+        Assert.True(result.Ok);
+        Assert.Empty(result.Lines);
     }
 
     /// <summary>Ensures connect success emits privilegeAcquire events for all granted privileges with via='connect'.</summary>
@@ -1314,6 +1377,47 @@ public sealed class SystemCallTest
         Assert.DoesNotContain("userKey", literals);
     }
 
+    /// <summary>Ensures default terminal context wiring includes motdLines payload and MOTD helper invocation.</summary>
+    [Fact]
+    public void GetDefaultTerminalContext_EmitsMotdLinesKey_AndCallsMotdResolver()
+    {
+        var method = typeof(WorldRuntime).GetMethod("GetDefaultTerminalContext", BindingFlags.Instance | BindingFlags.Public);
+        Assert.NotNull(method);
+
+        var literals = ExtractStringLiterals((MethodInfo)method!);
+        Assert.Contains("motdLines", literals);
+
+        var calledMethods = ExtractCalledMethods((MethodInfo)method);
+        Assert.Contains(
+            calledMethods,
+            static called => called.DeclaringType == typeof(WorldRuntime) &&
+                             string.Equals(called.Name, "ResolveMotdLinesForLogin", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures MOTD resolver returns content lines only when account can read text /etc/motd.</summary>
+    [Fact]
+    public void ResolveMotdLinesForLogin_ReturnsExpectedLines_OnlyForReadableTextMotd()
+    {
+        var harness = CreateHarness(includeVfsModule: false);
+        var resolveMotd = typeof(WorldRuntime).GetMethod("ResolveMotdLinesForLogin", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(resolveMotd);
+
+        harness.Server.DiskOverlay.AddDirectory("/etc");
+        harness.Server.DiskOverlay.WriteFile("/etc/motd", "line-1\nline-2", fileKind: VfsFileKind.Text);
+
+        var readableLines = (IReadOnlyList<string>)resolveMotd!.Invoke(harness.World, new object?[] { harness.Server, "guest" })!;
+        Assert.Equal(new[] { "line-1", "line-2" }, readableLines);
+
+        harness.Server.Users["guest"].Privilege.Read = false;
+        var noPrivilegeLines = (IReadOnlyList<string>)resolveMotd.Invoke(harness.World, new object?[] { harness.Server, "guest" })!;
+        Assert.Empty(noPrivilegeLines);
+
+        harness.Server.Users["guest"].Privilege.Read = true;
+        harness.Server.DiskOverlay.WriteFile("/etc/motd", "0102", fileKind: VfsFileKind.Binary);
+        var nonTextLines = (IReadOnlyList<string>)resolveMotd.Invoke(harness.World, new object?[] { harness.Server, "guest" })!;
+        Assert.Empty(nonTextLines);
+    }
+
     /// <summary>Ensures terminal event filtering maps internal userKey lines into userId values at API boundary.</summary>
     [Fact]
     public void ResolveUserIdForTerminalEventLine_MapsUserKeyToUserId()
@@ -1359,7 +1463,7 @@ public sealed class SystemCallTest
         var applyUsers = typeof(WorldRuntime).GetMethod("ApplyUsers", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(applyUsers);
         var ex = Assert.Throws<TargetInvocationException>(() =>
-            applyUsers!.Invoke(null, new object?[] { server, users, "node-dup", 101 }));
+            applyUsers!.Invoke(null, new object?[] { server, users, "node-dup", 101, "player" }));
         Assert.IsType<InvalidDataException>(ex.InnerException);
         Assert.Contains("node-dup", ex.InnerException!.Message, StringComparison.Ordinal);
         Assert.Contains("root", ex.InnerException.Message, StringComparison.Ordinal);
@@ -1389,6 +1493,43 @@ public sealed class SystemCallTest
         Assert.True(loadDictionaryIndex < initializeSystemCallsIndex);
         Assert.True(initializeSystemCallsIndex < buildWorldIndex);
         Assert.True(buildWorldIndex < validateWorldSeedIndex);
+    }
+
+    /// <summary>Ensures base OS image seeds /etc/motd from default motd resource content.</summary>
+    [Fact]
+    public void BuildBaseOsImage_LoadsDefaultMotdResourceIntoEtcMotd()
+    {
+        var buildBaseOsImage = typeof(WorldRuntime).GetMethod(
+            "BuildBaseOsImage",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        var loadDefaultMotdContent = typeof(WorldRuntime).GetMethod(
+            "LoadDefaultMotdContent",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(buildBaseOsImage);
+        Assert.NotNull(loadDefaultMotdContent);
+
+        var buildCalls = ExtractCalledMethods((MethodInfo)buildBaseOsImage!);
+        Assert.Contains(
+            buildCalls,
+            static called => called.DeclaringType == typeof(WorldRuntime) &&
+                             string.Equals(called.Name, "LoadDefaultMotdContent", StringComparison.Ordinal));
+
+        var buildLiterals = ExtractStringLiterals((MethodInfo)buildBaseOsImage);
+        Assert.Contains("/etc/motd", buildLiterals);
+
+        var loadCalls = ExtractCalledMethods((MethodInfo)loadDefaultMotdContent!);
+        Assert.Contains(
+            loadCalls,
+            static called => string.Equals(called.DeclaringType?.FullName, "Godot.ProjectSettings", StringComparison.Ordinal) &&
+                             string.Equals(called.Name, "GlobalizePath", StringComparison.Ordinal));
+        Assert.Contains(
+            loadCalls,
+            static called => called.DeclaringType == typeof(File) &&
+                             string.Equals(called.Name, nameof(File.ReadAllText), StringComparison.Ordinal) &&
+                             called.GetParameters().Length == 2);
+
+        var loadLiterals = ExtractStringLiterals((MethodInfo)loadDefaultMotdContent);
+        Assert.Contains("res://scenario_content/resources/text/default_motd.txt", loadLiterals);
     }
 
     /// <summary>Ensures WorldSeed getter is blocked during system initialization stage.</summary>
@@ -1505,7 +1646,16 @@ public sealed class SystemCallTest
     public void ResolveUserId_AutoPolicy_IsDeterministicAndWorldSeedSensitive()
     {
         AssertDeterministicAndWorldSeedSensitive(
-            seed => InvokeResolveUserId("AUTO:randomized", seed, "node-alpha", "guestKey"));
+            seed => InvokeResolveUserId("AUTO:randomized", seed, "node-alpha", "guestKey", "player"));
+    }
+
+    /// <summary>Ensures AUTO:user resolves using configurable DefaultUserId instead of internal userKey.</summary>
+    [Fact]
+    public void ResolveUserId_AutoUserPolicy_UsesConfiguredDefaultUserId()
+    {
+        var resolved = InvokeResolveUserId("AUTO:user", 12345, "node-alpha", "mainCharacter", "operatorName");
+        Assert.Equal("operatorName", resolved);
+        Assert.DoesNotContain("mainCharacter", resolved, StringComparison.Ordinal);
     }
 
     /// <summary>Ensures AUTO base64 password policy is deterministic for same worldSeed and changes across seeds.</summary>
@@ -1536,6 +1686,53 @@ public sealed class SystemCallTest
             pool,
             () => AssertDeterministicAndWorldSeedSensitive(
                 seed => InvokeResolvePassword("AUTO:dictionary", seed, "node-alpha", "guestKey")));
+    }
+
+    /// <summary>Ensures AUTO dictionaryHard password policy is deterministic, worldSeed-sensitive, and selects only length&gt;8 passwords.</summary>
+    [Fact]
+    public void ResolvePassword_AutoDictionaryHardPolicy_IsDeterministicAndWorldSeedSensitive()
+    {
+        var pool = new[]
+        {
+            "short1",
+            "12345678",
+            "verystrong1",
+            "hardpass999",
+            "qwertyuiop",
+        };
+
+        WithDictionaryPasswordPool(
+            pool,
+            () =>
+            {
+                AssertDeterministicAndWorldSeedSensitive(
+                    seed => InvokeResolvePassword("AUTO:dictionaryHard", seed, "node-alpha", "guestKey"));
+
+                var resolved = InvokeResolvePassword("AUTO:dictionaryHard", 12345, "node-alpha", "guestKey");
+                Assert.Contains(resolved, pool.Where(static value => value.Length > 8));
+            });
+    }
+
+    /// <summary>Ensures AUTO dictionaryHard fails when dictionary pool has no password longer than 8 characters.</summary>
+    [Fact]
+    public void ResolvePassword_AutoDictionaryHardPolicy_Throws_WhenNoHardPasswordExists()
+    {
+        var pool = new[]
+        {
+            "short1",
+            "12345678",
+            "tiny",
+        };
+
+        WithDictionaryPasswordPool(
+            pool,
+            () =>
+            {
+                var ex = Assert.Throws<TargetInvocationException>(
+                    () => InvokeResolvePassword("AUTO:dictionaryHard", 12345, "node-alpha", "guestKey"));
+                Assert.IsType<InvalidOperationException>(ex.InnerException);
+                Assert.Contains("Dictionary hard password pool is empty", ex.InnerException!.Message, StringComparison.Ordinal);
+            });
     }
 
     /// <summary>Ensures blueprint overlay apply propagates size override while recording computed realSize.</summary>
@@ -1619,11 +1816,16 @@ public sealed class SystemCallTest
         stageField.SetValue(world, stageValue);
     }
 
-    private static string InvokeResolveUserId(string source, int worldSeed, string nodeId, string userKey)
+    private static string InvokeResolveUserId(
+        string source,
+        int worldSeed,
+        string nodeId,
+        string userKey,
+        string defaultUserId)
     {
         var method = typeof(WorldRuntime).GetMethod("ResolveUserId", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(method);
-        return (string)method!.Invoke(null, new object?[] { source, worldSeed, nodeId, userKey })!;
+        return (string)method!.Invoke(null, new object?[] { source, worldSeed, nodeId, userKey, defaultUserId })!;
     }
 
     private static string InvokeResolvePassword(string source, int worldSeed, string nodeId, string userKey)

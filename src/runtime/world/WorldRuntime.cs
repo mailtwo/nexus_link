@@ -22,7 +22,9 @@ public partial class WorldRuntime : Node
     private const string DefaultBlueprintDirectory = "res://scenario_content/campaigns";
     private const string DefaultStartupCampaignId = "gameCampaign";
     private const string DefaultStartupServerNodeId = "startScenario/myWorkstation";
+    private const string DefaultMotdFile = "res://scenario_content/resources/text/default_motd.txt";
     private const string DefaultDictionaryPasswordFile = "res://scenario_content/resources/text/leaked_password.txt";
+    private const string FallbackDefaultUserId = "player";
     private const string DefaultInternetAddressPlan = "10.255.0.0/16";
     private const uint DefaultHostStart = 10;
     private const string Base64Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -48,6 +50,10 @@ public partial class WorldRuntime : Node
     /// <summary>Password dictionary source file used by AUTO:dictionary policy.</summary>
     [Export]
     public string DictionaryPasswordFile { get; set; } = DefaultDictionaryPasswordFile;
+
+    /// <summary>Default public userId text used by AUTO:user policy.</summary>
+    [Export]
+    public string DefaultUserId { get; set; } = FallbackDefaultUserId;
 
     /// <summary>Enables debug-only runtime features such as DEBUG_* system calls.</summary>
     [Export]

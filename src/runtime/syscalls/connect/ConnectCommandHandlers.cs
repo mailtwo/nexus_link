@@ -52,8 +52,9 @@ internal sealed class ConnectCommandHandler : ISystemCallHandler
             NextPromptHost = context.World.ResolvePromptHost(openResult.TargetServer),
             NextCwd = "/",
         };
+        var motdLines = context.World.ResolveMotdLinesForLogin(openResult.TargetServer, openResult.TargetUserKey);
 
-        return SystemCallResultFactory.Success(nextCwd: transition.NextCwd, data: transition);
+        return SystemCallResultFactory.Success(lines: motdLines, nextCwd: transition.NextCwd, data: transition);
     }
 
     private static bool TryParseArguments(

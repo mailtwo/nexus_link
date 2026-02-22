@@ -121,7 +121,7 @@ public partial class WorldRuntime
                 Ip = iface.Ip,
             }));
 
-            ApplyUsers(server, spec.Users, indexedSpawn.NodeId, worldSeed);
+            ApplyUsers(server, spec.Users, indexedSpawn.NodeId, worldSeed, DefaultUserId);
             ApplyPorts(server, spec.Ports, indexedSpawn.PortOverrides);
             ApplyDaemons(server, spec.Daemons, indexedSpawn.DaemonOverrides);
             ValidateOtpConsistency(server);

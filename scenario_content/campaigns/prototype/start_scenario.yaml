@@ -3,7 +3,7 @@ ServerSpec:
   myWorkstation:
     initialStatus: online
     initialReason: OK
-    hostname: mainWorkstation
+    hostname: main_workstation
     users:
       mainCharacter:
         userId: AUTO:user
@@ -20,6 +20,10 @@ ServerSpec:
           contentId: exec:miniscript
           fileKind: ExecutableHardcode
           size: 32000
+        /etc/motd:
+          entryKind: File
+          contentId: res://scenario_content/resources/text/myworkstation_prototype_motd.txt
+          fileKind: Text
 Scenario:
   startScenario:
     servers:

@@ -1,0 +1,7 @@
+Welcome to GameOS
+
+ * Service logs: /var/log/service.log
+ * Security logs: /var/log/auth.log
+
+Unauthorized use is prohibited.
+All actions may be monitored and recorded.

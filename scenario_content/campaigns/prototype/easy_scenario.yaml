@@ -7,7 +7,7 @@ ServerSpec:
     users:
       easyUser1:
         userId: root
-        passwd: AUTO:dictionary
+        passwd: AUTO:dictionaryHard
         authMode: static
         privilege:
           read: true

@@ -46,7 +46,6 @@ func _ready() -> void:
 	_initialize_runtime_bridge()
 	_refresh_prompt()
 	input_line.grab_focus()
-	_append_output("Terminal prototype ready.")
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -308,6 +307,11 @@ func _initialize_runtime_bridge() -> void:
 	current_terminal_session_id = str(context.get("terminalSessionId", ""))
 	prompt_user = str(context.get("promptUser", current_user_id))
 	prompt_host = str(context.get("promptHost", current_node_id))
+	var motd_lines_variant: Variant = context.get("motdLines", [])
+	if motd_lines_variant is Array:
+		var motd_lines: Array = motd_lines_variant
+		for line in motd_lines:
+			_append_output(str(line))
 
 
 func _apply_systemcall_response(response: Dictionary) -> void:

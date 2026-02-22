@@ -126,7 +126,7 @@ public partial class WorldRuntime
     }
 
     /// <summary>Resolves AUTO userId policy into deterministic runtime user id.</summary>
-    private static string ResolveUserId(string source, int worldSeed, string nodeId, string userKey)
+    private static string ResolveUserId(string source, int worldSeed, string nodeId, string userKey, string defaultUserId)
     {
         if (!TryReadAutoPolicy(source, out var policy))
         {
@@ -135,7 +135,9 @@ public partial class WorldRuntime
 
         if (string.Equals(policy, "user", StringComparison.OrdinalIgnoreCase))
         {
-            return userKey;
+            return string.IsNullOrWhiteSpace(defaultUserId)
+                ? FallbackDefaultUserId
+                : defaultUserId.Trim();
         }
 
         var seed = BuildAutoSeed(worldSeed, nodeId, userKey, "userid", policy);
@@ -161,6 +163,28 @@ public partial class WorldRuntime
             var indexSeed = BuildAutoSeed(worldSeed, nodeId, userKey, "passwd", "dictionary");
             var index = CreateDeterministicIndex(indexSeed, dictionaryPasswordPool.Length);
             return dictionaryPasswordPool[index];
+        }
+
+        if (string.Equals(policy, "dictionaryHard", StringComparison.OrdinalIgnoreCase))
+        {
+            if (dictionaryPasswordPool.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    "Dictionary password pool is empty. Ensure LoadDictionaryPasswordPool runs before world initialization.");
+            }
+
+            var hardPasswords = dictionaryPasswordPool
+                .Where(static password => !string.IsNullOrWhiteSpace(password) && password.Length > 8)
+                .ToArray();
+            if (hardPasswords.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    "Dictionary hard password pool is empty. Ensure leaked_password.txt has at least one password longer than 8 characters.");
+            }
+
+            var indexSeed = BuildAutoSeed(worldSeed, nodeId, userKey, "passwd", "dictionaryHard");
+            var index = CreateDeterministicIndex(indexSeed, hardPasswords.Length);
+            return hardPasswords[index];
         }
 
         if (TryReadBase64LengthPolicy(policy, out var length))

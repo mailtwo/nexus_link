@@ -18,12 +18,25 @@ public partial class WorldRuntime
         BaseFileSystem.AddDirectory("/etc");
         BaseFileSystem.AddDirectory("/home/player");
         BaseFileSystem.AddDirectory("/var/log");
+        var defaultMotdContent = LoadDefaultMotdContent();
 
         BaseFileSystem.AddFile("/system.bin", "uplink2-base-system", fileKind: VfsFileKind.Binary);
-        BaseFileSystem.AddFile("/etc/motd", "Welcome to Uplink2 runtime.", fileKind: VfsFileKind.Text);
+        BaseFileSystem.AddFile("/etc/motd", defaultMotdContent, fileKind: VfsFileKind.Text);
         BaseFileSystem.AddFile("/bin/help.ms", "print \"help: ls, cd, cat, edit\"", fileKind: VfsFileKind.Text);
         BaseFileSystem.AddFile("/bin/ls.ms", "print \"ls (base stub)\"", fileKind: VfsFileKind.Text);
         BaseFileSystem.AddFile("/home/player/.profile", "export TERM=uplink2", fileKind: VfsFileKind.Text);
+    }
+
+    /// <summary>Loads default /etc/motd text from packaged scenario resources.</summary>
+    private string LoadDefaultMotdContent()
+    {
+        var absolutePath = ProjectSettings.GlobalizePath(DefaultMotdFile);
+        if (!File.Exists(absolutePath))
+        {
+            throw new FileNotFoundException($"Default MOTD file not found: {DefaultMotdFile}", absolutePath);
+        }
+
+        return File.ReadAllText(absolutePath, Encoding.UTF8);
     }
 
     /// <summary>Builds a fresh runtime world from blueprint YAML files after game systems are initialized.</summary>
