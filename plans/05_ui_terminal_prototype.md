@@ -118,7 +118,33 @@ MVP 속도와 구현 난이도 관점에서 가장 현실적인 조합.
 - `ping <host|ip>`  
   - 실제 ICMP가 아니라 “가상 연결성/지연”을 출력하는 시뮬레이션.
 
-### 5.4 코딩/프로그램
+### 5.4 접속/전송 시스템콜(현재 구현 기준)
+- `connect [(-p|--port) <port>] <host|ip> <user> <password>`
+  - 기본 포트는 `22`(SSH).
+  - 성공 시 원격 컨텍스트로 전환되고, 터미널 세션 스택에 이전 컨텍스트가 push된다.
+  - 성공 시 원격 CWD는 `/`로 초기화되며 프롬프트가 원격 host/user로 바뀐다.
+  - 대상 계정이 `/etc/motd`를 읽을 수 있고 파일이 `Text`면 MOTD 라인을 출력한다.
+- `disconnect`
+  - 현재 터미널 세션 스택의 top 연결을 pop하고, 이전 node/user/cwd를 복원한다.
+  - 활성 연결이 없으면 실패한다(`not connected`).
+- `ftp [(-p|--port) <port>] get <remotePath> [<localPath>]`
+  - 기본 포트는 `21`(FTP 게이팅).
+  - active SSH 연결이 있을 때만 동작한다(연결이 없으면 실패).
+  - `remotePath`는 현재 접속 원격(host)의 `cwd` 기준으로 해석한다.
+  - `localPath`는 워크스테이션의 `localCwd` 기준으로 해석한다.
+  - 원격 활성 SSH 세션 계정이 `read=true`, 로컬 계정이 `write=true`여야 한다.
+  - 대상 경로가 디렉터리면 `basename(remotePath)`를 붙여 저장한다.
+  - 전송 성공 시 `fileAcquire(transferMethod="ftp")` 이벤트를 enqueue한다.
+- `ftp [(-p|--port) <port>] put <localPath> [<remotePath>]`
+  - `localPath`는 워크스테이션 `localCwd`, `remotePath`는 현재 원격 `cwd` 기준.
+  - 원격 활성 SSH 세션 계정이 `write=true`, 로컬 계정이 `read=true`여야 한다.
+  - 대상 경로가 디렉터리면 `basename(localPath)`를 붙여 저장한다.
+  - `fileAcquire` 이벤트는 발생시키지 않는다.
+- 전송 범위 제약
+  - FTP 전송은 항상 원격<->로컬(workstation)만 허용한다.
+  - 원격<->원격 직접 전송은 지원하지 않는다.
+
+### 5.5 코딩/프로그램
 - `edit <path>`: 에디터 오버레이 열기
 - `run <file|program>`: MiniScript 프로그램 실행(가상 API만 사용)
 

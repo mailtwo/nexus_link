@@ -684,6 +684,62 @@ public partial class WorldRuntime
         return true;
     }
 
+    internal bool TryGetTerminalConnectionTopFrame(string terminalSessionId, out TerminalConnectionFrame frame)
+    {
+        var stack = GetOrCreateTerminalSessionStack(terminalSessionId);
+        if (stack.Count == 0)
+        {
+            frame = null!;
+            return false;
+        }
+
+        frame = stack.Peek();
+        return true;
+    }
+
+    internal bool TryGetTerminalConnectionOriginFrame(string terminalSessionId, out TerminalConnectionFrame frame)
+    {
+        var stack = GetOrCreateTerminalSessionStack(terminalSessionId);
+        if (stack.Count == 0)
+        {
+            frame = null!;
+            return false;
+        }
+
+        var stackSnapshot = stack.ToArray();
+        frame = stackSnapshot[stackSnapshot.Length - 1];
+        return true;
+    }
+
+    internal bool TryResolveActiveRemoteSessionAccount(
+        string terminalSessionId,
+        out ServerNodeRuntime sessionServer,
+        out TerminalConnectionFrame topFrame,
+        out SessionConfig session,
+        out string sessionUserKey)
+    {
+        sessionServer = null!;
+        topFrame = null!;
+        session = null!;
+        sessionUserKey = string.Empty;
+
+        if (!TryGetTerminalConnectionTopFrame(terminalSessionId, out topFrame) ||
+            !TryGetServer(topFrame.SessionNodeId, out sessionServer) ||
+            !sessionServer.Sessions.TryGetValue(topFrame.SessionId, out session))
+        {
+            return false;
+        }
+
+        var normalizedUserKey = session.UserKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedUserKey))
+        {
+            return false;
+        }
+
+        sessionUserKey = normalizedUserKey;
+        return true;
+    }
+
     internal void RemoveTerminalRemoteSession(string nodeId, int sessionId)
     {
         _ = TryRemoveRemoteSession(nodeId, sessionId);
@@ -868,22 +924,8 @@ public partial class WorldRuntime
             return false;
         }
 
-        if (!targetServer.Ports.TryGetValue(port, out var targetPort) ||
-            targetPort.PortType == PortType.None)
+        if (!TryValidatePortAccess(sourceServer, targetServer, port, PortType.Ssh, out failureResult))
         {
-            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"port not available: {port}");
-            return false;
-        }
-
-        if (targetPort.PortType != PortType.Ssh)
-        {
-            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, $"port {port} is not ssh.");
-            return false;
-        }
-
-        if (!IsPortExposureAllowed(sourceServer, targetServer, targetPort.Exposure))
-        {
-            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.PermissionDenied, $"port exposure denied: {port}");
             return false;
         }
 
@@ -908,6 +950,51 @@ public partial class WorldRuntime
             HostOrIp = normalizedHostOrIp,
         };
         return true;
+    }
+
+    internal bool TryValidatePortAccess(
+        ServerNodeRuntime sourceServer,
+        ServerNodeRuntime targetServer,
+        int port,
+        PortType requiredPortType,
+        out SystemCallResult failureResult)
+    {
+        failureResult = SystemCallResultFactory.Success();
+
+        if (!targetServer.Ports.TryGetValue(port, out var targetPort) ||
+            targetPort.PortType == PortType.None)
+        {
+            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"port not available: {port}");
+            return false;
+        }
+
+        if (targetPort.PortType != requiredPortType)
+        {
+            failureResult = SystemCallResultFactory.Failure(
+                SystemCallErrorCode.InvalidArgs,
+                $"port {port} is not {GetPortTypeToken(requiredPortType)}.");
+            return false;
+        }
+
+        if (!IsPortExposureAllowed(sourceServer, targetServer, targetPort.Exposure))
+        {
+            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.PermissionDenied, $"port exposure denied: {port}");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static string GetPortTypeToken(PortType portType)
+    {
+        return portType switch
+        {
+            PortType.Ssh => "ssh",
+            PortType.Ftp => "ftp",
+            PortType.Http => "http",
+            PortType.Sql => "sql",
+            _ => portType.ToString().ToLowerInvariant(),
+        };
     }
 
     private static bool IsPortExposureAllowed(ServerNodeRuntime source, ServerNodeRuntime target, PortExposure exposure)

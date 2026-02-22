@@ -1462,6 +1462,300 @@ public sealed class SystemCallTest
         Assert.Contains("not connected", result.Lines[0], StringComparison.Ordinal);
     }
 
+    /// <summary>Ensures ftp validates usage and strict port syntax.</summary>
+    [Theory]
+    [InlineData("ftp", "usage: ftp")]
+    [InlineData("ftp -p", "usage: ftp")]
+    [InlineData("ftp --port 70000 get /x", "invalid port")]
+    [InlineData("ftp bad /x", "usage: ftp")]
+    public void Execute_Ftp_UsageAndPortValidation(string commandLine, string expectedMessage)
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+
+        var result = Execute(harness, commandLine, terminalSessionId: "ts-ftp-usage");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Contains(expectedMessage, result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures ftp requires an active ssh connection stack frame.</summary>
+    [Fact]
+    public void Execute_Ftp_Fails_WhenNotConnected()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+
+        var result = Execute(harness, "ftp get /etc/passwd", terminalSessionId: "ts-ftp-not-connected");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Contains("active ssh connection", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures ftp get downloads into workstation cwd, preserves file metadata, and emits fileAcquire.</summary>
+    [Fact]
+    public void Execute_FtpGet_Succeeds_PreservesMetadata_AndEmitsFileAcquire()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/downloads");
+
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        AddFtpPort(remote);
+        remote.DiskOverlay.AddDirectory("/drop");
+        remote.DiskOverlay.WriteFile(
+            "/drop/tool.bin",
+            "exec:miniscript",
+            fileKind: VfsFileKind.ExecutableHardcode,
+            size: 4096);
+
+        var connect = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-ftp-get");
+        Assert.True(connect.Ok);
+
+        var result = Execute(
+            harness,
+            "ftp get /drop/tool.bin downloads",
+            nodeId: remote.NodeId,
+            userId: "guest",
+            cwd: "/",
+            terminalSessionId: "ts-ftp-get");
+
+        Assert.True(result.Ok);
+        Assert.Single(result.Lines);
+        Assert.Contains("ftp get:", result.Lines[0], StringComparison.Ordinal);
+
+        Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/work/downloads/tool.bin", out var downloaded));
+        Assert.Equal(VfsEntryKind.File, downloaded.EntryKind);
+        Assert.Equal(VfsFileKind.ExecutableHardcode, downloaded.FileKind);
+        Assert.Equal(4096, downloaded.Size);
+
+        var events = DrainQueuedGameEvents(harness.World);
+        var fileAcquireEvents = events
+            .Where(static gameEvent => string.Equals((string)GetPropertyValue(gameEvent, "EventType"), "fileAcquire", StringComparison.Ordinal))
+            .ToList();
+        var fileAcquire = Assert.Single(fileAcquireEvents);
+        var payload = GetPropertyValue(fileAcquire, "Payload");
+        Assert.Equal("ftp", (string?)GetPropertyValue(payload!, "TransferMethod"));
+        Assert.Equal("/drop/tool.bin", (string?)GetPropertyValue(payload!, "RemotePath"));
+        Assert.Equal("/work/downloads/tool.bin", (string?)GetPropertyValue(payload!, "LocalPath"));
+    }
+
+    /// <summary>Ensures ftp put uploads from workstation cwd to remote cwd and does not emit fileAcquire.</summary>
+    [Fact]
+    public void Execute_FtpPut_Succeeds_PreservesMetadata_AndDoesNotEmitFileAcquire()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/local");
+        harness.Server.DiskOverlay.WriteFile(
+            "/work/local/script.bin",
+            "exec:noop",
+            fileKind: VfsFileKind.ExecutableHardcode,
+            size: 2048);
+
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        AddFtpPort(remote);
+        remote.DiskOverlay.AddDirectory("/incoming");
+
+        var connect = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-ftp-put");
+        Assert.True(connect.Ok);
+
+        var result = Execute(
+            harness,
+            "ftp put local/script.bin incoming",
+            nodeId: remote.NodeId,
+            userId: "guest",
+            cwd: "/",
+            terminalSessionId: "ts-ftp-put");
+
+        Assert.True(result.Ok);
+        Assert.Single(result.Lines);
+        Assert.Contains("ftp put:", result.Lines[0], StringComparison.Ordinal);
+
+        Assert.True(remote.DiskOverlay.TryResolveEntry("/incoming/script.bin", out var uploaded));
+        Assert.Equal(VfsEntryKind.File, uploaded.EntryKind);
+        Assert.Equal(VfsFileKind.ExecutableHardcode, uploaded.FileKind);
+        Assert.Equal(2048, uploaded.Size);
+
+        var events = DrainQueuedGameEvents(harness.World);
+        var fileAcquireEvents = events
+            .Where(static gameEvent => string.Equals((string)GetPropertyValue(gameEvent, "EventType"), "fileAcquire", StringComparison.Ordinal))
+            .ToList();
+        Assert.Empty(fileAcquireEvents);
+    }
+
+    /// <summary>Ensures ftp enforces active-session remote read/write privileges instead of command context user privileges.</summary>
+    [Fact]
+    public void Execute_Ftp_UsesActiveSessionUserPrivileges()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/local");
+        harness.Server.DiskOverlay.WriteFile("/work/local/a.txt", "A", fileKind: VfsFileKind.Text);
+
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        AddFtpPort(remote);
+        remote.Users["adminKey"] = new UserConfig
+        {
+            UserId = "admin",
+            AuthMode = AuthMode.None,
+            Privilege = PrivilegeConfig.FullAccess(),
+        };
+        remote.Users["guest"].Privilege.Read = false;
+        remote.Users["guest"].Privilege.Write = false;
+        remote.DiskOverlay.AddDirectory("/drop");
+        remote.DiskOverlay.WriteFile("/drop/a.txt", "A", fileKind: VfsFileKind.Text);
+
+        var connect = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-ftp-active-user");
+        Assert.True(connect.Ok);
+
+        var getResult = Execute(
+            harness,
+            "ftp get /drop/a.txt",
+            nodeId: remote.NodeId,
+            userId: "admin",
+            cwd: "/",
+            terminalSessionId: "ts-ftp-active-user");
+        Assert.False(getResult.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, getResult.Code);
+        Assert.Contains("permission denied: ftp get", getResult.Lines[0], StringComparison.Ordinal);
+
+        var putResult = Execute(
+            harness,
+            "ftp put local/a.txt",
+            nodeId: remote.NodeId,
+            userId: "admin",
+            cwd: "/",
+            terminalSessionId: "ts-ftp-active-user");
+        Assert.False(putResult.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, putResult.Code);
+        Assert.Contains("permission denied: ftp put", putResult.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures ftp enforces local workstation read/write privilege checks.</summary>
+    [Fact]
+    public void Execute_Ftp_Fails_WhenLocalPrivilegesAreMissing()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/local");
+        harness.Server.DiskOverlay.WriteFile("/work/local/a.txt", "A", fileKind: VfsFileKind.Text);
+
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        AddFtpPort(remote);
+        remote.DiskOverlay.AddDirectory("/drop");
+        remote.DiskOverlay.WriteFile("/drop/a.txt", "A", fileKind: VfsFileKind.Text);
+
+        var connect = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-ftp-local-priv");
+        Assert.True(connect.Ok);
+
+        harness.Server.Users["guest"].Privilege.Write = false;
+        var getResult = Execute(
+            harness,
+            "ftp get /drop/a.txt",
+            nodeId: remote.NodeId,
+            userId: "guest",
+            cwd: "/",
+            terminalSessionId: "ts-ftp-local-priv");
+        Assert.False(getResult.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, getResult.Code);
+
+        harness.Server.Users["guest"].Privilege.Write = true;
+        harness.Server.Users["guest"].Privilege.Read = false;
+        var putResult = Execute(
+            harness,
+            "ftp put local/a.txt",
+            nodeId: remote.NodeId,
+            userId: "guest",
+            cwd: "/",
+            terminalSessionId: "ts-ftp-local-priv");
+        Assert.False(putResult.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, putResult.Code);
+    }
+
+    /// <summary>Ensures ftp enforces FTP port gating and supports custom -p/--port overrides.</summary>
+    [Fact]
+    public void Execute_Ftp_EnforcesPortGating_AndSupportsCustomPort()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/downloads");
+
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.Ports.Remove(21);
+        remote.Ports[2121] = new PortConfig
+        {
+            PortType = PortType.Ftp,
+            Exposure = PortExposure.Public,
+        };
+        remote.DiskOverlay.AddDirectory("/drop");
+        remote.DiskOverlay.WriteFile("/drop/a.txt", "A", fileKind: VfsFileKind.Text);
+
+        var connect = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-ftp-port");
+        Assert.True(connect.Ok);
+
+        var defaultPortFailure = Execute(
+            harness,
+            "ftp get /drop/a.txt downloads",
+            nodeId: remote.NodeId,
+            userId: "guest",
+            cwd: "/",
+            terminalSessionId: "ts-ftp-port");
+        Assert.False(defaultPortFailure.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFound, defaultPortFailure.Code);
+        Assert.Contains("port not available: 21", defaultPortFailure.Lines[0], StringComparison.Ordinal);
+
+        var customPortSuccess = Execute(
+            harness,
+            "ftp --port 2121 get /drop/a.txt downloads",
+            nodeId: remote.NodeId,
+            userId: "guest",
+            cwd: "/",
+            terminalSessionId: "ts-ftp-port");
+        Assert.True(customPortSuccess.Ok);
+    }
+
+    /// <summary>Ensures nested ssh sessions keep ftp local endpoint anchored at the workstation origin.</summary>
+    [Fact]
+    public void Execute_FtpGet_UsesWorkstationAsLocalEndpoint_OnNestedConnections()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+
+        var hopB = AddRemoteServer(harness, "node-2", "hop-b", "10.0.1.20", AuthMode.Static, "pw");
+        AddFtpPort(hopB);
+        var hopC = AddRemoteServer(harness, "node-3", "hop-c", "10.0.1.30", AuthMode.Static, "pw");
+        AddFtpPort(hopC);
+        hopC.DiskOverlay.AddDirectory("/drop");
+        hopC.DiskOverlay.WriteFile("/drop/nested.txt", "NESTED", fileKind: VfsFileKind.Text);
+
+        var connectB = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-ftp-nested");
+        Assert.True(connectB.Ok);
+
+        var connectC = Execute(
+            harness,
+            "connect 10.0.1.30 guest pw",
+            nodeId: hopB.NodeId,
+            userId: "guest",
+            cwd: "/",
+            terminalSessionId: "ts-ftp-nested");
+        Assert.True(connectC.Ok);
+
+        var result = Execute(
+            harness,
+            "ftp get /drop/nested.txt",
+            nodeId: hopC.NodeId,
+            userId: "guest",
+            cwd: "/",
+            terminalSessionId: "ts-ftp-nested");
+
+        Assert.True(result.Ok);
+        Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/work/nested.txt", out _));
+        Assert.False(hopB.DiskOverlay.TryResolveEntry("/nested.txt", out _));
+    }
+
     /// <summary>Ensures terminal-command bridge projects transition fields and preserves nextCwd behavior.</summary>
     [Fact]
     public void ExecuteTerminalCommand_ProjectsTransitionFields_AndPreservesNextCwd()
@@ -2153,6 +2447,15 @@ public sealed class SystemCallTest
         }
 
         return server;
+    }
+
+    private static void AddFtpPort(ServerNodeRuntime server, int port = 21, PortExposure exposure = PortExposure.Public)
+    {
+        server.Ports[port] = new PortConfig
+        {
+            PortType = PortType.Ftp,
+            Exposure = exposure,
+        };
     }
 
     private static WorldRuntime CreateHeadlessWorld(bool debugOption, params ServerNodeRuntime[] servers)
