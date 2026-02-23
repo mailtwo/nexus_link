@@ -1,0 +1,20 @@
+[내부 시스템 보안 점검 결과 보고서]
+문서번호: SEC-MED-2026-0205-11
+점검일자: 2026-02-05
+점검대상: medium 서브넷 (medium_gateway / medium_server / medium_otp)
+작성부서: Infra Security Audit Team
+
+[점검 요약]
+- 인증체계 분리 미흡 항목 1건 확인.
+- 관리자 인증 보조수단(OTP 발급 프로그램)이 서브망 접근 가능한 medium_otp 서버에 위치.
+
+[주요 발견사항] (Finding ID: MED-AUTH-04 / 등급: High)
+- OTP 발급 기능이 서브넷 내부에서 접근 가능한 medium_otp 서버에 배치되어 있으며 서브망 내 경로에서 실행 가능한 상태로 확인됨.
+- 해당 발급값은 medium_server 관리자 로그인 절차와 연동되어 있으며, 검증 통과 시 즉시 로그인 처리되는 구조임.
+- 공격 시뮬레이션 결과, 공격자가 `medium_otp`에서 OTP를 발급받아 인증 보조수단 OTP가 사실상 무력화될 위험이 높음.
+- Artifact: medium_otp 내 OTP 발급 프로그램이 /opt/bin/optgen에 실행 가능한 상태로 확인됨
+
+[권고사항]
+- OTP 발급 기능을 medium 서브망에서 분리하여 전용 인증 구역(격리된 인증 서버/HSM/Authenticator 영역)으로 이전할 것.
+- medium_otp에서 medium_server 인증 절차로 이어지는 실행/접근 경로를 즉시 재검토하여 차단할 것.
+- 사고 대응 관점에서, 현재 구조가 운영 중이라면 OTP 관련 시드/키 로테이션 및 관리자 인증 흐름 점검을 즉시 수행할 것.

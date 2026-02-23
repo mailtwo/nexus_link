@@ -26,6 +26,12 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    diskOverlay:
+      overlayEntries:
+        /doc/email.txt:
+          entryKind: File
+          contentId: res://scenario_content/resources/text/scenario_docs/hard_hint1.txt 
+          fileKind: Text
   hardTerminal2Server:
     initialStatus: online
     initialReason: OK
@@ -65,6 +71,12 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    diskOverlay:
+      overlayEntries:
+        /doc/email.txt:
+          entryKind: File
+          contentId: res://scenario_content/resources/text/scenario_docs/hard_hint2.txt 
+          fileKind: Text
   hardTerminal5Server:
     initialStatus: online
     initialReason: OK
@@ -78,6 +90,12 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    diskOverlay:
+      overlayEntries:
+        /doc/email.txt:
+          entryKind: File
+          contentId: res://scenario_content/resources/text/scenario_docs/hard_hint3.txt 
+          fileKind: Text
   hardGuard1Server:
     initialStatus: online
     initialReason: OK
@@ -104,6 +122,12 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    diskOverlay:
+      overlayEntries:
+        /doc/email.txt:
+          entryKind: File
+          contentId: res://scenario_content/resources/text/scenario_docs/hard_hint4.txt 
+          fileKind: Text
   hardGuard3Server:
     initialStatus: online
     initialReason: OK

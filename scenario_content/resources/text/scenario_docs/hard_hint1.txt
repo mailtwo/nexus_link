@@ -1,0 +1,11 @@
+From: john@blacksecurity.com
+To: smith@blacksecurity.com
+Date: 2026-01-27
+Subject: 개심심함
+
+오늘도 hard_mainframe 쪽은 너무 조용하네.
+다른 회사는 공격이 들어온다 어쩐다 하는데 여긴 아무 일도 없어.
+어짜피 서버에 "Aegis Shield"도 붙어 있는데 내가 여기 앉아서 모니터만 보고 있는 게 맞나 싶다.
+
+진짜 너무 심심하다. 아무 일도 없는데 내가 왜 여기서 보안 업무를 보고 있어야 하냐.
+이따 저녁에 나가서 놀자. 어디 갈래?

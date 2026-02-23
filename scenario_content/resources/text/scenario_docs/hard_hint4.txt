@@ -1,0 +1,13 @@
+[점검 보고서]
+작성일: 2026-01-13
+작성자: Pole Mario
+대상: hard_mainframe
+실험 목적: Aegis Shield의 SSH connection 방어 능력 검사
+실험 방법: hard_mainframe에 연결된 3대 서버 전체에서 최대 능력으로 SSH 연결 시도를 수행.
+실험 결과: Aegis Shield가 모든 SSH 접속 시도를 정상적으로 차단하여 공격이 성공하지 못함.
+
+[추가 기록]
+작성일: 2026-02-20
+작성자: Smith Luigi
+내용: hard_mainframe에 서버 1대가 추가로 연결됨. Pole Mario가 Aegis Shield 재점검 진행 예정.
+진행 후 여기에 점검 보고서를 남길 예정.

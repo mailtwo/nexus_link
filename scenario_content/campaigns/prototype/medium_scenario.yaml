@@ -32,6 +32,12 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    diskOverlay:
+      overlayEntries:
+        /doc/security_report.txt:
+          entryKind: File
+          contentId: res://scenario_content/resources/text/scenario_docs/medium_hint.txt 
+          fileKind: Text
     daemons:
       OTP:
         userKey: mediumMainUser1
