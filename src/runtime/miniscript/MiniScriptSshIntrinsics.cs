@@ -52,6 +52,7 @@ internal static partial class MiniScriptSshIntrinsics
             RegisterFsWriteIntrinsic();
             RegisterFsDeleteIntrinsic();
             RegisterFsStatIntrinsic();
+            RegisterNetInterfacesIntrinsic();
             RegisterNetScanIntrinsic();
             RegisterNetPortsIntrinsic();
             RegisterNetBannerIntrinsic();

@@ -9,6 +9,7 @@ namespace Uplink2.Runtime.MiniScript;
 
 internal static partial class MiniScriptSshIntrinsics
 {
+    private const string NetInterfacesIntrinsicName = "uplink_net_interfaces";
     private const string NetScanIntrinsicName = "uplink_net_scan";
     private const string NetPortsIntrinsicName = "uplink_net_ports";
     private const string NetBannerIntrinsicName = "uplink_net_banner";
@@ -20,10 +21,59 @@ internal static partial class MiniScriptSshIntrinsics
         {
             userData = moduleState,
         };
+        netModule["interfaces"] = Intrinsic.GetByName(NetInterfacesIntrinsicName).GetFunc();
         netModule["scan"] = Intrinsic.GetByName(NetScanIntrinsicName).GetFunc();
         netModule["ports"] = Intrinsic.GetByName(NetPortsIntrinsicName).GetFunc();
         netModule["banner"] = Intrinsic.GetByName(NetBannerIntrinsicName).GetFunc();
         interpreter.SetGlobalValue("net", netModule);
+    }
+
+    private static void RegisterNetInterfacesIntrinsic()
+    {
+        if (Intrinsic.GetByName(NetInterfacesIntrinsicName) is not null)
+        {
+            return;
+        }
+
+        var intrinsic = Intrinsic.Create(NetInterfacesIntrinsicName);
+        intrinsic.AddParam("arg1");
+        intrinsic.code = (context, partialResult) =>
+        {
+            if (!TryGetExecutionState(context, out var state) || state.ExecutionContext is null)
+            {
+                return new Intrinsic.Result(
+                    CreateNetFailureMap(
+                        SystemCallErrorCode.InternalError,
+                        "net.interfaces is unavailable in this execution context."));
+            }
+
+            if (!TryParseNetInterfacesArguments(context, out var sessionOrRouteMap, out var parseError))
+            {
+                return new Intrinsic.Result(CreateNetFailureMap(SystemCallErrorCode.InvalidArgs, parseError));
+            }
+
+            var executionContext = state.ExecutionContext;
+            if (!TryResolveFsEndpoint(
+                    state,
+                    executionContext,
+                    sessionOrRouteMap,
+                    out var endpoint,
+                    out var endpointUser,
+                    out var endpointError))
+            {
+                return new Intrinsic.Result(CreateNetFailureMap(SystemCallErrorCode.InvalidArgs, endpointError));
+            }
+
+            if (!endpointUser.Privilege.Execute)
+            {
+                return new Intrinsic.Result(CreateNetFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: net.interfaces"));
+            }
+
+            var interfaces = CollectEndpointInterfaces(endpoint.Server);
+            var result = CreateNetSuccessMap();
+            result["interfaces"] = interfaces;
+            return new Intrinsic.Result(result);
+        };
     }
 
     private static void RegisterNetScanIntrinsic()
@@ -46,17 +96,18 @@ internal static partial class MiniScriptSshIntrinsics
                         "net.scan is unavailable in this execution context."));
             }
 
-            if (!TryParseNetScanArguments(context, out var sessionOrRouteMap, out var subnetOrHost, out var parseError))
+            if (!TryParseNetScanArguments(context, out var sessionOrRouteMap, out var netIdFilter, out var parseError))
             {
                 return new Intrinsic.Result(CreateNetFailureMap(SystemCallErrorCode.InvalidArgs, parseError));
             }
 
-            if (!string.Equals(subnetOrHost, "lan", StringComparison.Ordinal))
+            if (!string.IsNullOrEmpty(netIdFilter) &&
+                string.Equals(netIdFilter, "lan", StringComparison.OrdinalIgnoreCase))
             {
                 return new Intrinsic.Result(
                     CreateNetFailureMap(
                         SystemCallErrorCode.InvalidArgs,
-                        "subnetOrHost must be \"lan\"."));
+                        "netId must be omitted/null or a concrete interface id (\"lan\" is not supported)."));
             }
 
             var executionContext = state.ExecutionContext;
@@ -76,8 +127,20 @@ internal static partial class MiniScriptSshIntrinsics
                 return new Intrinsic.Result(CreateNetFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: net.scan"));
             }
 
-            var ips = CollectLanNeighborIps(executionContext.World, endpoint.Server);
+            if (!TryBuildNetScanData(
+                    executionContext.World,
+                    endpoint.Server,
+                    netIdFilter,
+                    out var interfaces,
+                    out var ips,
+                    out var scanErrorCode,
+                    out var scanErrorMessage))
+            {
+                return new Intrinsic.Result(CreateNetFailureMap(scanErrorCode, scanErrorMessage));
+            }
+
             var result = CreateNetSuccessMap();
+            result["interfaces"] = interfaces;
             result["ips"] = ips;
             return new Intrinsic.Result(result);
         };
@@ -224,14 +287,48 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
-    private static bool TryParseNetScanArguments(
+    private static bool TryParseNetInterfacesArguments(
         TAC.Context context,
         out ValMap? sessionOrRouteMap,
-        out string subnetOrHost,
         out string error)
     {
         sessionOrRouteMap = null;
-        subnetOrHost = string.Empty;
+        error = string.Empty;
+
+        var rawArg1 = context.GetLocal("arg1");
+        if (rawArg1 is null || rawArg1 is ValNull)
+        {
+            return true;
+        }
+
+        if (rawArg1 is not ValMap)
+        {
+            error = "sessionOrRoute must be a session/route map.";
+            return false;
+        }
+
+        if (!TryParseFsSessionOrRouteArgument(rawArg1, out sessionOrRouteMap, out var hasSessionOrRoute, out error))
+        {
+            return false;
+        }
+
+        if (!hasSessionOrRoute)
+        {
+            error = "sessionOrRoute must be a session/route map.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryParseNetScanArguments(
+        TAC.Context context,
+        out ValMap? sessionOrRouteMap,
+        out string netIdFilter,
+        out string error)
+    {
+        sessionOrRouteMap = null;
+        netIdFilter = string.Empty;
         error = string.Empty;
 
         var rawArg1 = context.GetLocal("arg1");
@@ -243,7 +340,7 @@ internal static partial class MiniScriptSshIntrinsics
 
         if (hasSessionOrRoute)
         {
-            return TryReadNetSubnetOrHost(rawArg2, out subnetOrHost, out error);
+            return TryReadOptionalNetId(rawArg2, out netIdFilter, out error);
         }
 
         if (rawArg2 is not null)
@@ -252,7 +349,7 @@ internal static partial class MiniScriptSshIntrinsics
             return false;
         }
 
-        return TryReadNetSubnetOrHost(rawArg1, out subnetOrHost, out error);
+        return TryReadOptionalNetId(rawArg1, out netIdFilter, out error);
     }
 
     private static bool TryParseNetPortsArguments(
@@ -370,20 +467,25 @@ internal static partial class MiniScriptSshIntrinsics
         return TryReadPort(rawPort, out port, out error);
     }
 
-    private static bool TryReadNetSubnetOrHost(Value rawInput, out string subnetOrHost, out string error)
+    private static bool TryReadOptionalNetId(Value rawInput, out string netId, out string error)
     {
-        subnetOrHost = string.Empty;
+        netId = string.Empty;
         error = string.Empty;
-        if (rawInput is null || rawInput is ValMap)
+        if (rawInput is null || rawInput is ValNull)
         {
-            error = "subnetOrHost is required.";
+            return true;
+        }
+
+        if (rawInput is ValMap)
+        {
+            error = "netId must be a string or null.";
             return false;
         }
 
-        subnetOrHost = rawInput.ToString().Trim();
-        if (string.IsNullOrWhiteSpace(subnetOrHost))
+        netId = rawInput.ToString().Trim();
+        if (string.IsNullOrWhiteSpace(netId))
         {
-            error = "subnetOrHost is required.";
+            error = "netId must not be empty.";
             return false;
         }
 
@@ -428,7 +530,140 @@ internal static partial class MiniScriptSshIntrinsics
         return true;
     }
 
-    private static ValList CollectLanNeighborIps(WorldRuntime world, ServerNodeRuntime sourceServer)
+    private static bool TryBuildNetScanData(
+        WorldRuntime world,
+        ServerNodeRuntime sourceServer,
+        string netIdFilter,
+        out ValList interfaces,
+        out ValList ips,
+        out SystemCallErrorCode errorCode,
+        out string errorMessage)
+    {
+        interfaces = new ValList();
+        ips = new ValList();
+        errorCode = SystemCallErrorCode.None;
+        errorMessage = string.Empty;
+
+        var scannedInterfaces = CollectScannableInterfaces(sourceServer, netIdFilter);
+        if (scannedInterfaces.Count == 0 && !string.IsNullOrWhiteSpace(netIdFilter))
+        {
+            errorCode = SystemCallErrorCode.NotFound;
+            errorMessage = $"netId not found: {netIdFilter}";
+            return false;
+        }
+
+        var uniqueIps = new HashSet<string>(StringComparer.Ordinal);
+        var flatIps = new List<string>();
+        foreach (var scannedInterface in scannedInterfaces)
+        {
+            var neighborIps = CollectNeighborIpsForNetId(world, sourceServer, scannedInterface.NetId);
+            var neighbors = new ValList();
+            foreach (var neighborIp in neighborIps)
+            {
+                neighbors.values.Add(new ValString(neighborIp));
+                if (uniqueIps.Add(neighborIp))
+                {
+                    flatIps.Add(neighborIp);
+                }
+            }
+
+            interfaces.values.Add(new ValMap
+            {
+                ["netId"] = new ValString(scannedInterface.NetId),
+                ["localIp"] = new ValString(scannedInterface.LocalIp),
+                ["neighbors"] = neighbors,
+            });
+        }
+
+        flatIps.Sort(StringComparer.Ordinal);
+        foreach (var ip in flatIps)
+        {
+            ips.values.Add(new ValString(ip));
+        }
+
+        return true;
+    }
+
+    private static ValList CollectEndpointInterfaces(ServerNodeRuntime sourceServer)
+    {
+        var endpointInterfaces = new List<ScannableInterface>();
+        foreach (var iface in sourceServer.Interfaces)
+        {
+            if (string.IsNullOrWhiteSpace(iface.NetId) || string.IsNullOrWhiteSpace(iface.Ip))
+            {
+                continue;
+            }
+
+            endpointInterfaces.Add(new ScannableInterface(iface.NetId, iface.Ip));
+        }
+
+        endpointInterfaces.Sort(static (left, right) =>
+        {
+            var byNetId = StringComparer.Ordinal.Compare(left.NetId, right.NetId);
+            if (byNetId != 0)
+            {
+                return byNetId;
+            }
+
+            return StringComparer.Ordinal.Compare(left.LocalIp, right.LocalIp);
+        });
+
+        var result = new ValList();
+        foreach (var endpointInterface in endpointInterfaces)
+        {
+            result.values.Add(new ValMap
+            {
+                ["netId"] = new ValString(endpointInterface.NetId),
+                ["localIp"] = new ValString(endpointInterface.LocalIp),
+            });
+        }
+
+        return result;
+    }
+
+    private static List<ScannableInterface> CollectScannableInterfaces(ServerNodeRuntime sourceServer, string netIdFilter)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var scannedInterfaces = new List<ScannableInterface>();
+        foreach (var iface in sourceServer.Interfaces)
+        {
+            if (string.IsNullOrWhiteSpace(iface.NetId) ||
+                string.IsNullOrWhiteSpace(iface.Ip) ||
+                string.Equals(iface.NetId, InternetNetId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(netIdFilter) &&
+                !string.Equals(iface.NetId, netIdFilter, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var dedupeKey = iface.NetId + "\n" + iface.Ip;
+            if (!seen.Add(dedupeKey))
+            {
+                continue;
+            }
+
+            scannedInterfaces.Add(new ScannableInterface(iface.NetId, iface.Ip));
+        }
+
+        scannedInterfaces.Sort(static (left, right) =>
+        {
+            var byNetId = StringComparer.Ordinal.Compare(left.NetId, right.NetId);
+            if (byNetId != 0)
+            {
+                return byNetId;
+            }
+
+            return StringComparer.Ordinal.Compare(left.LocalIp, right.LocalIp);
+        });
+
+        return scannedInterfaces;
+    }
+
+    private static List<string> CollectNeighborIpsForNetId(WorldRuntime world, ServerNodeRuntime sourceServer, string netId)
     {
         var neighborIps = new List<string>();
         var seenIps = new HashSet<string>(StringComparer.Ordinal);
@@ -439,8 +674,9 @@ internal static partial class MiniScriptSshIntrinsics
                 continue;
             }
 
-            var neighborIp = ResolveNeighborIpForNetScan(sourceServer, neighborServer);
-            if (string.IsNullOrWhiteSpace(neighborIp) || !seenIps.Add(neighborIp))
+            if (!TryGetInterfaceIpForNetScan(neighborServer, netId, out var neighborIp) ||
+                string.IsNullOrWhiteSpace(neighborIp) ||
+                !seenIps.Add(neighborIp))
             {
                 continue;
             }
@@ -449,61 +685,7 @@ internal static partial class MiniScriptSshIntrinsics
         }
 
         neighborIps.Sort(StringComparer.Ordinal);
-        var result = new ValList();
-        foreach (var ip in neighborIps)
-        {
-            result.values.Add(new ValString(ip));
-        }
-
-        return result;
-    }
-
-    private static string ResolveNeighborIpForNetScan(ServerNodeRuntime source, ServerNodeRuntime neighbor)
-    {
-        foreach (var sourceInterface in source.Interfaces)
-        {
-            if (string.Equals(sourceInterface.NetId, InternetNetId, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            if (TryGetInterfaceIpForNetScan(neighbor, sourceInterface.NetId, out var neighborIp))
-            {
-                return neighborIp;
-            }
-        }
-
-        foreach (var sourceInterface in source.Interfaces)
-        {
-            if (TryGetInterfaceIpForNetScan(neighbor, sourceInterface.NetId, out var neighborIp))
-            {
-                return neighborIp;
-            }
-        }
-
-        foreach (var neighborInterface in neighbor.Interfaces)
-        {
-            if (!string.IsNullOrWhiteSpace(neighborInterface.Ip) &&
-                !string.Equals(neighborInterface.NetId, InternetNetId, StringComparison.Ordinal))
-            {
-                return neighborInterface.Ip;
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(neighbor.PrimaryIp))
-        {
-            return neighbor.PrimaryIp;
-        }
-
-        foreach (var neighborInterface in neighbor.Interfaces)
-        {
-            if (!string.IsNullOrWhiteSpace(neighborInterface.Ip))
-            {
-                return neighborInterface.Ip;
-            }
-        }
-
-        return string.Empty;
+        return neighborIps;
     }
 
     private static bool TryGetInterfaceIpForNetScan(ServerNodeRuntime server, string netId, out string ip)
@@ -523,6 +705,8 @@ internal static partial class MiniScriptSshIntrinsics
         ip = string.Empty;
         return false;
     }
+
+    private readonly record struct ScannableInterface(string NetId, string LocalIp);
 
     private static bool IsNetPortExposureAllowed(ServerNodeRuntime source, ServerNodeRuntime target, PortExposure exposure)
     {

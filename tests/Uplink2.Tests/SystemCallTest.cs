@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using Miniscript;
 using Uplink2.Blueprint;
 using Uplink2.Runtime;
 using Uplink2.Runtime.Syscalls;
@@ -290,6 +291,30 @@ public sealed class SystemCallTest
         Assert.True(result.Ok);
         Assert.Equal(SystemCallErrorCode.None, result.Code);
         Assert.Contains(result.Lines, static line => line.Contains("Hello world!", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures intrinsic rate limiter wraps only gameplay intrinsics (`ssh/fs/net/ftp`).</summary>
+    [Fact]
+    public void Execute_Miniscript_IntrinsicRateLimiter_WrapsGameplayIntrinsicsOnly()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile("/scripts/rate_limit_probe.ms", "print \"ok\"", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/rate_limit_probe.ms");
+
+        Assert.True(result.Ok);
+        var wrappedIntrinsicIds = GetWrappedIntrinsicIdsFromRateLimiter();
+        AssertIntrinsicWrapped(wrappedIntrinsicIds, "uplink_ssh_connect");
+        AssertIntrinsicWrapped(wrappedIntrinsicIds, "uplink_fs_read");
+        AssertIntrinsicWrapped(wrappedIntrinsicIds, "uplink_net_interfaces");
+        AssertIntrinsicWrapped(wrappedIntrinsicIds, "uplink_net_scan");
+        AssertIntrinsicWrapped(wrappedIntrinsicIds, "uplink_ftp_get");
+
+        AssertIntrinsicNotWrapped(wrappedIntrinsicIds, "len");
+        AssertIntrinsicNotWrapped(wrappedIntrinsicIds, "print");
+        AssertIntrinsicNotWrapped(wrappedIntrinsicIds, "uplink_crypto_unixTime");
     }
 
     /// <summary>Ensures miniscript string literals support common backslash escapes.</summary>
@@ -2583,9 +2608,141 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "code=InvalidArgs", StringComparison.Ordinal));
     }
 
-    /// <summary>Ensures miniscript net.scan returns sorted unique LAN neighbor IPs.</summary>
+    /// <summary>Ensures miniscript net.scan returns per-interface neighbors plus flattened unique IPs.</summary>
     [Fact]
-    public void Execute_Miniscript_Net_Scan_LocalLan_SucceedsAndReturnsIps()
+    public void Execute_Miniscript_Net_Scan_LocalLan_SucceedsAndReturnsInterfacesAndIps()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.Server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "alpha",
+                Ip = "10.1.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "beta",
+                Ip = "10.2.0.10",
+            },
+        });
+
+        AddRemoteServer(harness, "node-2", "remote-a", "10.1.0.20", AuthMode.Static, "pw", netId: "alpha");
+        AddRemoteServer(harness, "node-3", "remote-b", "10.1.0.30", AuthMode.Static, "pw", netId: "alpha");
+        AddRemoteServer(harness, "node-4", "remote-c", "10.2.0.40", AuthMode.Static, "pw", netId: "beta");
+        harness.Server.LanNeighbors.Add("node-3");
+        harness.Server.LanNeighbors.Add("node-4");
+        harness.Server.LanNeighbors.Add("node-2");
+        harness.Server.LanNeighbors.Add("node-2");
+        harness.Server.LanNeighbors.Add("missing-node");
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/net_scan_local.ms",
+            """
+            s = net.scan()
+            print "ok=" + str(s.ok)
+            print "code=" + s.code
+            print "ifCount=" + str(len(s.interfaces))
+            print "if0=" + s.interfaces[0].netId + ":" + s.interfaces[0].localIp
+            print "if0Count=" + str(len(s.interfaces[0].neighbors))
+            print "if0n0=" + s.interfaces[0].neighbors[0]
+            print "if0n1=" + s.interfaces[0].neighbors[1]
+            print "if1=" + s.interfaces[1].netId + ":" + s.interfaces[1].localIp
+            print "if1Count=" + str(len(s.interfaces[1].neighbors))
+            print "if1n0=" + s.interfaces[1].neighbors[0]
+            print "count=" + str(len(s.ips))
+            print "ip0=" + s.ips[0]
+            print "ip1=" + s.ips[1]
+            print "ip2=" + s.ips[2]
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/net_scan_local.ms", terminalSessionId: "ts-ms-net-scan-local");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ifCount=2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "if0=alpha:10.1.0.10", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "if0Count=2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "if0n0=10.1.0.20", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "if0n1=10.1.0.30", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "if1=beta:10.2.0.10", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "if1Count=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "if1n0=10.2.0.40", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "count=3", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ip0=10.1.0.20", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ip1=10.1.0.30", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ip2=10.2.0.40", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures miniscript net.scan(netId) limits results to the requested interface.</summary>
+    [Fact]
+    public void Execute_Miniscript_Net_Scan_WithNetIdFilter_SucceedsAndReturnsSingleInterface()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.Server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "alpha",
+                Ip = "10.1.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "beta",
+                Ip = "10.2.0.10",
+            },
+        });
+
+        AddRemoteServer(harness, "node-2", "remote-a", "10.1.0.20", AuthMode.Static, "pw", netId: "alpha");
+        AddRemoteServer(harness, "node-3", "remote-b", "10.2.0.30", AuthMode.Static, "pw", netId: "beta");
+        harness.Server.LanNeighbors.Add("node-2");
+        harness.Server.LanNeighbors.Add("node-3");
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/net_scan_netid.ms",
+            """
+            s = net.scan("alpha")
+            print "ok=" + str(s.ok)
+            print "code=" + s.code
+            print "ifCount=" + str(len(s.interfaces))
+            print "if0=" + s.interfaces[0].netId + ":" + s.interfaces[0].localIp
+            print "if0Count=" + str(len(s.interfaces[0].neighbors))
+            print "count=" + str(len(s.ips))
+            print "ip0=" + s.ips[0]
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/net_scan_netid.ms", terminalSessionId: "ts-ms-net-scan-netid");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ifCount=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "if0=alpha:10.1.0.10", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "if0Count=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "count=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ip0=10.1.0.20", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures miniscript net.scan returns NotFound for unknown interface ids.</summary>
+    [Fact]
+    public void Execute_Miniscript_Net_Scan_UnknownNetId_ReturnsNotFound()
     {
         var harness = CreateHarness(includeVfsModule: true);
         harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
@@ -2603,34 +2760,71 @@ public sealed class SystemCallTest
             },
         });
 
-        AddRemoteServer(harness, "node-2", "remote-a", "10.1.0.20", AuthMode.Static, "pw", netId: "alpha");
-        AddRemoteServer(harness, "node-3", "remote-b", "10.1.0.30", AuthMode.Static, "pw", netId: "alpha");
-        harness.Server.LanNeighbors.Add("node-3");
-        harness.Server.LanNeighbors.Add("node-2");
-        harness.Server.LanNeighbors.Add("node-2");
-        harness.Server.LanNeighbors.Add("missing-node");
-
         harness.BaseFileSystem.AddDirectory("/scripts");
         harness.BaseFileSystem.AddFile(
-            "/scripts/net_scan_local.ms",
+            "/scripts/net_scan_unknown_netid.ms",
             """
-            s = net.scan("lan")
+            s = net.scan("gamma")
             print "ok=" + str(s.ok)
             print "code=" + s.code
-            print "count=" + str(len(s.ips))
-            print "ip0=" + s.ips[0]
-            print "ip1=" + s.ips[1]
             """,
             fileKind: VfsFileKind.Text);
 
-        var result = Execute(harness, "miniscript /scripts/net_scan_local.ms", terminalSessionId: "ts-ms-net-scan-local");
+        var result = Execute(harness, "miniscript /scripts/net_scan_unknown_netid.ms", terminalSessionId: "ts-ms-net-scan-unknown");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=NotFound", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures miniscript net.interfaces returns all local interfaces sorted by netId and IP.</summary>
+    [Fact]
+    public void Execute_Miniscript_Net_Interfaces_SucceedsAndReturnsAllLocalInterfaces()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.Server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "beta",
+                Ip = "10.2.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "alpha",
+                Ip = "10.1.0.10",
+            },
+        });
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/net_interfaces.ms",
+            """
+            s = net.interfaces()
+            print "ok=" + str(s.ok)
+            print "code=" + s.code
+            print "count=" + str(len(s.interfaces))
+            print "i0=" + s.interfaces[0].netId + ":" + s.interfaces[0].localIp
+            print "i1=" + s.interfaces[1].netId + ":" + s.interfaces[1].localIp
+            print "i2=" + s.interfaces[2].netId + ":" + s.interfaces[2].localIp
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/net_interfaces.ms", terminalSessionId: "ts-ms-net-interfaces");
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "count=2", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "ip0=10.1.0.20", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "ip1=10.1.0.30", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "count=3", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "i0=alpha:10.1.0.10", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "i1=beta:10.2.0.10", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "i2=internet:10.0.0.10", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures route-scoped net.scan resolves source/permissions from route.lastSession only.</summary>
@@ -2682,7 +2876,7 @@ public sealed class SystemCallTest
             route["sessions"] = []
             route["prefixRoutes"] = []
             route["hopCount"] = 0
-            s = net.scan(route, "lan")
+            s = net.scan(route)
             print "ok=" + str(s.ok)
             print "code=" + s.code
             if s.ok == 1 then print "count=" + str(len(s.ips))
@@ -2857,7 +3051,7 @@ public sealed class SystemCallTest
         harness.BaseFileSystem.AddFile(
             "/scripts/net_invalid_args.ms",
             """
-            s = net.scan("wan")
+            s = net.scan("lan")
             print "scode=" + s.code
             bad = {}
             bad["kind"] = "nope"
@@ -3388,9 +3582,51 @@ public sealed class SystemCallTest
         Assert.DoesNotContain(result.Lines, static line => line.Contains("node-3", StringComparison.Ordinal));
     }
 
-    /// <summary>Ensures scan prints current-subnet to neighbor IP list with aligned continuation lines.</summary>
+    /// <summary>Ensures scan prints per-interface blocks with hostname-first neighbor labels.</summary>
     [Fact]
-    public void Execute_Scan_PrintsAlignedNeighborIps()
+    public void Execute_Scan_PrintsInterfaceBlocksWithHostnameFirstLabels()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        harness.Server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "alpha",
+                Ip = "10.1.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "beta",
+                Ip = "10.2.0.10",
+            },
+        });
+
+        var remoteA = AddRemoteServer(harness, "node-2", "remote-a", "10.1.0.20", AuthMode.Static, "pw", netId: "alpha");
+        AddRemoteServer(harness, "node-3", "remote-b", "10.2.0.30", AuthMode.Static, "pw", netId: "beta");
+        harness.Server.LanNeighbors.Add("node-3");
+        harness.Server.LanNeighbors.Add("node-2");
+
+        SetAutoPropertyBackingField(harness.World, "PlayerWorkstationServer", remoteA);
+
+        var result = Execute(harness, "scan", terminalSessionId: "ts-scan");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Equal(4, result.Lines.Count);
+        Assert.Equal("[interface alpha 10.1.0.10] -", result.Lines[0]);
+        Assert.Equal("    remote-a", result.Lines[1]);
+        Assert.Equal("[interface beta 10.2.0.10] -", result.Lines[2]);
+        Assert.Equal("    remote-b", result.Lines[3]);
+    }
+
+    /// <summary>Ensures scan falls back to IP when a neighbor hostname is missing.</summary>
+    [Fact]
+    public void Execute_Scan_FallsBackToIpWhenNeighborHostnameMissing()
     {
         var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
         harness.Server.SetInterfaces(new[]
@@ -3408,19 +3644,87 @@ public sealed class SystemCallTest
         });
 
         var remoteA = AddRemoteServer(harness, "node-2", "remote-a", "10.1.0.20", AuthMode.Static, "pw", netId: "alpha");
-        AddRemoteServer(harness, "node-3", "remote-b", "10.1.0.30", AuthMode.Static, "pw", netId: "alpha");
-        harness.Server.LanNeighbors.Add("node-3");
-        harness.Server.LanNeighbors.Add("node-2");
-
+        var remoteNoName = AddRemoteServer(harness, "node-3", string.Empty, "10.1.0.30", AuthMode.Static, "pw", netId: "alpha");
+        harness.Server.LanNeighbors.Add(remoteNoName.NodeId);
+        harness.Server.LanNeighbors.Add(remoteA.NodeId);
         SetAutoPropertyBackingField(harness.World, "PlayerWorkstationServer", remoteA);
 
-        var result = Execute(harness, "scan", terminalSessionId: "ts-scan");
+        var result = Execute(harness, "scan", terminalSessionId: "ts-scan-fallback");
 
         Assert.True(result.Ok);
         Assert.Equal(SystemCallErrorCode.None, result.Code);
         Assert.Equal(2, result.Lines.Count);
-        Assert.Equal("10.1.0.10 - 10.1.0.20", result.Lines[0]);
-        Assert.Equal(new string(' ', "10.1.0.10 - ".Length) + "10.1.0.30", result.Lines[1]);
+        Assert.Equal("[interface alpha 10.1.0.10] -", result.Lines[0]);
+        Assert.Equal("    10.1.0.30, remote-a", result.Lines[1]);
+    }
+
+    /// <summary>Ensures scan accepts a netId filter and prints only the requested interface block.</summary>
+    [Fact]
+    public void Execute_Scan_WithNetId_PrintsOnlyRequestedInterfaceBlock()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        harness.Server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "alpha",
+                Ip = "10.1.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "beta",
+                Ip = "10.2.0.10",
+            },
+        });
+
+        var remoteA = AddRemoteServer(harness, "node-2", "remote-a", "10.1.0.20", AuthMode.Static, "pw", netId: "alpha");
+        AddRemoteServer(harness, "node-3", "remote-b", "10.2.0.30", AuthMode.Static, "pw", netId: "beta");
+        harness.Server.LanNeighbors.Add("node-2");
+        harness.Server.LanNeighbors.Add("node-3");
+        SetAutoPropertyBackingField(harness.World, "PlayerWorkstationServer", remoteA);
+
+        var result = Execute(harness, "scan alpha", terminalSessionId: "ts-scan-filter");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Equal(2, result.Lines.Count);
+        Assert.Equal("[interface alpha 10.1.0.10] -", result.Lines[0]);
+        Assert.Equal("    remote-a", result.Lines[1]);
+    }
+
+    /// <summary>Ensures scan returns NotFound when the requested interface id does not exist.</summary>
+    [Fact]
+    public void Execute_Scan_WithUnknownNetId_ReturnsNotFound()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        harness.Server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "alpha",
+                Ip = "10.1.0.10",
+            },
+        });
+
+        var workstation = AddRemoteServer(harness, "node-work", "workstation", "10.0.9.9", AuthMode.None, "ignored");
+        SetAutoPropertyBackingField(harness.World, "PlayerWorkstationServer", workstation);
+
+        var result = Execute(harness, "scan missing", terminalSessionId: "ts-scan-missing-netid");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFound, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Contains("scan: interface not found: missing", result.Lines[0], StringComparison.Ordinal);
     }
 
     /// <summary>Ensures scan prints no-neighbor message for player workstation context.</summary>
@@ -4464,6 +4768,19 @@ public sealed class SystemCallTest
             ch => Assert.True(allowed.IndexOf(ch) >= 0, $"Unexpected character: {ch}"));
     }
 
+    /// <summary>Ensures AUTO numeric+special policy also supports cN_numspecial format.</summary>
+    [Fact]
+    public void ResolvePassword_AutoNumSpecialPolicy_SupportsCPrefixFormat()
+    {
+        const string allowed = "0123456789!@#$%^&*()";
+        var resolved = InvokeResolvePassword("AUTO:c5_numspecial", 12345, "node-alpha", "guestKey");
+
+        Assert.Equal(5, resolved.Length);
+        Assert.All(
+            resolved,
+            ch => Assert.True(allowed.IndexOf(ch) >= 0, $"Unexpected character: {ch}"));
+    }
+
     /// <summary>Ensures AUTO fallback password policy is deterministic for same worldSeed and changes across seeds.</summary>
     [Fact]
     public void ResolvePassword_AutoFallbackPolicy_IsDeterministicAndWorldSeedSensitive()
@@ -5209,6 +5526,46 @@ public sealed class SystemCallTest
         }
 
         return literals;
+    }
+
+    private static HashSet<int> GetWrappedIntrinsicIdsFromRateLimiter()
+    {
+        var limiterType = RequireRuntimeType("Uplink2.Runtime.MiniScript.MiniScriptIntrinsicRateLimiter");
+        var wrappedCodesField = limiterType.GetField("originalCodesById", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(wrappedCodesField);
+
+        var wrappedCodes = wrappedCodesField!.GetValue(null);
+        Assert.NotNull(wrappedCodes);
+
+        var keysProperty = wrappedCodes!.GetType().GetProperty("Keys", BindingFlags.Instance | BindingFlags.Public);
+        Assert.NotNull(keysProperty);
+        var keysObject = keysProperty!.GetValue(wrappedCodes);
+        Assert.NotNull(keysObject);
+        var keysEnumerable = keysObject as System.Collections.IEnumerable;
+        Assert.NotNull(keysEnumerable);
+
+        var wrappedIntrinsicIds = new HashSet<int>();
+        foreach (var key in keysEnumerable!)
+        {
+            Assert.IsType<int>(key);
+            wrappedIntrinsicIds.Add((int)key);
+        }
+
+        return wrappedIntrinsicIds;
+    }
+
+    private static void AssertIntrinsicWrapped(IReadOnlySet<int> wrappedIntrinsicIds, string intrinsicName)
+    {
+        var intrinsic = Intrinsic.GetByName(intrinsicName);
+        Assert.NotNull(intrinsic);
+        Assert.Contains(intrinsic!.id, wrappedIntrinsicIds);
+    }
+
+    private static void AssertIntrinsicNotWrapped(IReadOnlySet<int> wrappedIntrinsicIds, string intrinsicName)
+    {
+        var intrinsic = Intrinsic.GetByName(intrinsicName);
+        Assert.NotNull(intrinsic);
+        Assert.DoesNotContain(intrinsic!.id, wrappedIntrinsicIds);
     }
 
     private sealed record SystemCallHarness(

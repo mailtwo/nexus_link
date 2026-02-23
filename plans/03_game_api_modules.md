@@ -103,11 +103,11 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 여러 API는 **첫 인자로 session/sessionOrRoute를 선택적으로 받을 수 있다.**
 - `foo(path, ...)`  : 현재 실행 컨텍스트(현재 host/user/cwd)에서 수행
 - `foo(session, path, ...)` : 해당 session의 원격 host/user 컨텍스트에서 수행
-- 일부 API(`ssh.exec`, `ftp.get`, `ftp.put`, `fs.list/read/write/delete/stat`, `net.scan/ports/banner`)는 `sessionOrRoute`를 받아 `Session|SshRoute`를 모두 허용한다.
+- 일부 API(`ssh.exec`, `ftp.get`, `ftp.put`, `fs.list/read/write/delete/stat`, `net.interfaces/scan/ports/banner`)는 `sessionOrRoute`를 받아 `Session|SshRoute`를 모두 허용한다.
 
 판정 규칙(v0.2):
 - 첫 인자가 맵이고 `kind == "sshSession"`이면 session으로 해석한다.
-- 첫 인자가 맵이고 `kind == "sshRoute"`이면 route로 해석한다. (`ssh.exec`, `ftp.get`, `ftp.put`, `fs.list/read/write/delete/stat`, `net.scan/ports/banner`)
+- 첫 인자가 맵이고 `kind == "sshRoute"`이면 route로 해석한다. (`ssh.exec`, `ftp.get`, `ftp.put`, `fs.list/read/write/delete/stat`, `net.interfaces/scan/ports/banner`)
 - 그 외에는 session 생략으로 간주한다.
 
 > 이 규칙은 MiniScript에서 오버로딩을 흉내 내기 위한 “인자 타입 기반 디스패치”이다.
@@ -139,6 +139,13 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - `miniscript <script> [args...]` 실행 시 `argv`에는 `<script>` 뒤 인자들만 들어간다.
 - `ExecutableScript` 직접 실행(`<scriptPath> [args...]`)도 동일하게 `argv`/`argc`를 제공한다.
 - 인자가 없으면 `argv=[]`, `argc=0`이다.
+
+### 0.11 intrinsic 호출 속도 제한(shared 100k)
+- 본 문서에서 정의하는 인게임 API intrinsic은 기본적으로 **인터프리터 단위 shared 버킷(초당 100,000회)** 제한 대상이다.
+- 현재 버전의 **제외 API group**은 `term`, `time`만이다.
+- 따라서 현재 포함 모듈 기준으로는 `fs`, `net`(`interfaces/scan/ports/banner` 포함), `ssh`, `ftp`가 shared 100k 제한 대상이다.
+- 추후 확장되는 API group(예: `http/web/db/crypto/proc` 등)도 **별도 제외 선언이 없으면** 동일하게 shared 100k 제한에 포함한다.
+- 제외 API group 목록은 향후 늘어날 수 있으나, 본 문서(v0.2) 기준 공식 제외 목록은 `term`, `time`만으로 본다.
 
 ---
 
@@ -282,31 +289,64 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 
 ---
 
-## 4) net (스캔/포트/배너)
+## 4) net (인터페이스/스캔/포트/배너)
 
-지원 함수(이번 버전): `scan/ports/banner`
+지원 함수(이번 버전): `interfaces/scan/ports/banner`
 
-### 4.1 `net.scan([sessionOrRoute], subnetOrHost)`
-- 목적: 네트워크 탐색(주로 LAN 이웃 탐색)
+### 4.1 `net.interfaces([sessionOrRoute])`
+- 목적: 현재 endpoint 노드의 인터페이스 목록 조회
 - 인자:
   - `sessionOrRoute?: Session|SshRoute`
-    - `Session`이면 해당 session의 서버/계정/netId 컨텍스트 기준
-    - `SshRoute`이면 `route.lastSession`의 서버/계정/netId 컨텍스트 기준
-  - `subnetOrHost: string`
-    - v0.2에서는 `"lan"`만 필수 지원
-- 동작(`net.scan("lan")` 고정 규칙):
-  1) 실행 컨텍스트 서버의 `lanNeighbors(nodeId)`를 읽는다.
-  2) 각 이웃 nodeId를 “실행 컨텍스트 netId” 기준 IP로 변환한다.
-  3) 최종 반환은 IP 문자열 리스트다.
+    - `Session`이면 해당 session endpoint 기준
+    - `SshRoute`이면 `route.lastSession` endpoint 기준
 - 권한:
   - 실행 컨텍스트 계정의 `execute=true`가 필요(권장)
     - route 모드에서는 `route.lastSession` 사용자 기준
 - 반환 `data`:
-  - `{ ips: List<string> }`
+  - `{ interfaces: List<{ netId:string, localIp:string }> }`
 - 실패:
   - `ERR_PERMISSION_DENIED`, `ERR_INVALID_ARGS`
 
-### 4.2 `net.ports([sessionOrRoute], hostOrIp, opts?)`
+### 4.2 `net.scan([sessionOrRoute], netId=null)`
+- 목적: endpoint 노드의 비-internet 인터페이스 기준 이웃 스캔
+- 인자:
+  - `sessionOrRoute?: Session|SshRoute`
+    - `Session`이면 해당 session endpoint 기준
+    - `SshRoute`이면 `route.lastSession` endpoint 기준
+  - `netId?: string|null`
+    - 생략/null이면 endpoint의 모든 비-internet 인터페이스를 스캔
+    - 지정하면 해당 netId 인터페이스만 스캔
+    - `net.scan("lan")` 호환은 제거(v0.2): `ERR_INVALID_ARGS`
+- 동작:
+  1) 스캔 대상 인터페이스를 결정한다(비-internet + localIp 보유).
+  2) 각 인터페이스별로 `lanNeighbors(nodeId)`를 순회하며 동일 `netId`의 neighbor IP를 수집한다.
+  3) 인터페이스별 이웃 목록(`neighbors`)을 구성한다.
+  4) 호환 필드로 전체 이웃 IP의 unique/sorted 합집합(`ips`)도 함께 제공한다.
+- 권한:
+  - 실행 컨텍스트 계정의 `execute=true`가 필요(권장)
+    - route 모드에서는 `route.lastSession` 사용자 기준
+- 반환 `data`:
+  - `{ interfaces: List<{ netId:string, localIp:string, neighbors: List<string> }>, ips: List<string> }`
+- 실패:
+  - `ERR_PERMISSION_DENIED`, `ERR_INVALID_ARGS`, `ERR_NOT_FOUND`(지정 netId 미존재)
+
+#### scan systemcall 출력 규격(v0.2)
+- `scan`:
+  - 현재 노드의 모든 비-internet 인터페이스를 스캔해 인터페이스 블록 단위로 출력
+- `scan <netId>`:
+  - 해당 인터페이스 블록만 출력
+- 출력 형식:
+  - `[interface <netId> <localIp>] -`
+  - `    <neighbor1>, <neighbor2>, ...`
+- neighbor 표시 규칙:
+  - `hostname` 우선, hostname이 비어 있으면 `ip` fallback
+- 예시:
+  - `[interface sub1 10.0.10.5] -`
+  - `    medium_gateway, 10.0.10.8`
+  - `[interface sub2 10.0.20.5] -`
+  - `    medium_server`
+
+### 4.3 `net.ports([sessionOrRoute], hostOrIp, opts?)`
 - 목적: 대상 호스트의 열린 포트(서비스) 조회
 - 인자:
   - `sessionOrRoute?: Session|SshRoute`
@@ -322,7 +362,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 실패:
   - `ERR_NOT_FOUND`, `ERR_NET_DENIED`
 
-### 4.3 `net.banner([sessionOrRoute], hostOrIp, port)`
+### 4.4 `net.banner([sessionOrRoute], hostOrIp, port)`
 - 목적: 서비스 배너/버전 단서 조회
 - 인자:
   - `sessionOrRoute?: Session|SshRoute`

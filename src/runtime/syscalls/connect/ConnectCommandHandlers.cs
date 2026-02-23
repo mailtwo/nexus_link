@@ -726,6 +726,8 @@ internal sealed class ScanCommandHandler : ISystemCallHandler
 {
     private const string InternetNetId = "internet";
     private const string PermissionDeniedMessage = "scan: permission denied";
+    private const string NetIdNotFoundMessagePrefix = "scan: interface not found: ";
+    private const string InvalidNetIdMessage = "scan: netId must not be empty.";
     private const string NoNeighborMessage =
         "No adjacent servers found (this server is not connected to a subnet or is the player workstation).";
 
@@ -733,9 +735,19 @@ internal sealed class ScanCommandHandler : ISystemCallHandler
 
     public SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
     {
-        if (arguments.Count != 0)
+        if (arguments.Count > 1)
         {
-            return SystemCallResultFactory.Usage("scan");
+            return SystemCallResultFactory.Usage("scan [netId]");
+        }
+
+        var requestedNetId = string.Empty;
+        if (arguments.Count == 1)
+        {
+            requestedNetId = arguments[0].Trim();
+            if (string.IsNullOrWhiteSpace(requestedNetId))
+            {
+                return SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, InvalidNetIdMessage);
+            }
         }
 
         if (!context.User.Privilege.Execute)
@@ -743,60 +755,42 @@ internal sealed class ScanCommandHandler : ISystemCallHandler
             return SystemCallResultFactory.Failure(SystemCallErrorCode.PermissionDenied, PermissionDeniedMessage);
         }
 
-        if (IsPlayerWorkstation(context) || !HasNonInternetInterface(context.Server))
+        if (IsPlayerWorkstation(context))
         {
             return SystemCallResultFactory.Success(lines: new[] { NoNeighborMessage });
         }
 
-        var neighborIps = new List<string>();
-        var seenNeighborIps = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var neighborNodeId in context.Server.LanNeighbors)
+        var scannedInterfaces = CollectScannableInterfaces(context.Server, requestedNetId);
+        if (scannedInterfaces.Count == 0)
         {
-            if (!context.World.TryGetServer(neighborNodeId, out var neighborServer))
+            if (!string.IsNullOrWhiteSpace(requestedNetId))
             {
-                continue;
+                return SystemCallResultFactory.Failure(
+                    SystemCallErrorCode.NotFound,
+                    NetIdNotFoundMessagePrefix + requestedNetId);
             }
 
-            var neighborIp = ResolveNeighborIp(context.Server, neighborServer);
-            if (string.IsNullOrWhiteSpace(neighborIp) || !seenNeighborIps.Add(neighborIp))
-            {
-                continue;
-            }
-
-            neighborIps.Add(neighborIp);
-        }
-
-        if (neighborIps.Count == 0)
-        {
             return SystemCallResultFactory.Success(lines: new[] { NoNeighborMessage });
         }
 
-        neighborIps.Sort(StringComparer.Ordinal);
-
-        var currentIp = ResolveCurrentSubnetIp(context.Server);
-        if (string.IsNullOrWhiteSpace(currentIp))
+        var lines = new List<string>(scannedInterfaces.Count * 2);
+        foreach (var scannedInterface in scannedInterfaces)
         {
-            currentIp = context.Server.PrimaryIp ?? string.Empty;
-        }
-
-        if (string.IsNullOrWhiteSpace(currentIp))
-        {
-            return SystemCallResultFactory.Success(lines: neighborIps);
-        }
-
-        var prefix = currentIp + " - ";
-        var lines = new List<string>(neighborIps.Count)
-        {
-            prefix + neighborIps[0],
-        };
-
-        if (neighborIps.Count > 1)
-        {
-            var indent = new string(' ', prefix.Length);
-            for (var index = 1; index < neighborIps.Count; index++)
+            var neighborRows = CollectNeighborDisplayRows(context, scannedInterface.NetId);
+            lines.Add($"[interface {scannedInterface.NetId} {scannedInterface.LocalIp}] -");
+            if (neighborRows.Count == 0)
             {
-                lines.Add(indent + neighborIps[index]);
+                lines.Add("    (none)");
+                continue;
             }
+
+            var neighborsLine = new List<string>(neighborRows.Count);
+            foreach (var neighbor in neighborRows)
+            {
+                neighborsLine.Add(neighbor.Display);
+            }
+
+            lines.Add("    " + string.Join(", ", neighborsLine));
         }
 
         return SystemCallResultFactory.Success(lines: lines);
@@ -809,80 +803,101 @@ internal sealed class ScanCommandHandler : ISystemCallHandler
                string.Equals(workstation.NodeId, context.Server.NodeId, StringComparison.Ordinal);
     }
 
-    private static bool HasNonInternetInterface(ServerNodeRuntime server)
+    private static List<ScannableInterface> CollectScannableInterfaces(ServerNodeRuntime server, string requestedNetId)
     {
+        var interfaces = new List<ScannableInterface>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var iface in server.Interfaces)
         {
-            if (!string.IsNullOrWhiteSpace(iface.Ip) &&
-                !string.Equals(iface.NetId, InternetNetId, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static string ResolveCurrentSubnetIp(ServerNodeRuntime server)
-    {
-        foreach (var iface in server.Interfaces)
-        {
-            if (!string.IsNullOrWhiteSpace(iface.Ip) &&
-                !string.Equals(iface.NetId, InternetNetId, StringComparison.Ordinal))
-            {
-                return iface.Ip;
-            }
-        }
-
-        return string.Empty;
-    }
-
-    private static string ResolveNeighborIp(ServerNodeRuntime source, ServerNodeRuntime neighbor)
-    {
-        foreach (var sourceInterface in source.Interfaces)
-        {
-            if (string.Equals(sourceInterface.NetId, InternetNetId, StringComparison.Ordinal))
+            if (string.IsNullOrWhiteSpace(iface.NetId) ||
+                string.IsNullOrWhiteSpace(iface.Ip) ||
+                string.Equals(iface.NetId, InternetNetId, StringComparison.Ordinal))
             {
                 continue;
             }
 
-            if (TryGetInterfaceIp(neighbor, sourceInterface.NetId, out var neighborIp))
+            if (!string.IsNullOrWhiteSpace(requestedNetId) &&
+                !string.Equals(iface.NetId, requestedNetId, StringComparison.Ordinal))
             {
-                return neighborIp;
+                continue;
             }
-        }
 
-        foreach (var sourceInterface in source.Interfaces)
-        {
-            if (TryGetInterfaceIp(neighbor, sourceInterface.NetId, out var neighborIp))
+            var dedupeKey = iface.NetId + "\n" + iface.Ip;
+            if (!seen.Add(dedupeKey))
             {
-                return neighborIp;
+                continue;
             }
+
+            interfaces.Add(new ScannableInterface(iface.NetId, iface.Ip));
         }
 
-        foreach (var neighborInterface in neighbor.Interfaces)
+        interfaces.Sort(static (left, right) =>
         {
-            if (!string.IsNullOrWhiteSpace(neighborInterface.Ip) &&
-                !string.Equals(neighborInterface.NetId, InternetNetId, StringComparison.Ordinal))
+            var byNetId = StringComparer.Ordinal.Compare(left.NetId, right.NetId);
+            if (byNetId != 0)
             {
-                return neighborInterface.Ip;
+                return byNetId;
             }
-        }
 
-        if (!string.IsNullOrWhiteSpace(neighbor.PrimaryIp))
-        {
-            return neighbor.PrimaryIp;
-        }
+            return StringComparer.Ordinal.Compare(left.LocalIp, right.LocalIp);
+        });
+        return interfaces;
+    }
 
-        foreach (var neighborInterface in neighbor.Interfaces)
+    private static List<ScanNeighborRow> CollectNeighborDisplayRows(SystemCallExecutionContext context, string netId)
+    {
+        var neighborRows = new List<ScanNeighborRow>();
+        var seenNeighborIps = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var neighborNodeId in context.Server.LanNeighbors)
         {
-            if (!string.IsNullOrWhiteSpace(neighborInterface.Ip))
+            if (!context.World.TryGetServer(neighborNodeId, out var neighborServer))
             {
-                return neighborInterface.Ip;
+                continue;
             }
+
+            if (!TryGetInterfaceIp(neighborServer, netId, out var neighborIp) ||
+                string.IsNullOrWhiteSpace(neighborIp) ||
+                !seenNeighborIps.Add(neighborIp))
+            {
+                continue;
+            }
+
+            var display = ResolveServerDisplayName(neighborServer, neighborIp);
+            neighborRows.Add(new ScanNeighborRow(display, neighborIp));
         }
 
-        return string.Empty;
+        neighborRows.Sort(static (left, right) =>
+        {
+            var byDisplay = StringComparer.Ordinal.Compare(left.Display, right.Display);
+            if (byDisplay != 0)
+            {
+                return byDisplay;
+            }
+
+            return StringComparer.Ordinal.Compare(left.Ip, right.Ip);
+        });
+        return neighborRows;
+    }
+
+    private static string ResolveServerDisplayName(ServerNodeRuntime server, string fallbackIp)
+    {
+        var hostname = server.Name?.Trim() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(hostname))
+        {
+            return hostname;
+        }
+
+        if (!string.IsNullOrWhiteSpace(fallbackIp))
+        {
+            return fallbackIp;
+        }
+
+        if (!string.IsNullOrWhiteSpace(server.PrimaryIp))
+        {
+            return server.PrimaryIp;
+        }
+
+        return server.NodeId;
     }
 
     private static bool TryGetInterfaceIp(ServerNodeRuntime server, string netId, out string ip)
@@ -902,4 +917,7 @@ internal sealed class ScanCommandHandler : ISystemCallHandler
         ip = string.Empty;
         return false;
     }
+
+    private readonly record struct ScannableInterface(string NetId, string LocalIp);
+    private readonly record struct ScanNeighborRow(string Display, string Ip);
 }
