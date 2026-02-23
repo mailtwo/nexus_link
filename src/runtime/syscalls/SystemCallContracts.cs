@@ -210,6 +210,10 @@ internal sealed class TerminalContextTransition
     internal string NextPromptHost { get; init; } = string.Empty;
 
     internal string NextCwd { get; init; } = "/";
+
+    internal bool ClearTerminalBeforeOutput { get; init; }
+
+    internal bool ActivateMotdAnchor { get; init; }
 }
 
 /// <summary>Editor-open payload returned by system calls that enter text editor mode.</summary>

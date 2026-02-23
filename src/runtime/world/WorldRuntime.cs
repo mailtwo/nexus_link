@@ -64,6 +64,10 @@ public partial class WorldRuntime : Node
     [Export]
     public string SaveHmacKeyBase64 { get; set; } = string.Empty;
 
+    /// <summary>Enables prototype-only terminal save/load commands (`save`, `load`).</summary>
+    [Export]
+    public bool EnablePrototypeSaveLoadSystemCalls { get; set; } = true;
+
     /// <summary>Per-world stable seed used for deterministic runtime generation/rendering.</summary>
     public int WorldSeed
     {

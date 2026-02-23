@@ -3537,6 +3537,157 @@ public sealed class SystemCallTest
         Assert.Contains("not connected", result.Lines[0], StringComparison.Ordinal);
     }
 
+    /// <summary>Ensures prototype save validates slot argument shape and range.</summary>
+    [Theory]
+    [InlineData("save")]
+    [InlineData("save x")]
+    [InlineData("save -1")]
+    [InlineData("save 10")]
+    public void Execute_PrototypeSave_ValidatesSlotArgument(string commandLine)
+    {
+        var harness = CreateHarness(includeVfsModule: false, includePrototypeSaveLoadModule: true);
+
+        var result = Execute(harness, commandLine, terminalSessionId: "ts-proto-save-args");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+    }
+
+    /// <summary>Ensures prototype load validates slot argument shape and range.</summary>
+    [Theory]
+    [InlineData("load")]
+    [InlineData("load x")]
+    [InlineData("load -1")]
+    [InlineData("load 10")]
+    public void Execute_PrototypeLoad_ValidatesSlotArgument(string commandLine)
+    {
+        var harness = CreateHarness(includeVfsModule: false, includePrototypeSaveLoadModule: true);
+
+        var result = Execute(harness, commandLine, terminalSessionId: "ts-proto-load-args");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+    }
+
+    /// <summary>Ensures prototype save fails with clear error when HMAC key is not configured.</summary>
+    [Fact]
+    public void Execute_PrototypeSave_Fails_WhenSaveHmacKeyIsMissing()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includePrototypeSaveLoadModule: true);
+        var resolverRoot = CreatePrototypeSlotPathResolverRoot();
+        using var resolverScope = OverridePrototypeSlotPathResolver(resolverRoot);
+
+        try
+        {
+            var result = Execute(harness, "save 9", terminalSessionId: "ts-proto-save-missing-key");
+
+            Assert.False(result.Ok);
+            Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+            Assert.Contains("SaveHmacKeyBase64", result.Lines[0], StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(resolverRoot);
+        }
+    }
+
+    /// <summary>Ensures prototype save maps slot index to the expected user:// slot path.</summary>
+    [Fact]
+    public void Execute_PrototypeSave_BuildsExpectedSlotPath()
+    {
+        var handlerType = RequireRuntimeType("Uplink2.Runtime.Syscalls.PrototypeSaveCommandHandler");
+        var method = handlerType.GetMethod(
+            "BuildSlotSavePath",
+            BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+        Assert.NotNull(method);
+
+        var slotPath = method!.Invoke(null, new object?[] { 9 }) as string;
+        Assert.Equal("user://saves/slot9.uls1", slotPath);
+    }
+
+    /// <summary>Ensures save/load engine failures map into terminal-friendly system-call failures.</summary>
+    [Fact]
+    public void Execute_PrototypeSave_ConvertsSaveLoadFailure_ToSystemCallFailure()
+    {
+        var handlerType = RequireRuntimeType("Uplink2.Runtime.Syscalls.PrototypeSaveCommandHandler");
+        var method = handlerType.GetMethod(
+            "ConvertSaveLoadFailure",
+            BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+        Assert.NotNull(method);
+
+        var failure = new SaveLoadResult
+        {
+            Ok = false,
+            Code = SaveLoadErrorCode.InvalidArgs,
+            Message = "SaveHmacKeyBase64 must be configured before save/load.",
+            SavePath = "user://saves/slot0.uls1",
+        };
+
+        var systemCallResult = method!.Invoke(null, new object?[] { failure }) as SystemCallResult;
+        Assert.NotNull(systemCallResult);
+        Assert.False(systemCallResult!.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, systemCallResult.Code);
+        Assert.Contains("SaveHmacKeyBase64", systemCallResult.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures prototype load reports not-found when slot file is missing.</summary>
+    [Fact]
+    public void Execute_PrototypeLoad_Fails_WhenSlotFileIsMissing()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includePrototypeSaveLoadModule: true);
+        harness.World.SaveHmacKeyBase64 = "cHJvdG90eXBlLWxvYWQta2V5";
+        var resolverRoot = CreatePrototypeSlotPathResolverRoot();
+        using var resolverScope = OverridePrototypeSlotPathResolver(resolverRoot);
+
+        const int slot = 8;
+        var slotPath = $"user://saves/slot{slot}.uls1";
+        var absoluteSlotPath = ResolvePrototypeSlotPathForTests(resolverRoot, slot);
+        if (File.Exists(absoluteSlotPath))
+        {
+            File.Delete(absoluteSlotPath);
+        }
+
+        try
+        {
+            var result = Execute(harness, $"load {slot}", terminalSessionId: "ts-proto-load-missing-slot");
+
+            Assert.False(result.Ok);
+            Assert.Equal(SystemCallErrorCode.NotFound, result.Code);
+            Assert.Contains(slotPath, result.Lines[0], StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(resolverRoot);
+        }
+    }
+
+    /// <summary>Ensures system-call module toggle disables prototype save/load commands.</summary>
+    [Fact]
+    public void InitializeSystemCalls_ExcludesPrototypeSaveLoad_WhenToggleDisabled()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includePrototypeSaveLoadModule: true);
+        harness.World.EnablePrototypeSaveLoadSystemCalls = false;
+
+        var initializeSystemCalls = typeof(WorldRuntime).GetMethod(
+            "InitializeSystemCalls",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(initializeSystemCalls);
+        initializeSystemCalls!.Invoke(harness.World, Array.Empty<object?>());
+
+        var result = harness.World.ExecuteSystemCall(new SystemCallRequest
+        {
+            NodeId = harness.Server.NodeId,
+            UserId = harness.UserId,
+            Cwd = "/",
+            CommandLine = "save 0",
+            TerminalSessionId = "ts-proto-toggle-off",
+        });
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.UnknownCommand, result.Code);
+        Assert.Contains("unknown command: save", result.Lines[0], StringComparison.Ordinal);
+    }
+
     /// <summary>Ensures ftp validates usage and strict port syntax.</summary>
     [Theory]
     [InlineData("ftp", "usage: ftp")]
@@ -3846,6 +3997,8 @@ public sealed class SystemCallTest
         SetAutoPropertyBackingField(transition, "NextPromptUser", "guest");
         SetAutoPropertyBackingField(transition, "NextPromptHost", "remote");
         SetAutoPropertyBackingField(transition, "NextCwd", "/");
+        SetAutoPropertyBackingField(transition, "ClearTerminalBeforeOutput", true);
+        SetAutoPropertyBackingField(transition, "ActivateMotdAnchor", true);
 
         var transitionResult = SystemCallResult.Success(nextCwd: string.Empty, data: transition);
         var transitionPayload = BuildTerminalCommandResponsePayload(transitionResult);
@@ -3856,6 +4009,8 @@ public sealed class SystemCallTest
         Assert.Equal("guest", transitionPayload["nextPromptUser"]);
         Assert.Equal("remote", transitionPayload["nextPromptHost"]);
         Assert.Equal("/", transitionPayload["nextCwd"]);
+        Assert.Equal(true, transitionPayload["clearTerminal"]);
+        Assert.Equal(true, transitionPayload["activateMotdAnchor"]);
         Assert.Equal(false, transitionPayload["openEditor"]);
         Assert.Equal(string.Empty, transitionPayload["editorPath"]);
         Assert.Equal(string.Empty, transitionPayload["editorContent"]);
@@ -3866,6 +4021,8 @@ public sealed class SystemCallTest
         var cwdResult = SystemCallResult.Success(nextCwd: "/work");
         var cwdPayload = BuildTerminalCommandResponsePayload(cwdResult);
         Assert.Equal("/work", cwdPayload["nextCwd"]);
+        Assert.Equal(false, cwdPayload["clearTerminal"]);
+        Assert.Equal(false, cwdPayload["activateMotdAnchor"]);
         Assert.Equal(false, cwdPayload["openEditor"]);
         Assert.Equal(false, cwdPayload["editorReadOnly"]);
     }
@@ -4572,6 +4729,7 @@ public sealed class SystemCallTest
     private static SystemCallHarness CreateHarness(
         bool includeVfsModule,
         bool includeConnectModule = false,
+        bool includePrototypeSaveLoadModule = false,
         string cwd = "/",
         PrivilegeConfig? privilege = null,
         bool worldDebugOption = false)
@@ -4606,6 +4764,11 @@ public sealed class SystemCallTest
         if (includeConnectModule)
         {
             modules.Add(CreateInternalInstance("Uplink2.Runtime.Syscalls.ConnectSystemCallModule", Array.Empty<object?>()));
+        }
+
+        if (includePrototypeSaveLoadModule)
+        {
+            modules.Add(CreateInternalInstance("Uplink2.Runtime.Syscalls.PrototypeSaveLoadSystemCallModule", Array.Empty<object?>()));
         }
 
         var processor = CreateSystemCallProcessor(world, modules);
@@ -4740,6 +4903,76 @@ public sealed class SystemCallTest
         SetPrivateField(world, "eventIndex", CreateInternalInstance("Uplink2.Runtime.Events.EventIndex", Array.Empty<object?>()));
         SetPrivateField(world, "processScheduler", CreateInternalInstance("Uplink2.Runtime.Events.ProcessScheduler", Array.Empty<object?>()));
         return world;
+    }
+
+    private static string CreatePrototypeSlotPathResolverRoot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "uplink2-prototype-save-tests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        return root;
+    }
+
+    private static string ResolvePrototypeSlotPathForTests(string resolverRoot, int slot)
+    {
+        return Path.Combine(resolverRoot, "saves", $"slot{slot}.uls1");
+    }
+
+    private static IDisposable OverridePrototypeSlotPathResolver(string resolverRoot)
+    {
+        var handlerType = RequireRuntimeType("Uplink2.Runtime.Syscalls.PrototypeSaveCommandHandler");
+        var property = handlerType.GetProperty(
+            "ResolveAbsoluteSlotPath",
+            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        Assert.NotNull(property);
+
+        var previousResolver = property!.GetValue(null);
+        Func<string, string> resolver = slotPath =>
+        {
+            var normalized = slotPath?.Trim() ?? string.Empty;
+            const string prefix = "user://";
+            if (normalized.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                normalized = normalized[prefix.Length..];
+            }
+
+            normalized = normalized.Replace('/', Path.DirectorySeparatorChar);
+            return Path.Combine(resolverRoot, normalized);
+        };
+
+        property.SetValue(null, resolver);
+        return new DelegateRestoreScope(() => property.SetValue(null, previousResolver));
+    }
+
+    private static void DeleteDirectoryIfExists(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+        {
+            return;
+        }
+
+        Directory.Delete(path, recursive: true);
+    }
+
+    private sealed class DelegateRestoreScope : IDisposable
+    {
+        private readonly Action restore;
+        private bool disposed;
+
+        internal DelegateRestoreScope(Action restore)
+        {
+            this.restore = restore;
+        }
+
+        public void Dispose()
+        {
+            if (disposed)
+            {
+                return;
+            }
+
+            disposed = true;
+            restore();
+        }
     }
 
     private static void SetAutoPropertyBackingField(object target, string propertyName, object value)

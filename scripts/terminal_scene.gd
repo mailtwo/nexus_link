@@ -712,6 +712,16 @@ func _append_output(line: String, mode: String = "") -> void:
 	_append_output_batch(lines, mode)
 
 
+func _clear_terminal_output() -> void:
+	text_buffer.clear()
+	output_label.text = ""
+	_dismiss_motd_anchor()
+	_set_bottom_spacer_height(0.0)
+	has_pending_scroll_settle = false
+	has_pending_anchor_overflow_check = false
+	_clear_programmatic_scroll_change()
+
+
 func _append_output_batch(lines: Array[String], mode: String = "") -> void:
 	if lines.is_empty():
 		return
@@ -1098,11 +1108,16 @@ func _initialize_runtime_bridge() -> void:
 
 
 func _apply_systemcall_response(response: Dictionary) -> void:
+	var should_clear_terminal: bool = bool(response.get("clearTerminal", false))
+	var force_motd_anchor: bool = bool(response.get("activateMotdAnchor", false))
+	if should_clear_terminal:
+		_clear_terminal_output()
+
 	var previous_node_id := current_node_id
 	var next_node_id: String = str(response.get("nextNodeId", ""))
 	var lines := _variant_lines_to_string_array(response.get("lines", []))
 	var is_connect_motd := lines.size() > 0 and not next_node_id.is_empty() and next_node_id != previous_node_id
-	if is_connect_motd:
+	if force_motd_anchor or is_connect_motd:
 		_append_output_batch(lines, OUTPUT_SCROLL_MODE_MOTD_ANCHOR_ACTIVATE)
 	else:
 		_append_output_batch(lines)

@@ -29,11 +29,15 @@ public partial class WorldRuntime
     /// <summary>Initializes system-call modules and command dispatch processor.</summary>
     private void InitializeSystemCalls()
     {
-        ISystemCallModule[] modules =
+        var modules = new List<ISystemCallModule>
         {
             new VfsSystemCallModule(enableDebugCommands: DebugOption),
             new ConnectSystemCallModule(),
         };
+        if (EnablePrototypeSaveLoadSystemCalls)
+        {
+            modules.Add(new PrototypeSaveLoadSystemCallModule());
+        }
 
         systemCallProcessor = new SystemCallProcessor(this, modules);
     }
@@ -544,6 +548,8 @@ public partial class WorldRuntime
             ["nextUserId"] = string.Empty,
             ["nextPromptUser"] = string.Empty,
             ["nextPromptHost"] = string.Empty,
+            ["clearTerminal"] = false,
+            ["activateMotdAnchor"] = false,
             ["openEditor"] = false,
             ["editorPath"] = string.Empty,
             ["editorContent"] = string.Empty,
@@ -572,6 +578,8 @@ public partial class WorldRuntime
         payload["nextUserId"] = transition.NextUserId;
         payload["nextPromptUser"] = transition.NextPromptUser;
         payload["nextPromptHost"] = transition.NextPromptHost;
+        payload["clearTerminal"] = transition.ClearTerminalBeforeOutput;
+        payload["activateMotdAnchor"] = transition.ActivateMotdAnchor;
         if (string.IsNullOrWhiteSpace((string)payload["nextCwd"]) &&
             !string.IsNullOrWhiteSpace(transition.NextCwd))
         {
@@ -600,6 +608,8 @@ public partial class WorldRuntime
             ["nextUserId"] = (string)responsePayload["nextUserId"],
             ["nextPromptUser"] = (string)responsePayload["nextPromptUser"],
             ["nextPromptHost"] = (string)responsePayload["nextPromptHost"],
+            ["clearTerminal"] = (bool)responsePayload["clearTerminal"],
+            ["activateMotdAnchor"] = (bool)responsePayload["activateMotdAnchor"],
             ["openEditor"] = (bool)responsePayload["openEditor"],
             ["editorPath"] = (string)responsePayload["editorPath"],
             ["editorContent"] = (string)responsePayload["editorContent"],
