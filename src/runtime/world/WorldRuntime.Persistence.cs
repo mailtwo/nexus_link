@@ -1382,7 +1382,7 @@ public partial class WorldRuntime
     {
         hmacKey = [];
         errorMessage = string.Empty;
-        var rawKey = SaveHmacKeyBase64?.Trim() ?? string.Empty;
+        var rawKey = NormalizeSaveHmacKeyText(SaveHmacKeyBase64);
         if (string.IsNullOrWhiteSpace(rawKey))
         {
             errorMessage = "SaveHmacKeyBase64 must be configured before save/load.";
@@ -1406,6 +1406,33 @@ public partial class WorldRuntime
         }
 
         return true;
+    }
+
+    private static string NormalizeSaveHmacKeyText(string? rawKey)
+    {
+        var normalized = (rawKey ?? string.Empty)
+            .Replace("\uFEFF", string.Empty, StringComparison.Ordinal)
+            .Replace("\u200B", string.Empty, StringComparison.Ordinal)
+            .Replace("\u200C", string.Empty, StringComparison.Ordinal)
+            .Replace("\u200D", string.Empty, StringComparison.Ordinal)
+            .Trim();
+
+        if (normalized.Length >= 2 && IsMatchingQuotePair(normalized[0], normalized[^1]))
+        {
+            normalized = normalized[1..^1].Trim();
+        }
+
+        return normalized;
+    }
+
+    private static bool IsMatchingQuotePair(char first, char last)
+    {
+        return (first == '"' && last == '"')
+            || (first == '\'' && last == '\'')
+            || (first == '\u201C' && last == '\u201D')
+            || (first == '\u2018' && last == '\u2019')
+            || (first == '\uFF02' && last == '\uFF02')
+            || (first == '\uFF07' && last == '\uFF07');
     }
 
     private static bool TryConvertObjectMapToSaveValues(

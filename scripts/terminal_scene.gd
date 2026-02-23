@@ -39,6 +39,8 @@ var is_program_running: bool = false
 var is_motd_anchor_active: bool = false
 var motd_anchor_blank_px: float = 0.0
 var motd_anchor_base_content_px: float = 0.0
+var motd_anchor_requires_fresh_measurement: bool = false
+var motd_anchor_measurement_probe_height: float = -1.0
 var is_programmatic_scroll_change: bool = false
 var has_pending_scroll_settle: bool = false
 var has_pending_anchor_overflow_check: bool = false
@@ -715,6 +717,8 @@ func _append_output(line: String, mode: String = "") -> void:
 func _clear_terminal_output() -> void:
 	text_buffer.clear()
 	output_label.text = ""
+	motd_anchor_requires_fresh_measurement = false
+	motd_anchor_measurement_probe_height = -1.0
 	_dismiss_motd_anchor()
 	_set_bottom_spacer_height(0.0)
 	has_pending_scroll_settle = false
@@ -722,7 +726,7 @@ func _clear_terminal_output() -> void:
 	_clear_programmatic_scroll_change()
 
 
-func _append_output_batch(lines: Array[String], mode: String = "") -> void:
+func _append_output_batch(lines: Array[String], mode: String = "", forced_content_before: float = -1.0) -> void:
 	if lines.is_empty():
 		return
 
@@ -730,7 +734,9 @@ func _append_output_batch(lines: Array[String], mode: String = "") -> void:
 	if resolved_mode.is_empty():
 		resolved_mode = _resolve_default_output_mode()
 
-	var content_before := _get_output_content_height()
+	var content_before := forced_content_before
+	if content_before < 0.0:
+		content_before = _get_output_content_height()
 	for line in lines:
 		text_buffer.append(line)
 	if text_buffer.size() > max_scrollback_lines:
@@ -762,6 +768,27 @@ func _apply_default_scroll_policy_after_append() -> void:
 
 func _activate_motd_anchor(content_before: float, retry_count: int = 0) -> void:
 	var content_after := _get_output_content_height()
+	if motd_anchor_requires_fresh_measurement:
+		# After clear->append, RichTextLabel layout can settle over multiple frames.
+		# Wait until measured content height becomes stable before anchoring.
+		if retry_count < MOTD_ANCHOR_MAX_ACTIVATION_RETRIES:
+			if motd_anchor_measurement_probe_height < 0.0:
+				motd_anchor_measurement_probe_height = content_after
+				call_deferred("_activate_motd_anchor", content_before, retry_count + 1)
+				return
+
+			var delta := absf(content_after - motd_anchor_measurement_probe_height)
+			if delta > 0.5:
+				motd_anchor_measurement_probe_height = content_after
+				call_deferred("_activate_motd_anchor", content_before, retry_count + 1)
+				return
+
+		motd_anchor_requires_fresh_measurement = false
+		motd_anchor_measurement_probe_height = -1.0
+
+	if content_before > content_after:
+		# When output was just cleared, layout may still report a stale previous height.
+		content_before = 0.0
 	var motd_height_px := maxf(0.0, content_after - content_before)
 	var viewport_height_px := output_scroll.size.y
 	if viewport_height_px <= 0.0:
@@ -769,11 +796,19 @@ func _activate_motd_anchor(content_before: float, retry_count: int = 0) -> void:
 			call_deferred("_activate_motd_anchor", content_before, retry_count + 1)
 			return
 		# Fallback for headless/zero-size layouts: skip anchor and keep normal bottom scroll.
+		motd_anchor_requires_fresh_measurement = false
+		motd_anchor_measurement_probe_height = -1.0
 		_dismiss_motd_anchor()
 		_scroll_to_bottom()
 		return
 
 	var blank_px := maxf(0.0, viewport_height_px - motd_height_px)
+	if motd_anchor_requires_fresh_measurement and blank_px <= 0.0 and retry_count < MOTD_ANCHOR_MAX_ACTIVATION_RETRIES:
+		# After clear->append, RichTextLabel may report stale pre-clear height for one or more frames.
+		call_deferred("_activate_motd_anchor", content_before, retry_count + 1)
+		return
+
+	motd_anchor_requires_fresh_measurement = false
 	is_programmatic_scroll_change = true
 	_set_bottom_spacer_height(blank_px)
 
@@ -1117,9 +1152,16 @@ func _apply_systemcall_response(response: Dictionary) -> void:
 	var next_node_id: String = str(response.get("nextNodeId", ""))
 	var lines := _variant_lines_to_string_array(response.get("lines", []))
 	var is_connect_motd := lines.size() > 0 and not next_node_id.is_empty() and next_node_id != previous_node_id
-	if force_motd_anchor or is_connect_motd:
-		_append_output_batch(lines, OUTPUT_SCROLL_MODE_MOTD_ANCHOR_ACTIVATE)
+	var should_activate_motd_anchor := force_motd_anchor or is_connect_motd
+	if should_activate_motd_anchor:
+		var forced_content_before := 0.0 if should_clear_terminal else -1.0
+		motd_anchor_requires_fresh_measurement = should_clear_terminal
+		if should_clear_terminal:
+			motd_anchor_measurement_probe_height = -1.0
+		_append_output_batch(lines, OUTPUT_SCROLL_MODE_MOTD_ANCHOR_ACTIVATE, forced_content_before)
 	else:
+		motd_anchor_requires_fresh_measurement = false
+		motd_anchor_measurement_probe_height = -1.0
 		_append_output_batch(lines)
 
 	var next_cwd: String = str(response.get("nextCwd", ""))

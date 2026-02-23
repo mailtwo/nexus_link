@@ -62,7 +62,7 @@ public partial class WorldRuntime : Node
 
     /// <summary>Base64-encoded HMAC key used for save/load integrity verification.</summary>
     [Export]
-    public string SaveHmacKeyBase64 { get; set; } = string.Empty;
+    public string SaveHmacKeyBase64 { get; set; } = "2CYcE8vXmr5koA2cXr2i2Rx5eHa5arQpW//cS2kWJFg=";
 
     /// <summary>Enables prototype-only terminal save/load commands (`save`, `load`).</summary>
     [Export]
