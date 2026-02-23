@@ -1,0 +1,34 @@
+[System Call Quick Guide]
+입력 형식: <command> [arg1] [arg2] ...
+- 인자는 공백으로 구분합니다.
+- 공백이 들어간 값은 "큰따옴표"로 묶어 입력합니다.
+- 경로는 절대경로(/...) 또는 현재 경로 기준 상대경로를 사용합니다.
+
+[File]
+pwd                    현재 작업 경로를 출력합니다.
+ls [path]              디렉토리 목록을 출력합니다. (path 생략 시 현재 경로)
+cd <path>              작업 경로를 변경합니다.
+cat <file>             텍스트 파일 내용을 출력합니다.
+edit <path>            파일 편집기를 엽니다. (Ctrl+S 저장, Esc 종료)
+mkdir <dir>            새 디렉토리를 생성합니다.
+rm <file>              파일을 삭제합니다. (디렉토리는 삭제 불가)
+
+[Network]
+known                  현재 파악된 public 호스트/IP 목록을 표시합니다.
+scan                   현재 서버와 직접 연결된 인접 서버 IP를 스캔합니다.
+connect [(-p|--port) <port>] <host|ip> <user> <password>
+                       원격 서버에 SSH 접속하고 터미널 컨텍스트를 전환합니다.
+disconnect             현재 원격 SSH 세션을 종료하고 이전 서버로 복귀합니다.
+ftp [(-p|--port) <port>] <get|put> <pathA> [<pathB>]
+                       SSH 연결 상태에서 파일을 전송합니다.
+                       get: 원격 -> 로컬, put: 로컬 -> 원격
+  예) ftp get /etc/motd
+  예) ftp put ./loot.txt /tmp/loot.txt
+
+[Save/Load]
+save [0-9]              현재 진행 상태를 슬롯(0~9)에 저장합니다.
+load [0-9]              슬롯(0~9) 저장 상태를 불러옵니다.
+
+[Program]
+ms <script> args...     스크립트를 miniscript 인터프리터로 실행합니다.
+password_breaker <num> <target> <userId?>  target 서버에 최대 num 길이로 패스워드 브루트포스 공격을 합니다. (userId 생략 시 root)

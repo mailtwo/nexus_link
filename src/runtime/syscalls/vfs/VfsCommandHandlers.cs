@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -83,6 +84,57 @@ internal abstract class VfsCommandHandlerBase : ISystemCallHandler
     protected static SystemCallResult ExecutableReadDenied(string path)
     {
         return SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, ExecutableReadErrorPrefix + path);
+    }
+}
+
+internal sealed class HelpCommandHandler : VfsCommandHandlerBase
+{
+    private const string HelpPageResourcePath = "res://scenario_content/resources/text/help_page.txt";
+
+    public override string Command => "help";
+
+    public override SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
+    {
+        _ = context;
+        if (arguments.Count != 0)
+        {
+            return SystemCallResultFactory.Usage("help");
+        }
+
+        string absolutePath;
+        try
+        {
+            absolutePath = Godot.ProjectSettings.GlobalizePath(HelpPageResourcePath);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or NotSupportedException)
+        {
+            return SystemCallResultFactory.Failure(SystemCallErrorCode.InternalError, ex.Message);
+        }
+
+        if (!File.Exists(absolutePath))
+        {
+            return SystemCallResultFactory.NotFound(HelpPageResourcePath);
+        }
+
+        string content;
+        try
+        {
+            content = File.ReadAllText(absolutePath, Encoding.UTF8);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return SystemCallResultFactory.Failure(SystemCallErrorCode.InternalError, ex.Message);
+        }
+
+        if (string.IsNullOrEmpty(content))
+        {
+            return SystemCallResultFactory.Success();
+        }
+
+        var normalizedContent = content
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n');
+        return SystemCallResultFactory.Success(lines: normalizedContent.Split('\n'));
     }
 }
 
