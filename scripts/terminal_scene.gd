@@ -33,6 +33,9 @@ var current_editor_path: String = ""
 var current_editor_read_only: bool = false
 var current_editor_display_mode: String = "text"
 var current_editor_path_exists: bool = false
+var current_editor_node_id: String = ""
+var current_editor_user_id: String = ""
+var current_editor_cwd: String = "/"
 var editor_dirty: bool = false
 var editor_last_saved_text: String = ""
 var editor_exit_without_save_armed: bool = false
@@ -959,6 +962,10 @@ func _open_editor_mode(
 	current_editor_read_only = read_only
 	current_editor_display_mode = display_mode
 	current_editor_path_exists = path_exists
+	# Keep save target context fixed to the context that opened the editor.
+	current_editor_node_id = current_node_id
+	current_editor_user_id = current_user_id
+	current_editor_cwd = current_cwd
 	editor.text = content
 	editor.editable = not read_only
 	editor.set_caret_line(0)
@@ -975,6 +982,9 @@ func _exit_editor_mode() -> void:
 	editor_dirty = false
 	editor_last_saved_text = ""
 	editor_exit_without_save_armed = false
+	current_editor_node_id = ""
+	current_editor_user_id = ""
+	current_editor_cwd = "/"
 	editor_overlay.visible = false
 	terminal_vbox.visible = true
 	input_line.editable = true
@@ -1050,9 +1060,9 @@ func _save_editor_content() -> void:
 
 	var response: Dictionary = world_runtime.call(
 		"SaveEditorContent",
-		current_node_id,
-		current_user_id,
-		current_cwd,
+		current_editor_node_id if not current_editor_node_id.is_empty() else current_node_id,
+		current_editor_user_id if not current_editor_user_id.is_empty() else current_user_id,
+		current_editor_cwd if not current_editor_cwd.is_empty() else current_cwd,
 		current_editor_path,
 		editor.text)
 

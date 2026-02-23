@@ -20,15 +20,20 @@ public partial class WorldRuntime
     private const string DefaultTerminalSessionKey = "default";
     private const string MotdPath = "/etc/motd";
     private const string OtpBase32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    private const string ConnectionRateLimiterBlockedMessage =
+        "connectionRateLimiter daemon blocked this connection attempt.";
 
     private Dictionary<string, Stack<TerminalConnectionFrame>>? terminalConnectionFramesBySessionId =
         new(StringComparer.Ordinal);
     private Dictionary<string, TerminalProgramExecutionState>? terminalProgramExecutionsBySessionId =
         new(StringComparer.Ordinal);
+    private Dictionary<string, ConnectionRateLimiterState>? connectionRateLimiterStatesByNodeId =
+        new(StringComparer.Ordinal);
 
     private int nextTerminalSessionSerial = 1;
     private int nextTerminalRemoteSessionId = 1;
     private readonly object terminalProgramExecutionSync = new();
+    private object? connectionRateLimiterSync = new();
 
     /// <summary>Initializes system-call modules and command dispatch processor.</summary>
     private void InitializeSystemCalls()
@@ -1178,6 +1183,15 @@ public partial class WorldRuntime
             return false;
         }
 
+        var remoteIp = ResolveRemoteIpForSession(sourceServer, targetServer);
+        if (!IsConnectionRateLimiterAllowed(targetServer, remoteIp))
+        {
+            failureResult = SystemCallResultFactory.Failure(
+                SystemCallErrorCode.PermissionDenied,
+                ConnectionRateLimiterBlockedMessage);
+            return false;
+        }
+
         if (!TryResolveUserByUserId(targetServer, userId, out var targetUserKey, out var targetUser))
         {
             failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.NotFound, $"user not found: {userId}");
@@ -1195,7 +1209,7 @@ public partial class WorldRuntime
             TargetNodeId = targetServer.NodeId,
             TargetUserKey = targetUserKey,
             TargetUserId = ResolvePromptUser(targetServer, targetUserKey),
-            RemoteIp = ResolveRemoteIpForSession(sourceServer, targetServer),
+            RemoteIp = remoteIp,
             HostOrIp = normalizedHostOrIp,
         };
         return true;
@@ -1329,6 +1343,120 @@ public partial class WorldRuntime
         return false;
     }
 
+    private bool IsConnectionRateLimiterAllowed(ServerNodeRuntime targetServer, string sourceIp)
+    {
+        if (!TryResolveConnectionRateLimiterSettings(targetServer, out var settings))
+        {
+            return true;
+        }
+
+        var normalizedSourceIp = string.IsNullOrWhiteSpace(sourceIp)
+            ? "127.0.0.1"
+            : sourceIp.Trim();
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        EnsureConnectionRateLimiterStorage();
+        var limiterSync = GetConnectionRateLimiterSync();
+        lock (limiterSync)
+        {
+            var state = GetOrCreateConnectionRateLimiterState(targetServer.NodeId);
+            return TryConsumeConnectionRateLimiterAttempt(state, normalizedSourceIp, nowMs, settings);
+        }
+    }
+
+    private static bool TryResolveConnectionRateLimiterSettings(
+        ServerNodeRuntime targetServer,
+        out ConnectionRateLimiterSettings settings)
+    {
+        settings = default;
+        if (!targetServer.Daemons.TryGetValue(DaemonType.ConnectionRateLimiter, out var rateLimiterDaemon))
+        {
+            return false;
+        }
+
+        if (!TryReadDaemonPositiveLongArg(rateLimiterDaemon, "monitorMs", out var monitorMs) ||
+            !TryReadDaemonPositiveIntArg(rateLimiterDaemon, "threshold", out var threshold) ||
+            !TryReadDaemonPositiveLongArg(rateLimiterDaemon, "blockMs", out var blockMs) ||
+            !TryReadDaemonPositiveIntArg(rateLimiterDaemon, "rateLimit", out var rateLimit) ||
+            !TryReadDaemonPositiveLongArg(rateLimiterDaemon, "recoveryMs", out var recoveryMs))
+        {
+            return false;
+        }
+
+        settings = new ConnectionRateLimiterSettings(monitorMs, threshold, blockMs, rateLimit, recoveryMs);
+        return true;
+    }
+
+    private static bool TryConsumeConnectionRateLimiterAttempt(
+        ConnectionRateLimiterState state,
+        string sourceIp,
+        long nowMs,
+        ConnectionRateLimiterSettings settings)
+    {
+        if (nowMs < state.OverloadedUntilMs)
+        {
+            return true;
+        }
+
+        if (state.BlockedUntilByIp.TryGetValue(sourceIp, out var blockedUntilMs))
+        {
+            if (blockedUntilMs > nowMs)
+            {
+                return false;
+            }
+
+            state.BlockedUntilByIp.Remove(sourceIp);
+        }
+
+        if (!state.RecentAttemptsByIp.TryGetValue(sourceIp, out var recentAttempts))
+        {
+            recentAttempts = new Queue<long>();
+            state.RecentAttemptsByIp[sourceIp] = recentAttempts;
+        }
+
+        var attemptWindowStartMs = nowMs - settings.MonitorMs;
+        while (recentAttempts.Count > 0 &&
+               recentAttempts.Peek() < attemptWindowStartMs)
+        {
+            recentAttempts.Dequeue();
+        }
+
+        if (recentAttempts.Count + 1 > settings.Threshold)
+        {
+            state.BlockedUntilByIp[sourceIp] = AddDurationMs(nowMs, settings.BlockMs);
+            return false;
+        }
+
+        if (state.RateWindowStartMs <= 0 ||
+            nowMs < state.RateWindowStartMs ||
+            nowMs - state.RateWindowStartMs >= 1000)
+        {
+            state.RateWindowStartMs = nowMs;
+            state.RateCheckedInWindow = 0;
+        }
+
+        if (state.RateCheckedInWindow >= settings.RateLimit)
+        {
+            state.OverloadedUntilMs = AddDurationMs(nowMs, settings.RecoveryMs);
+            return true;
+        }
+
+        state.RateCheckedInWindow++;
+        recentAttempts.Enqueue(nowMs);
+        return true;
+    }
+
+    private static long AddDurationMs(long startMs, long durationMs)
+    {
+        if (durationMs <= 0)
+        {
+            return startMs;
+        }
+
+        return startMs > long.MaxValue - durationMs
+            ? long.MaxValue
+            : startMs + durationMs;
+    }
+
     private static bool TryResolveOtpDaemonSettings(
         ServerNodeRuntime targetServer,
         string targetUserKey,
@@ -1392,6 +1520,21 @@ public partial class WorldRuntime
             return false;
         }
 
+        return true;
+    }
+
+    private static bool TryReadDaemonPositiveIntArg(DaemonStruct daemon, string key, out int value)
+    {
+        value = 0;
+        if (!daemon.DaemonArgs.TryGetValue(key, out var rawValue) ||
+            !TryConvertObjectToLong(rawValue, out var parsedValue) ||
+            parsedValue < 1 ||
+            parsedValue > int.MaxValue)
+        {
+            return false;
+        }
+
+        value = (int)parsedValue;
         return true;
     }
 
@@ -1654,6 +1797,16 @@ public partial class WorldRuntime
         nextTerminalRemoteSessionId = 1;
     }
 
+    internal void ResetConnectionRateLimiterState()
+    {
+        EnsureConnectionRateLimiterStorage();
+        var limiterSync = GetConnectionRateLimiterSync();
+        lock (limiterSync)
+        {
+            connectionRateLimiterStatesByNodeId!.Clear();
+        }
+    }
+
     private void ResetTerminalProgramExecutionState()
     {
         List<TerminalProgramExecutionState> activeStates;
@@ -1668,6 +1821,37 @@ public partial class WorldRuntime
         {
             state.CancellationTokenSource.Cancel();
         }
+    }
+
+    private ConnectionRateLimiterState GetOrCreateConnectionRateLimiterState(string nodeId)
+    {
+        EnsureConnectionRateLimiterStorage();
+        if (!connectionRateLimiterStatesByNodeId!.TryGetValue(nodeId, out var state))
+        {
+            state = new ConnectionRateLimiterState();
+            connectionRateLimiterStatesByNodeId[nodeId] = state;
+        }
+
+        return state;
+    }
+
+    private object GetConnectionRateLimiterSync()
+    {
+        var sync = connectionRateLimiterSync;
+        if (sync is not null)
+        {
+            return sync;
+        }
+
+        var created = new object();
+        var existing = Interlocked.CompareExchange(ref connectionRateLimiterSync, created, null);
+        return existing ?? created;
+    }
+
+    private void EnsureConnectionRateLimiterStorage()
+    {
+        connectionRateLimiterStatesByNodeId ??= new Dictionary<string, ConnectionRateLimiterState>(StringComparer.Ordinal);
+        _ = GetConnectionRateLimiterSync();
     }
 
     private void EnsureTerminalConnectionStorage()
@@ -1782,5 +1966,25 @@ public partial class WorldRuntime
         internal string RemoteIp { get; init; } = string.Empty;
 
         internal string HostOrIp { get; init; } = string.Empty;
+    }
+
+    private readonly record struct ConnectionRateLimiterSettings(
+        long MonitorMs,
+        int Threshold,
+        long BlockMs,
+        int RateLimit,
+        long RecoveryMs);
+
+    private sealed class ConnectionRateLimiterState
+    {
+        internal Dictionary<string, long> BlockedUntilByIp { get; } = new(StringComparer.Ordinal);
+
+        internal Dictionary<string, Queue<long>> RecentAttemptsByIp { get; } = new(StringComparer.Ordinal);
+
+        internal long RateWindowStartMs { get; set; }
+
+        internal int RateCheckedInWindow { get; set; }
+
+        internal long OverloadedUntilMs { get; set; }
     }
 }

@@ -7,7 +7,7 @@ ServerSpec:
     users:
       hardGatewayUser1:
         userId: root
-        passwd: AUTO:c5_numspecial
+        passwd: AUTO:c3_numspecial
         authMode: static
         privilege:
           read: true

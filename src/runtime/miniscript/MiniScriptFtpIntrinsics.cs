@@ -137,26 +137,23 @@ internal static partial class MiniScriptSshIntrinsics
                         ExtractErrorText(destinationFailure)));
             }
 
-            if (state.Mode == MiniScriptSshExecutionMode.RealWorld)
+            if (!TryWriteDestinationFile(firstEndpoint.Server, localDestinationPath, sourceContent, sourceEntry, out var writeFailure))
             {
-                if (!TryWriteDestinationFile(firstEndpoint.Server, localDestinationPath, sourceContent, sourceEntry, out var writeFailure))
-                {
-                    return new Intrinsic.Result(
-                        CreateFtpFailureMap(
-                            writeFailure!.Code,
-                            ExtractErrorText(writeFailure)));
-                }
-
-                executionContext.World.EmitFileAcquire(
-                    fromNodeId: lastEndpoint.NodeId,
-                    userKey: firstEndpoint.UserKey,
-                    fileName: sourceFileName,
-                    remotePath: remoteSourcePath,
-                    localPath: localDestinationPath,
-                    sizeBytes: ToOptionalInt(sourceEntry.Size),
-                    contentId: sourceEntry.ContentId,
-                    transferMethod: "ftp");
+                return new Intrinsic.Result(
+                    CreateFtpFailureMap(
+                        writeFailure!.Code,
+                        ExtractErrorText(writeFailure)));
             }
+
+            executionContext.World.EmitFileAcquire(
+                fromNodeId: lastEndpoint.NodeId,
+                userKey: firstEndpoint.UserKey,
+                fileName: sourceFileName,
+                remotePath: remoteSourcePath,
+                localPath: localDestinationPath,
+                sizeBytes: ToOptionalInt(sourceEntry.Size),
+                contentId: sourceEntry.ContentId,
+                transferMethod: "ftp");
 
             return new Intrinsic.Result(CreateFtpSuccessMap(localDestinationPath, ToOptionalInt(sourceEntry.Size)));
         };
@@ -274,15 +271,12 @@ internal static partial class MiniScriptSshIntrinsics
                         ExtractErrorText(destinationFailure)));
             }
 
-            if (state.Mode == MiniScriptSshExecutionMode.RealWorld)
+            if (!TryWriteDestinationFile(lastEndpoint.Server, remoteDestinationPath, sourceContent, sourceEntry, out var writeFailure))
             {
-                if (!TryWriteDestinationFile(lastEndpoint.Server, remoteDestinationPath, sourceContent, sourceEntry, out var writeFailure))
-                {
-                    return new Intrinsic.Result(
-                        CreateFtpFailureMap(
-                            writeFailure!.Code,
-                            ExtractErrorText(writeFailure)));
-                }
+                return new Intrinsic.Result(
+                    CreateFtpFailureMap(
+                        writeFailure!.Code,
+                        ExtractErrorText(writeFailure)));
             }
 
             return new Intrinsic.Result(CreateFtpSuccessMap(remoteDestinationPath, ToOptionalInt(sourceEntry.Size)));
@@ -462,8 +456,7 @@ internal static partial class MiniScriptSshIntrinsics
             canonicalRouteSessions.Add(canonicalSession);
         }
 
-        if (!TryResolveSessionFtpEndpoint(
-                state,
+        if (!TryResolveSessionSourceFtpEndpoint(
                 executionContext,
                 canonicalRouteSessions[0],
                 out firstEndpoint,
@@ -512,6 +505,80 @@ internal static partial class MiniScriptSshIntrinsics
             executionContext.Server.NodeId,
             userKey,
             BaseFileSystem.NormalizePath("/", executionContext.Cwd));
+        return true;
+    }
+
+    private static bool TryResolveSessionSourceFtpEndpoint(
+        SystemCallExecutionContext executionContext,
+        ValMap sessionMap,
+        out FtpEndpoint endpoint,
+        out string error)
+    {
+        endpoint = default;
+        error = string.Empty;
+        if (!TryReadSessionIdentity(
+                sessionMap,
+                out _,
+                out _,
+                out var sourceMetadata,
+                out var readError))
+        {
+            error = readError;
+            return false;
+        }
+
+        return TryResolveSessionSourceFtpEndpoint(
+            executionContext,
+            sourceMetadata,
+            out endpoint,
+            out error);
+    }
+
+    private static bool TryResolveSessionSourceFtpEndpoint(
+        SystemCallExecutionContext executionContext,
+        SessionSourceMetadata sourceMetadata,
+        out FtpEndpoint endpoint,
+        out string error)
+    {
+        endpoint = default;
+        error = string.Empty;
+        var sourceNodeId = sourceMetadata.SourceNodeId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(sourceNodeId))
+        {
+            error = "session.sourceNodeId is required.";
+            return false;
+        }
+
+        if (!executionContext.World.TryGetServer(sourceNodeId, out var sourceServer))
+        {
+            error = $"source session server not found: {sourceNodeId}.";
+            return false;
+        }
+
+        var sourceUserId = sourceMetadata.SourceUserId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(sourceUserId))
+        {
+            error = "session.sourceUserId is required.";
+            return false;
+        }
+
+        if (!executionContext.World.TryResolveUserKeyByUserId(sourceServer, sourceUserId, out var sourceUserKey))
+        {
+            error = $"source session user not found: {sourceNodeId}/{sourceUserId}.";
+            return false;
+        }
+
+        if (!sourceServer.Users.ContainsKey(sourceUserKey))
+        {
+            error = $"source session user not found: {sourceNodeId}/{sourceUserId}.";
+            return false;
+        }
+
+        endpoint = new FtpEndpoint(
+            sourceServer,
+            sourceNodeId,
+            sourceUserKey,
+            BaseFileSystem.NormalizePath("/", sourceMetadata.SourceCwd));
         return true;
     }
 

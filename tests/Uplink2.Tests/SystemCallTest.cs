@@ -906,6 +906,50 @@ public sealed class SystemCallTest
         Assert.Empty(events);
     }
 
+    /// <summary>Ensures ssh.connect applies connectionRateLimiter and blocks threshold-exceed attempts before auth success.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshConnect_ConnectionRateLimiter_BlocksAfterThreshold()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        AddConnectionRateLimiterDaemon(
+            remote,
+            monitorMs: 60000,
+            threshold: 1,
+            blockMs: 60000,
+            rateLimit: 100,
+            recoveryMs: 60000);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_rate_limiter.ms",
+            """
+            r1 = ssh.connect("10.0.1.20", "guest", "wrong")
+            print "r1ok=" + str(r1.ok)
+            print "r1code=" + r1.code
+            r2 = ssh.connect("10.0.1.20", "guest", "pw")
+            print "r2ok=" + str(r2.ok)
+            print "r2code=" + r2.code
+            print "r2err=" + r2.err
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_rate_limiter.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r1ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r1code=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r2ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r2code=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(
+            result.Lines,
+            static line => string.Equals(
+                line,
+                "r2err=connectionRateLimiter daemon blocked this connection attempt.",
+                StringComparison.Ordinal));
+        Assert.Empty(remote.Sessions);
+    }
+
     /// <summary>Ensures ssh.connect supports opts.session chaining and returns an sshRoute payload.</summary>
     [Fact]
     public void Execute_Miniscript_SshConnect_WithSessionOption_ReturnsRoute()
@@ -942,6 +986,13 @@ public sealed class SystemCallTest
             print "routeKind=" + r2.route.kind
             print "routeHop=" + str(r2.route.hopCount)
             print "routeLast=" + r2.route.lastSession.sessionNodeId
+            print "r1SourceNode=" + r1.session.sourceNodeId
+            print "r1SourceUser=" + r1.session.sourceUserId
+            print "r1SourceCwd=" + r1.session.sourceCwd
+            print "r2s0SourceNode=" + r2.route.sessions[0].sourceNodeId
+            print "r2s1SourceNode=" + r2.route.sessions[1].sourceNodeId
+            print "r2s1SourceUser=" + r2.route.sessions[1].sourceUserId
+            print "r2s1SourceCwd=" + r2.route.sessions[1].sourceCwd
             print "prefixCount=" + str(len(r2.route.prefixRoutes))
             print "prefix0Hop=" + str(r2.route.prefixRoutes[0].hopCount)
             d = ssh.disconnect(r2.route)
@@ -957,6 +1008,13 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "routeKind=sshRoute", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "routeHop=2", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "routeLast=node-3", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r1SourceNode=node-1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r1SourceUser=guest", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r1SourceCwd=/", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r2s0SourceNode=node-1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r2s1SourceNode=node-2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r2s1SourceUser=guest", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r2s1SourceCwd=/", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "prefixCount=1", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "prefix0Hop=1", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "closed=2", StringComparison.Ordinal));
@@ -1950,6 +2008,58 @@ public sealed class SystemCallTest
                 (string)GetPropertyValue(gameEvent, "EventType")));
     }
 
+    /// <summary>Ensures async sandbox ssh.connect applies connectionRateLimiter threshold blocking in validation mode.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_SshSandbox_ConnectionRateLimiter_BlocksAfterThreshold()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        AddConnectionRateLimiterDaemon(
+            remote,
+            monitorMs: 60000,
+            threshold: 1,
+            blockMs: 60000,
+            rateLimit: 100,
+            recoveryMs: 60000);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_async_rate_limiter.ms",
+            """
+            r1 = ssh.connect("10.0.1.20", "guest", "wrong")
+            print "r1ok=" + str(r1.ok)
+            print "r1code=" + r1.code
+            r2 = ssh.connect("10.0.1.20", "guest", "pw")
+            print "r2ok=" + str(r2.ok)
+            print "r2code=" + r2.code
+            print "r2err=" + r2.err
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "miniscript /scripts/ssh_async_rate_limiter.ms",
+            "ts-ssh-async-rate");
+        Assert.True(start.Handled);
+        Assert.True(start.Started);
+
+        WaitForTerminalProgramStop(harness.World, "ts-ssh-async-rate");
+        var outputLines = SnapshotTerminalEventLines(harness.World);
+        Assert.Contains("r1ok=0", outputLines);
+        Assert.Contains("r1code=PermissionDenied", outputLines);
+        Assert.Contains("r2ok=0", outputLines);
+        Assert.Contains("r2code=PermissionDenied", outputLines);
+        Assert.Contains(
+            "r2err=connectionRateLimiter daemon blocked this connection attempt.",
+            outputLines);
+        Assert.Empty(remote.Sessions);
+        var events = DrainQueuedGameEvents(harness.World);
+        Assert.Empty(events);
+    }
+
     /// <summary>Ensures miniscript ftp.get with session input succeeds and emits fileAcquire on local save.</summary>
     [Fact]
     public void Execute_Miniscript_FtpGet_WithSession_Succeeds_AndEmitsFileAcquire()
@@ -2066,7 +2176,20 @@ public sealed class SystemCallTest
     {
         var harness = CreateHarness(includeVfsModule: true);
         harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
-        var first = AddRemoteServer(
+        harness.Server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "alpha",
+                Ip = "10.1.0.10",
+            },
+        });
+        AddRemoteServer(
             harness,
             "node-2",
             "hop-b",
@@ -2103,21 +2226,21 @@ public sealed class SystemCallTest
             """,
             fileKind: VfsFileKind.Text);
 
-        first.Users["guest"].Privilege.Write = false;
+        harness.Server.Users["guest"].Privilege.Write = false;
         last.Users["guest"].Privilege.Read = true;
         var firstWriteDenied = Execute(harness, "miniscript /scripts/ftp_get_route_perm.ms", terminalSessionId: "ts-ms-ftp-get-route");
         Assert.True(firstWriteDenied.Ok);
         Assert.Contains(firstWriteDenied.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
         Assert.Contains(firstWriteDenied.Lines, static line => string.Equals(line, "code=PermissionDenied", StringComparison.Ordinal));
-        Assert.False(first.DiskOverlay.TryResolveEntry("/r.txt", out _));
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/r.txt", out _));
 
-        first.Users["guest"].Privilege.Write = true;
+        harness.Server.Users["guest"].Privilege.Write = true;
         last.Users["guest"].Privilege.Read = false;
         var lastReadDenied = Execute(harness, "miniscript /scripts/ftp_get_route_perm.ms", terminalSessionId: "ts-ms-ftp-get-route");
         Assert.True(lastReadDenied.Ok);
         Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
         Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "code=PermissionDenied", StringComparison.Ordinal));
-        Assert.False(first.DiskOverlay.TryResolveEntry("/r.txt", out _));
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/r.txt", out _));
     }
 
     /// <summary>Ensures ftp.put(route) enforces first.read and last.write privilege checks.</summary>
@@ -2126,7 +2249,20 @@ public sealed class SystemCallTest
     {
         var harness = CreateHarness(includeVfsModule: true);
         harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
-        var first = AddRemoteServer(
+        harness.Server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "alpha",
+                Ip = "10.1.0.10",
+            },
+        });
+        AddRemoteServer(
             harness,
             "node-2",
             "hop-b",
@@ -2145,13 +2281,38 @@ public sealed class SystemCallTest
             exposure: PortExposure.Lan,
             netId: "alpha");
         AddFtpPort(last, exposure: PortExposure.Lan);
-        first.DiskOverlay.AddDirectory("/seed");
-        first.DiskOverlay.WriteFile("/seed/a.txt", "A", fileKind: VfsFileKind.Text);
+        harness.Server.DiskOverlay.AddDirectory("/seed");
+        harness.Server.DiskOverlay.WriteFile("/seed/a.txt", "A", fileKind: VfsFileKind.Text);
+        harness.Server.Users["limited"] = new UserConfig
+        {
+            UserId = "limited",
+            AuthMode = AuthMode.None,
+            Privilege = new PrivilegeConfig
+            {
+                Read = false,
+                Write = true,
+                Execute = true,
+            },
+        };
         last.DiskOverlay.AddDirectory("/incoming");
 
         harness.BaseFileSystem.AddDirectory("/scripts");
         harness.BaseFileSystem.AddFile(
-            "/scripts/ftp_put_route_perm.ms",
+            "/scripts/ftp_put_route_perm_first.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            opts = {}
+            opts["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", opts)
+            r2.route.sessions[0]["sourceUserId"] = "limited"
+            p = ftp.put(r2.route, "/seed/a.txt", "/incoming/a.txt")
+            print "ok=" + str(p.ok)
+            print "code=" + p.code
+            d = ssh.disconnect(r2.route)
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ftp_put_route_perm_last.ms",
             """
             r1 = ssh.connect("10.1.0.20", "guest", "pw")
             opts = {}
@@ -2164,17 +2325,14 @@ public sealed class SystemCallTest
             """,
             fileKind: VfsFileKind.Text);
 
-        first.Users["guest"].Privilege.Read = false;
-        last.Users["guest"].Privilege.Write = true;
-        var firstReadDenied = Execute(harness, "miniscript /scripts/ftp_put_route_perm.ms", terminalSessionId: "ts-ms-ftp-put-route");
+        var firstReadDenied = Execute(harness, "miniscript /scripts/ftp_put_route_perm_first.ms", terminalSessionId: "ts-ms-ftp-put-route");
         Assert.True(firstReadDenied.Ok);
         Assert.Contains(firstReadDenied.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
         Assert.Contains(firstReadDenied.Lines, static line => string.Equals(line, "code=PermissionDenied", StringComparison.Ordinal));
         Assert.False(last.DiskOverlay.TryResolveEntry("/incoming/a.txt", out _));
 
-        first.Users["guest"].Privilege.Read = true;
         last.Users["guest"].Privilege.Write = false;
-        var lastWriteDenied = Execute(harness, "miniscript /scripts/ftp_put_route_perm.ms", terminalSessionId: "ts-ms-ftp-put-route");
+        var lastWriteDenied = Execute(harness, "miniscript /scripts/ftp_put_route_perm_last.ms", terminalSessionId: "ts-ms-ftp-put-route");
         Assert.True(lastWriteDenied.Ok);
         Assert.Contains(lastWriteDenied.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
         Assert.Contains(lastWriteDenied.Lines, static line => string.Equals(line, "code=PermissionDenied", StringComparison.Ordinal));
@@ -2187,6 +2345,19 @@ public sealed class SystemCallTest
     {
         var harness = CreateHarness(includeVfsModule: true);
         harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.Server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "alpha",
+                Ip = "10.1.0.10",
+            },
+        });
         var first = AddRemoteServer(
             harness,
             "node-2",
@@ -2206,7 +2377,7 @@ public sealed class SystemCallTest
             exposure: PortExposure.Lan,
             netId: "alpha");
         AddFtpPort(last, exposure: PortExposure.Lan);
-        first.DiskOverlay.AddDirectory("/recv");
+        harness.Server.DiskOverlay.AddDirectory("/recv");
         last.DiskOverlay.AddDirectory("/drop");
         last.DiskOverlay.WriteFile("/drop/port.txt", "P", fileKind: VfsFileKind.Text);
 
@@ -2229,7 +2400,7 @@ public sealed class SystemCallTest
         Assert.True(success.Ok);
         Assert.Contains(success.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
         Assert.Contains(success.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
-        Assert.True(first.DiskOverlay.TryResolveEntry("/recv/port.txt", out _));
+        Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/recv/port.txt", out _));
 
         last.Ports.Remove(21);
         AddFtpPort(first, exposure: PortExposure.Lan);
@@ -2239,9 +2410,145 @@ public sealed class SystemCallTest
         Assert.Contains(failOnLast.Lines, static line => string.Equals(line, "code=NotFound", StringComparison.Ordinal));
     }
 
-    /// <summary>Ensures async miniscript FTP runs in sandbox validate-only mode without world mutation.</summary>
+    /// <summary>Ensures ftp.put(route) resolves local source from route.sessions[0].source endpoint(A), not first target(B).</summary>
     [Fact]
-    public void TryStartTerminalProgramExecution_FtpSandbox_ValidateOnly_DoesNotMutateWorld()
+    public void Execute_Miniscript_FtpPut_WithRoute_UsesRouteSourceAsLocalEndpoint()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.Server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "alpha",
+                Ip = "10.1.0.10",
+            },
+        });
+        harness.Server.DiskOverlay.AddDirectory("/seed");
+        harness.Server.DiskOverlay.WriteFile("/seed/a.txt", "A", fileKind: VfsFileKind.Text, size: 1);
+
+        var first = AddRemoteServer(
+            harness,
+            "node-2",
+            "hop-b",
+            "10.1.0.20",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Public,
+            netId: "alpha");
+        var last = AddRemoteServer(
+            harness,
+            "node-3",
+            "hop-c",
+            "10.1.0.30",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Lan,
+            netId: "alpha");
+        AddFtpPort(last, exposure: PortExposure.Lan);
+        first.DiskOverlay.AddDirectory("/seed");
+        first.DiskOverlay.WriteFile("/seed/a.txt", "B", fileKind: VfsFileKind.Text, size: 1);
+        last.DiskOverlay.AddDirectory("/incoming");
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ftp_put_route_source.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            opts = {}
+            opts["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", opts)
+            p = ftp.put(r2.route, "/seed/a.txt", "/incoming/a.txt")
+            print "ok=" + str(p.ok)
+            print "code=" + p.code
+            d = ssh.disconnect(r2.route)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ftp_put_route_source.ms", terminalSessionId: "ts-ms-ftp-put-route-source");
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.True(last.DiskOverlay.TryReadFileText("/incoming/a.txt", out var uploadedText));
+        Assert.Equal("A", uploadedText);
+    }
+
+    /// <summary>Ensures ftp.get(route) writes local file to route.sessions[0].source endpoint(A), not first target(B).</summary>
+    [Fact]
+    public void Execute_Miniscript_FtpGet_WithRoute_SavesToRouteSourceEndpoint()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.Server.SetInterfaces(new[]
+        {
+            new InterfaceRuntime
+            {
+                NetId = "internet",
+                Ip = "10.0.0.10",
+            },
+            new InterfaceRuntime
+            {
+                NetId = "alpha",
+                Ip = "10.1.0.10",
+            },
+        });
+        harness.Server.DiskOverlay.AddDirectory("/recv");
+
+        var first = AddRemoteServer(
+            harness,
+            "node-2",
+            "hop-b",
+            "10.1.0.20",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Public,
+            netId: "alpha");
+        var last = AddRemoteServer(
+            harness,
+            "node-3",
+            "hop-c",
+            "10.1.0.30",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Lan,
+            netId: "alpha");
+        AddFtpPort(last, exposure: PortExposure.Lan);
+        first.DiskOverlay.AddDirectory("/recv");
+        last.DiskOverlay.AddDirectory("/drop");
+        last.DiskOverlay.WriteFile("/drop/r.txt", "R", fileKind: VfsFileKind.Text, size: 1);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ftp_get_route_source.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            opts = {}
+            opts["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", opts)
+            g = ftp.get(r2.route, "/drop/r.txt", "/recv")
+            print "ok=" + str(g.ok)
+            print "code=" + g.code
+            d = ssh.disconnect(r2.route)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ftp_get_route_source.ms", terminalSessionId: "ts-ms-ftp-get-route-source");
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/recv/r.txt", out var downloadedText));
+        Assert.Equal("R", downloadedText);
+        Assert.False(first.DiskOverlay.TryResolveEntry("/recv/r.txt", out _));
+    }
+
+    /// <summary>Ensures async miniscript FTP performs real transfers and emits fileAcquire for ftp.get.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_FtpSandbox_PerformsTransfers_AndEmitsFileAcquireForGet()
     {
         var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
         harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
@@ -2288,17 +2595,33 @@ public sealed class SystemCallTest
         Assert.Contains("pok=1", outputLines);
         Assert.Contains("pcode=None", outputLines);
 
-        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/downloads/a.txt", out _));
-        Assert.False(remote.DiskOverlay.TryResolveEntry("/incoming/u.txt", out _));
+        Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/work/downloads/a.txt", out var downloaded));
+        Assert.Equal(VfsEntryKind.File, downloaded.EntryKind);
+        Assert.Equal(VfsFileKind.Text, downloaded.FileKind);
+        Assert.Equal(1, downloaded.Size);
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/work/downloads/a.txt", out var downloadedContent));
+        Assert.Equal("A", downloadedContent);
+
+        Assert.True(remote.DiskOverlay.TryResolveEntry("/incoming/u.txt", out var uploaded));
+        Assert.Equal(VfsEntryKind.File, uploaded.EntryKind);
+        Assert.Equal(VfsFileKind.Text, uploaded.FileKind);
+        Assert.Equal(6, uploaded.Size);
+        Assert.True(remote.DiskOverlay.TryReadFileText("/incoming/u.txt", out var uploadedContent));
+        Assert.Equal("UPLOAD", uploadedContent);
+
         Assert.Empty(remote.Sessions);
         var events = DrainQueuedGameEvents(harness.World);
         Assert.NotEmpty(events);
-        Assert.DoesNotContain(
-            events,
-            static gameEvent => string.Equals(
-                (string)GetPropertyValue(gameEvent, "EventType"),
-                "fileAcquire",
-                StringComparison.Ordinal));
+        var fileAcquireEvents = events
+            .Where(static gameEvent => string.Equals((string)GetPropertyValue(gameEvent, "EventType"), "fileAcquire", StringComparison.Ordinal))
+            .ToList();
+        var fileAcquire = Assert.Single(fileAcquireEvents);
+        var payload = GetPropertyValue(fileAcquire, "Payload");
+        Assert.Equal("node-2", (string?)GetPropertyValue(payload!, "FromNodeId"));
+        Assert.Equal("guest", (string?)GetPropertyValue(payload!, "UserKey"));
+        Assert.Equal("/drop/a.txt", (string?)GetPropertyValue(payload!, "RemotePath"));
+        Assert.Equal("/work/downloads/a.txt", (string?)GetPropertyValue(payload!, "LocalPath"));
+        Assert.Equal("ftp", (string?)GetPropertyValue(payload!, "TransferMethod"));
     }
 
     /// <summary>Ensures miniscript FTP rejects unsupported opts keys and returns InvalidArgs.</summary>
@@ -2345,6 +2668,99 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "pcode=InvalidArgs", StringComparison.Ordinal));
         Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/a.txt", out _));
         Assert.False(remote.DiskOverlay.TryResolveEntry("/incoming/u.txt", out _));
+    }
+
+    /// <summary>Ensures source metadata is required for session/route inputs across ssh/fs/net/ftp APIs.</summary>
+    [Fact]
+    public void Execute_Miniscript_SessionOrRoute_WithoutSourceMetadata_ReturnsInvalidArgs()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var first = AddRemoteServer(
+            harness,
+            "node-2",
+            "hop-b",
+            "10.1.0.20",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Public,
+            netId: "alpha");
+        var last = AddRemoteServer(
+            harness,
+            "node-3",
+            "hop-c",
+            "10.1.0.30",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Lan,
+            netId: "alpha");
+        AddFtpPort(last, exposure: PortExposure.Lan);
+        last.DiskOverlay.AddDirectory("/drop");
+        last.DiskOverlay.WriteFile("/drop/a.txt", "A", fileKind: VfsFileKind.Text, size: 1);
+        first.DiskOverlay.AddDirectory("/drop");
+        first.DiskOverlay.WriteFile("/drop/a.txt", "B", fileKind: VfsFileKind.Text, size: 1);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/session_route_source_required.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            opts = {}
+            opts["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", opts)
+
+            bad = {}
+            bad["kind"] = "sshSession"
+            bad["sessionNodeId"] = r1.session.sessionNodeId
+            bad["sessionId"] = r1.session.sessionId
+            bad["userId"] = r1.session.userId
+            bad["hostOrIp"] = r1.session.hostOrIp
+            bad["remoteIp"] = r1.session.remoteIp
+
+            e = ssh.exec(bad, "pwd")
+            f = fs.read(bad, "/drop/a.txt")
+            n = net.interfaces(bad)
+            g = ftp.get(bad, "/drop/a.txt")
+            badOpts = {}
+            badOpts["session"] = bad
+            c = ssh.connect("10.1.0.30", "guest", "pw", badOpts)
+
+            badRoute = r2.route
+            badRoute.sessions[0]["sourceNodeId"] = null
+            er = ssh.exec(badRoute, "pwd")
+            fr = fs.read(badRoute, "/drop/a.txt")
+            nr = net.interfaces(badRoute)
+            gr = ftp.get(badRoute, "/drop/a.txt")
+
+            print "e=" + e.code
+            print "f=" + f.code
+            print "n=" + n.code
+            print "g=" + g.code
+            print "c=" + c.code
+            print "er=" + er.code
+            print "fr=" + fr.code
+            print "nr=" + nr.code
+            print "gr=" + gr.code
+
+            d2 = ssh.disconnect(r2.session)
+            d1 = ssh.disconnect(r1.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/session_route_source_required.ms", terminalSessionId: "ts-ms-source-required");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "e=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "f=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "n=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "g=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "c=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "er=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "fr=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "nr=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "gr=InvalidArgs", StringComparison.Ordinal));
+        Assert.Empty(first.Sessions);
+        Assert.Empty(last.Sessions);
     }
 
     /// <summary>Ensures miniscript fs.list/read/stat works in local execution context.</summary>
@@ -3685,6 +4101,71 @@ public sealed class SystemCallTest
         Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
         Assert.Single(result.Lines);
         Assert.Contains("Permission denied, please try again.", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures connectionRateLimiter blocks auth attempts after threshold even with a valid password.</summary>
+    [Fact]
+    public void Execute_Connect_ConnectionRateLimiter_BlocksAfterThresholdEvenWithCorrectPassword()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        AddConnectionRateLimiterDaemon(
+            remote,
+            monitorMs: 60000,
+            threshold: 1,
+            blockMs: 60000,
+            rateLimit: 100,
+            recoveryMs: 60000);
+
+        var first = Execute(harness, "connect 10.0.1.20 guest wrong", terminalSessionId: "ts-rate-threshold");
+        Assert.False(first.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, first.Code);
+
+        var blocked = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-rate-threshold");
+        Assert.False(blocked.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, blocked.Code);
+        Assert.Single(blocked.Lines);
+        Assert.Contains(
+            "connectionRateLimiter daemon blocked this connection attempt.",
+            blocked.Lines[0],
+            StringComparison.Ordinal);
+        Assert.Empty(remote.Sessions);
+    }
+
+    /// <summary>Ensures connectionRateLimiter enters overload mode on rate-limit overflow while allowing auth path to continue.</summary>
+    [Fact]
+    public void Execute_Connect_ConnectionRateLimiter_TriggersOverloadAndPassesAttempt()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        AddConnectionRateLimiterDaemon(
+            remote,
+            monitorMs: 60000,
+            threshold: 100,
+            blockMs: 60000,
+            rateLimit: 1,
+            recoveryMs: 60000);
+
+        var overloadTriggered = false;
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            var wrong = Execute(harness, "connect 10.0.1.20 guest wrong", terminalSessionId: "ts-rate-overload");
+            Assert.False(wrong.Ok);
+            Assert.Equal(SystemCallErrorCode.PermissionDenied, wrong.Code);
+            if (TryGetConnectionRateLimiterOverloadedUntilMs(harness.World, remote.NodeId, out var overloadedUntilMs) &&
+                overloadedUntilMs > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+            {
+                overloadTriggered = true;
+                break;
+            }
+        }
+
+        Assert.True(overloadTriggered);
+
+        var success = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-rate-overload");
+        Assert.True(success.Ok);
+        Assert.Equal(SystemCallErrorCode.None, success.Code);
+        Assert.Single(remote.Sessions);
     }
 
     /// <summary>Ensures connect fails when target host or user does not exist.</summary>
@@ -5538,6 +6019,65 @@ public sealed class SystemCallTest
             PortType = PortType.Ftp,
             Exposure = exposure,
         };
+    }
+
+    private static void AddConnectionRateLimiterDaemon(
+        ServerNodeRuntime server,
+        long monitorMs,
+        int threshold,
+        long blockMs,
+        int rateLimit,
+        long recoveryMs)
+    {
+        var daemon = new DaemonStruct
+        {
+            DaemonType = DaemonType.ConnectionRateLimiter,
+        };
+        daemon.DaemonArgs["monitorMs"] = monitorMs;
+        daemon.DaemonArgs["threshold"] = threshold;
+        daemon.DaemonArgs["blockMs"] = blockMs;
+        daemon.DaemonArgs["rateLimit"] = rateLimit;
+        daemon.DaemonArgs["recoveryMs"] = recoveryMs;
+        server.Daemons[DaemonType.ConnectionRateLimiter] = daemon;
+    }
+
+    private static bool TryGetConnectionRateLimiterOverloadedUntilMs(
+        WorldRuntime world,
+        string nodeId,
+        out long overloadedUntilMs)
+    {
+        overloadedUntilMs = 0;
+        var statesField = typeof(WorldRuntime).GetField(
+            "connectionRateLimiterStatesByNodeId",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(statesField);
+        if (statesField!.GetValue(world) is not System.Collections.IDictionary states)
+        {
+            return false;
+        }
+
+        if (!states.Contains(nodeId))
+        {
+            return false;
+        }
+
+        var state = states[nodeId];
+        if (state is null)
+        {
+            return false;
+        }
+
+        var overloadedUntilProperty = state.GetType().GetProperty(
+            "OverloadedUntilMs",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        Assert.NotNull(overloadedUntilProperty);
+        if (overloadedUntilProperty!.GetValue(state) is not long parsedValue)
+        {
+            return false;
+        }
+
+        overloadedUntilMs = parsedValue;
+        return true;
     }
 
     private static WorldRuntime CreateHeadlessWorld(bool debugOption, params ServerNodeRuntime[] servers)

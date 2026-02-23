@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using Uplink2.Runtime.Syscalls;
+using Uplink2.Vfs;
 
 #nullable enable
 
@@ -26,6 +27,9 @@ internal static partial class MiniScriptSshIntrinsics
     private const string OptsSessionKey = "session";
     private const string SessionNodeIdKey = "sessionNodeId";
     private const string SessionIdKey = "sessionId";
+    private const string SessionSourceNodeIdKey = "sourceNodeId";
+    private const string SessionSourceUserIdKey = "sourceUserId";
+    private const string SessionSourceCwdKey = "sourceCwd";
     private const int RouteVersion = 1;
     private const int MaxRouteHops = 8;
 
@@ -150,6 +154,20 @@ internal static partial class MiniScriptSshIntrinsics
                         $"route.hopCount exceeds max hops ({MaxRouteHops})."));
             }
 
+            if (!TryResolveConnectSessionSourceMetadata(
+                    state,
+                    executionContext,
+                    routeRequested,
+                    parentSessions,
+                    out var connectSourceMetadata,
+                    out var connectSourceError))
+            {
+                return new Intrinsic.Result(
+                    CreateConnectFailureMap(
+                        SystemCallErrorCode.InvalidArgs,
+                        connectSourceError));
+            }
+
             if (state.Mode == MiniScriptSshExecutionMode.RealWorld)
             {
                 if (!executionContext.World.TryOpenSshSession(
@@ -165,7 +183,7 @@ internal static partial class MiniScriptSshIntrinsics
                     return new Intrinsic.Result(CreateConnectFailureMap(failureResult.Code, ExtractErrorText(failureResult)));
                 }
 
-                var session = CreateSessionMap(openResult);
+                var session = CreateSessionMap(openResult, connectSourceMetadata);
                 var route = routeRequested
                     ? CreateRouteMap(AppendRouteSession(parentSessions, session))
                     : null;
@@ -194,7 +212,10 @@ internal static partial class MiniScriptSshIntrinsics
                 validated.TargetUserId,
                 validated.HostOrIp,
                 validated.RemoteIp,
-                "/");
+                "/",
+                connectSourceMetadata.SourceNodeId,
+                connectSourceMetadata.SourceUserId,
+                connectSourceMetadata.SourceCwd);
             var sandboxOpenResult = new WorldRuntime.SshSessionOpenResult
             {
                 TargetServer = validated.TargetServer,
@@ -205,7 +226,7 @@ internal static partial class MiniScriptSshIntrinsics
                 RemoteIp = validated.RemoteIp,
                 HostOrIp = validated.HostOrIp,
             };
-            var sandboxSession = CreateSessionMap(sandboxOpenResult);
+            var sandboxSession = CreateSessionMap(sandboxOpenResult, connectSourceMetadata);
             var sandboxRoute = routeRequested
                 ? CreateRouteMap(AppendRouteSession(parentSessions, sandboxSession))
                 : null;
@@ -690,6 +711,55 @@ internal static partial class MiniScriptSshIntrinsics
         return true;
     }
 
+    private static bool TryResolveConnectSessionSourceMetadata(
+        SshModuleState state,
+        SystemCallExecutionContext executionContext,
+        bool routeRequested,
+        IReadOnlyList<ValMap> parentSessions,
+        out SessionSourceMetadata sourceMetadata,
+        out string error)
+    {
+        sourceMetadata = default;
+        error = string.Empty;
+        FtpEndpoint sourceEndpoint;
+        if (!routeRequested)
+        {
+            if (!TryResolveExecutionContextFtpEndpoint(executionContext, out sourceEndpoint, out var executionEndpointError))
+            {
+                error = executionEndpointError;
+                return false;
+            }
+        }
+        else
+        {
+            if (parentSessions.Count == 0)
+            {
+                error = "opts.session must include at least one session.";
+                return false;
+            }
+
+            var sourceSession = parentSessions[parentSessions.Count - 1];
+            if (!TryResolveSessionFtpEndpoint(state, executionContext, sourceSession, out sourceEndpoint, out var sessionEndpointError))
+            {
+                error = sessionEndpointError;
+                return false;
+            }
+        }
+
+        var sourceUserId = executionContext.World.ResolvePromptUser(sourceEndpoint.Server, sourceEndpoint.UserKey);
+        if (string.IsNullOrWhiteSpace(sourceUserId))
+        {
+            error = $"source session user not found: {sourceEndpoint.NodeId}/{sourceEndpoint.UserKey}.";
+            return false;
+        }
+
+        sourceMetadata = new SessionSourceMetadata(
+            sourceEndpoint.NodeId,
+            sourceUserId,
+            sourceEndpoint.Cwd);
+        return true;
+    }
+
     private static bool TryResolveCanonicalSessionMap(
         SshModuleState state,
         SystemCallExecutionContext executionContext,
@@ -699,11 +769,36 @@ internal static partial class MiniScriptSshIntrinsics
     {
         canonicalSession = null!;
         error = string.Empty;
-        if (!TryReadSessionIdentity(inputSessionMap, out var sessionNodeId, out var sessionId, out var readError))
+        if (!TryReadSessionIdentity(
+                inputSessionMap,
+                out var sessionNodeId,
+                out var sessionId,
+                out var sourceMetadata,
+                out var readError))
         {
             error = readError;
             return false;
         }
+
+        if (!TryResolveSessionSourceFtpEndpoint(executionContext, sourceMetadata, out var canonicalSourceEndpoint, out var sourceError))
+        {
+            error = sourceError;
+            return false;
+        }
+
+        var canonicalSourceUserId = executionContext.World.ResolvePromptUser(
+            canonicalSourceEndpoint.Server,
+            canonicalSourceEndpoint.UserKey);
+        if (string.IsNullOrWhiteSpace(canonicalSourceUserId))
+        {
+            error = $"source session user not found: {canonicalSourceEndpoint.NodeId}/{canonicalSourceEndpoint.UserKey}.";
+            return false;
+        }
+
+        var canonicalSourceMetadata = new SessionSourceMetadata(
+            canonicalSourceEndpoint.NodeId,
+            canonicalSourceUserId,
+            canonicalSourceEndpoint.Cwd);
 
         if (state.Mode == MiniScriptSshExecutionMode.RealWorld)
         {
@@ -723,7 +818,13 @@ internal static partial class MiniScriptSshIntrinsics
                 ? hostHint!
                 : (string.IsNullOrWhiteSpace(sessionConfig.RemoteIp) ? sessionNodeId : sessionConfig.RemoteIp);
             var remoteIp = string.IsNullOrWhiteSpace(sessionConfig.RemoteIp) ? "127.0.0.1" : sessionConfig.RemoteIp;
-            canonicalSession = CreateSessionMap(sessionNodeId, sessionId, userId, hostOrIp, remoteIp);
+            canonicalSession = CreateSessionMap(
+                sessionNodeId,
+                sessionId,
+                userId,
+                hostOrIp,
+                remoteIp,
+                canonicalSourceMetadata);
             return true;
         }
 
@@ -733,12 +834,35 @@ internal static partial class MiniScriptSshIntrinsics
             return false;
         }
 
+        var sandboxSourceMetadata = new SessionSourceMetadata(
+            sandboxSession.SourceNodeId,
+            sandboxSession.SourceUserId,
+            sandboxSession.SourceCwd);
+        if (!TryResolveSessionSourceFtpEndpoint(executionContext, sandboxSourceMetadata, out var sandboxSourceEndpoint, out var sandboxSourceError))
+        {
+            error = sandboxSourceError;
+            return false;
+        }
+
+        var sandboxSourceUserId = executionContext.World.ResolvePromptUser(
+            sandboxSourceEndpoint.Server,
+            sandboxSourceEndpoint.UserKey);
+        if (string.IsNullOrWhiteSpace(sandboxSourceUserId))
+        {
+            error = $"source session user not found: {sandboxSourceEndpoint.NodeId}/{sandboxSourceEndpoint.UserKey}.";
+            return false;
+        }
+
         canonicalSession = CreateSessionMap(
             sandboxSession.SessionNodeId,
             sandboxSession.SessionId,
             sandboxSession.UserId,
             sandboxSession.HostOrIp,
-            sandboxSession.RemoteIp);
+            sandboxSession.RemoteIp,
+            new SessionSourceMetadata(
+                sandboxSourceEndpoint.NodeId,
+                sandboxSourceUserId,
+                sandboxSourceEndpoint.Cwd));
         return true;
     }
 
@@ -1072,14 +1196,27 @@ internal static partial class MiniScriptSshIntrinsics
 
     private static bool AreEqualSessionIdentity(ValMap leftSession, ValMap rightSession)
     {
-        if (!TryReadSessionIdentity(leftSession, out var leftNodeId, out var leftSessionId, out _) ||
-            !TryReadSessionIdentity(rightSession, out var rightNodeId, out var rightSessionId, out _))
+        if (!TryReadSessionIdentity(
+                leftSession,
+                out var leftNodeId,
+                out var leftSessionId,
+                out var leftSourceMetadata,
+                out _) ||
+            !TryReadSessionIdentity(
+                rightSession,
+                out var rightNodeId,
+                out var rightSessionId,
+                out var rightSourceMetadata,
+                out _))
         {
             return false;
         }
 
         return string.Equals(leftNodeId, rightNodeId, StringComparison.Ordinal) &&
-               leftSessionId == rightSessionId;
+               leftSessionId == rightSessionId &&
+               string.Equals(leftSourceMetadata.SourceNodeId, rightSourceMetadata.SourceNodeId, StringComparison.Ordinal) &&
+               string.Equals(leftSourceMetadata.SourceUserId, rightSourceMetadata.SourceUserId, StringComparison.Ordinal) &&
+               string.Equals(leftSourceMetadata.SourceCwd, rightSourceMetadata.SourceCwd, StringComparison.Ordinal);
     }
 
     private static bool TryReadRequiredInt(
@@ -1140,10 +1277,12 @@ internal static partial class MiniScriptSshIntrinsics
         ValMap sessionMap,
         out string sessionNodeId,
         out int sessionId,
+        out SessionSourceMetadata sourceMetadata,
         out string error)
     {
         sessionNodeId = string.Empty;
         sessionId = 0;
+        sourceMetadata = default;
         error = string.Empty;
 
         if (!TryReadKind(sessionMap, out var kind, out var kindError, "session"))
@@ -1195,6 +1334,82 @@ internal static partial class MiniScriptSshIntrinsics
             return false;
         }
 
+        if (!TryReadRequiredSessionText(
+                sessionMap,
+                SessionSourceNodeIdKey,
+                out var sourceNodeId,
+                out var sourceNodeIdError,
+                "session"))
+        {
+            error = sourceNodeIdError;
+            return false;
+        }
+
+        if (!TryReadRequiredSessionText(
+                sessionMap,
+                SessionSourceUserIdKey,
+                out var sourceUserId,
+                out var sourceUserIdError,
+                "session"))
+        {
+            error = sourceUserIdError;
+            return false;
+        }
+
+        if (!TryReadRequiredSessionText(
+                sessionMap,
+                SessionSourceCwdKey,
+                out var sourceCwd,
+                out var sourceCwdError,
+                "session"))
+        {
+            error = sourceCwdError;
+            return false;
+        }
+
+        sourceMetadata = new SessionSourceMetadata(
+            sourceNodeId,
+            sourceUserId,
+            BaseFileSystem.NormalizePath("/", sourceCwd));
+        return true;
+    }
+
+    private static bool TryReadSessionIdentity(
+        ValMap sessionMap,
+        out string sessionNodeId,
+        out int sessionId,
+        out string error)
+    {
+        return TryReadSessionIdentity(
+            sessionMap,
+            out sessionNodeId,
+            out sessionId,
+            out _,
+            out error);
+    }
+
+    private static bool TryReadRequiredSessionText(
+        ValMap map,
+        string key,
+        out string value,
+        out string error,
+        string scope)
+    {
+        value = string.Empty;
+        error = string.Empty;
+        if (!map.TryGetValue(key, out var rawValue) || rawValue is null)
+        {
+            error = $"{scope}.{key} is required.";
+            return false;
+        }
+
+        value = rawValue.ToString().Trim();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            error = $"{scope}.{key} is required.";
+            return false;
+        }
+
         return true;
     }
 
@@ -1210,14 +1425,17 @@ internal static partial class MiniScriptSshIntrinsics
         return routeSessions;
     }
 
-    private static ValMap CreateSessionMap(WorldRuntime.SshSessionOpenResult openResult)
+    private static ValMap CreateSessionMap(
+        WorldRuntime.SshSessionOpenResult openResult,
+        SessionSourceMetadata sourceMetadata)
     {
         return CreateSessionMap(
             openResult.TargetNodeId,
             openResult.SessionId,
             openResult.TargetUserId,
             openResult.HostOrIp,
-            openResult.RemoteIp);
+            openResult.RemoteIp,
+            sourceMetadata);
     }
 
     private static ValMap CreateSessionMap(
@@ -1225,7 +1443,8 @@ internal static partial class MiniScriptSshIntrinsics
         int sessionId,
         string userId,
         string hostOrIp,
-        string remoteIp)
+        string remoteIp,
+        SessionSourceMetadata sourceMetadata)
     {
         var normalizedHostOrIp = hostOrIp?.Trim() ?? string.Empty;
         var normalizedRemoteIp = remoteIp?.Trim() ?? string.Empty;
@@ -1234,6 +1453,9 @@ internal static partial class MiniScriptSshIntrinsics
             [KindKey] = new ValString(SessionKind),
             [SessionIdKey] = new ValNumber(sessionId),
             [SessionNodeIdKey] = new ValString(sessionNodeId ?? string.Empty),
+            [SessionSourceNodeIdKey] = new ValString(sourceMetadata.SourceNodeId ?? string.Empty),
+            [SessionSourceUserIdKey] = new ValString(sourceMetadata.SourceUserId ?? string.Empty),
+            [SessionSourceCwdKey] = new ValString(sourceMetadata.SourceCwd ?? "/"),
             ["userId"] = new ValString(userId ?? string.Empty),
             ["hostOrIp"] = new ValString(string.IsNullOrWhiteSpace(normalizedHostOrIp) ? normalizedRemoteIp : normalizedHostOrIp),
             ["remoteIp"] = new ValString(string.IsNullOrWhiteSpace(normalizedRemoteIp) ? "127.0.0.1" : normalizedRemoteIp),
@@ -1395,6 +1617,11 @@ internal static partial class MiniScriptSshIntrinsics
         return first.Trim();
     }
 
+    private readonly record struct SessionSourceMetadata(
+        string SourceNodeId,
+        string SourceUserId,
+        string SourceCwd);
+
     private sealed class SshModuleState
     {
         private readonly Dictionary<int, SandboxSessionSnapshot> sandboxSessionsById = new();
@@ -1416,7 +1643,10 @@ internal static partial class MiniScriptSshIntrinsics
             string userId,
             string hostOrIp,
             string remoteIp,
-            string cwd)
+            string cwd,
+            string sourceNodeId,
+            string sourceUserId,
+            string sourceCwd)
         {
             var sessionId = nextSandboxSessionId++;
             sandboxSessionsById[sessionId] = new SandboxSessionSnapshot(
@@ -1426,7 +1656,10 @@ internal static partial class MiniScriptSshIntrinsics
                 userId,
                 hostOrIp,
                 remoteIp,
-                cwd);
+                cwd,
+                sourceNodeId,
+                sourceUserId,
+                sourceCwd);
             return sessionId;
         }
 
@@ -1469,6 +1702,9 @@ internal static partial class MiniScriptSshIntrinsics
         string UserId,
         string HostOrIp,
         string RemoteIp,
-        string Cwd);
+        string Cwd,
+        string SourceNodeId,
+        string SourceUserId,
+        string SourceCwd);
 }
 
