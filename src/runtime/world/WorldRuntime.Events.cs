@@ -128,7 +128,7 @@ public partial class WorldRuntime
                 transferMethod));
     }
 
-    /// <summary>Drains queued event-print lines targeting the current terminal context.</summary>
+    /// <summary>Drains queued terminal lines matching current context, including broadcast lines with empty node/user targets.</summary>
     public Godot.Collections.Array<string> DrainTerminalEventLines(string nodeId, string userId)
     {
         var drainedLines = new Godot.Collections.Array<string>();
@@ -145,9 +145,15 @@ public partial class WorldRuntime
             while (terminalEventLines.Count > 0)
             {
                 var line = terminalEventLines.Dequeue();
-                var matchNode = string.IsNullOrEmpty(normalizedNodeId) || string.Equals(line.NodeId, normalizedNodeId, StringComparison.Ordinal);
+                var lineNodeId = line.NodeId?.Trim() ?? string.Empty;
+                var lineUserKey = line.UserKey?.Trim() ?? string.Empty;
+                var matchNode = string.IsNullOrEmpty(normalizedNodeId) ||
+                                string.IsNullOrEmpty(lineNodeId) ||
+                                string.Equals(lineNodeId, normalizedNodeId, StringComparison.Ordinal);
                 var lineUserId = ResolveUserIdForTerminalEventLine(line);
-                var matchUser = string.IsNullOrEmpty(normalizedUserId) || string.Equals(lineUserId, normalizedUserId, StringComparison.Ordinal);
+                var matchUser = string.IsNullOrEmpty(normalizedUserId) ||
+                                string.IsNullOrEmpty(lineUserKey) ||
+                                string.Equals(lineUserId, normalizedUserId, StringComparison.Ordinal);
                 if (matchNode && matchUser)
                 {
                     drainedLines.Add(line.Text);

@@ -149,19 +149,46 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 
 ---
 
-## 1) term (터미널 출력)
+## 1) term (터미널 출력/로컬 명령 실행)
 
 ### 1.1 `term.print(text)`
-- 목적: 프로그램 진행 로그(표준 출력)
+- 목적: 프로그램 진행 로그(표준 출력) 1줄 출력
 - 인자:
   - `text: string`
-- 반환: `ResultMap` (`data=null`)
+- 반환:
+  - 성공: `{ ok:1, code:"None", err:null }`
+  - 실패(인자 오류): `{ ok:0, code:"InvalidArgs", err:string }`
 
 ### 1.2 `term.warn(text)` / `term.error(text)`
-- 목적: 경고/에러 로그(표준 오류 유사)
+- 목적: 경고/에러 로그를 표준 오류로 출력
 - 인자:
   - `text: string`
-- 반환: `ResultMap` (`data=null`)
+- 출력 규칙:
+  - `term.warn`는 `warn: <text>`를 stderr로 출력
+  - `term.error`는 `error: <text>`를 stderr로 출력
+  - 두 호출은 **로그 출력용**이며, 자체적으로 스크립트 실패를 유발하지 않는다
+- stderr 판정 규칙(v0.2 구현):
+  - `warn:` 또는 `error:` prefix stderr 라인은 non-fatal로 취급
+  - 그 외 stderr 라인만 fatal로 취급
+- 반환:
+  - 성공: `{ ok:1, code:"None", err:null }`
+  - 실패(인자 오류): `{ ok:0, code:"InvalidArgs", err:string }`
+
+### 1.3 `term.exec(cmd, opts?)`
+- 목적: 현재 실행 컨텍스트(현재 node/user/cwd)에서 로컬 명령 실행 (`ssh.exec`의 로컬 버전)
+- 인자:
+  - `cmd: string` (공백-only 금지)
+  - `opts?: map`
+- `opts`:
+  - `maxBytes?: int` (UTF-8 stdout byte 상한)
+  - 지원하지 않는 key/음수/비정수는 `InvalidArgs`
+- 권한:
+  - 별도 우회 없이 기존 터미널 system call 권한 검사(read/write/execute 등)를 그대로 따른다
+- 반환:
+  - 성공: `{ ok:1, code:"None", err:null, stdout:string, exitCode:0 }`
+  - 실패: `{ ok:0, code:string, err:string, stdout:string, exitCode:1 }`
+- 실패 코드 예시:
+  - `InvalidArgs`, `PermissionDenied`, `TooLarge`, `UnknownCommand`, `NotFound`, `InternalError`
 
 ---
 

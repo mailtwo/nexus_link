@@ -17,6 +17,8 @@ const MOTD_ANCHOR_MAX_ACTIVATION_RETRIES := 8
 const OUTPUT_SCROLL_MODE_NORMAL_BOTTOM := "normal_bottom"
 const OUTPUT_SCROLL_MODE_MOTD_ANCHOR_ACTIVATE := "motd_anchor_activate"
 const OUTPUT_SCROLL_MODE_MOTD_ANCHOR_CONTINUE := "motd_anchor_continue"
+const INPUT_PLACEHOLDER_DEFAULT_FALLBACK := "Type a command and press Enter"
+const INPUT_PLACEHOLDER_PROGRAM_RUNNING := "Program is running. Press Ctrl+C to stop."
 
 var text_buffer: Array[String] = []
 var world_runtime: Node = null
@@ -56,6 +58,7 @@ var completion_candidate_texts: Array[String] = []
 var completion_candidate_index: int = -1
 var completion_last_applied_text: String = ""
 var completion_last_applied_caret: int = -1
+var input_placeholder_default_text: String = INPUT_PLACEHOLDER_DEFAULT_FALLBACK
 
 @onready var background: ColorRect = $Background
 @onready var terminal_vbox: VBoxContainer = $VBox
@@ -70,6 +73,10 @@ var completion_last_applied_caret: int = -1
 
 
 func _ready() -> void:
+	input_placeholder_default_text = input_line.placeholder_text
+	if input_placeholder_default_text.is_empty():
+		input_placeholder_default_text = INPUT_PLACEHOLDER_DEFAULT_FALLBACK
+	_refresh_input_placeholder()
 	input_line.keep_editing_on_text_submit = true
 	input_line.text_submitted.connect(_on_input_submitted)
 	input_line.text_changed.connect(_on_input_line_text_changed)
@@ -113,9 +120,8 @@ func _process(delta: float) -> void:
 
 	if world_runtime == null:
 		return
-	if is_program_running and world_runtime.has_method("IsTerminalProgramRunning"):
-		var running_variant: Variant = world_runtime.call("IsTerminalProgramRunning", current_terminal_session_id)
-		is_program_running = bool(running_variant)
+	if is_program_running:
+		_sync_program_running_state_from_runtime()
 	if not world_runtime.has_method("DrainTerminalEventLines"):
 		return
 
@@ -175,7 +181,7 @@ func _on_input_submitted(command_text: String) -> void:
 					var async_response: Dictionary = async_response_variant
 					_apply_systemcall_response(async_response)
 
-				is_program_running = bool(async_start.get("started", false))
+				_set_program_running_state(bool(async_start.get("started", false)))
 				input_line.clear()
 				if not editor_overlay.visible:
 					input_line.call_deferred("grab_focus")
@@ -1195,6 +1201,8 @@ func _apply_systemcall_response(response: Dictionary) -> void:
 			editor_display_mode,
 			editor_path_exists)
 
+	_sync_program_running_state_from_runtime()
+
 
 func _request_program_interrupt() -> void:
 	if world_runtime == null:
@@ -1209,11 +1217,29 @@ func _request_program_interrupt() -> void:
 		var response: Dictionary = response_variant
 		_apply_systemcall_response(response)
 
-	if world_runtime.has_method("IsTerminalProgramRunning"):
-		var running_variant: Variant = world_runtime.call("IsTerminalProgramRunning", current_terminal_session_id)
-		is_program_running = bool(running_variant)
-	else:
-		is_program_running = false
+	_sync_program_running_state_from_runtime()
+
+
+func _set_program_running_state(next_running: bool) -> void:
+	is_program_running = next_running
+	_refresh_input_placeholder()
+
+
+func _sync_program_running_state_from_runtime() -> void:
+	if world_runtime == null or not world_runtime.has_method("IsTerminalProgramRunning"):
+		_set_program_running_state(false)
+		return
+
+	var running_variant: Variant = world_runtime.call("IsTerminalProgramRunning", current_terminal_session_id)
+	_set_program_running_state(bool(running_variant))
+
+
+func _refresh_input_placeholder() -> void:
+	if is_program_running:
+		input_line.placeholder_text = INPUT_PLACEHOLDER_PROGRAM_RUNNING
+		return
+
+	input_line.placeholder_text = input_placeholder_default_text
 
 
 func _refresh_prompt() -> void:

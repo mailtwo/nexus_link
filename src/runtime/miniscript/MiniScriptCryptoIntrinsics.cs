@@ -82,16 +82,16 @@ internal static class MiniScriptCryptoIntrinsics
 
         var intrinsic = Intrinsic.Create(OtpNowIntrinsicName);
         intrinsic.AddParam("pairId");
-        intrinsic.AddParam("nowSec");
-        intrinsic.AddParam("stepSec", 30);
+        intrinsic.AddParam("nowMs");
+        intrinsic.AddParam("stepMs", 30000);
         intrinsic.AddParam("digits", 6);
         intrinsic.code = (context, _) =>
         {
             var pairId = context.GetLocalString("pairId");
-            var nowSec = context.GetLocalDouble("nowSec");
-            var stepSec = context.GetLocalDouble("stepSec", 30);
+            var nowMs = context.GetLocalDouble("nowMs");
+            var stepMs = context.GetLocalDouble("stepMs", 30000);
             var digits = context.GetLocalInt("digits", 6);
-            var otp = GenerateTotp(pairId, nowSec, stepSec, digits);
+            var otp = GenerateTotp(pairId, nowMs, stepMs, digits);
             return new Intrinsic.Result(otp);
         };
     }
@@ -112,16 +112,16 @@ internal static class MiniScriptCryptoIntrinsics
         return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0;
     }
 
-    private static string GenerateTotp(string? pairId, double nowSec, double stepSec, int digits)
+    private static string GenerateTotp(string? pairId, double nowMs, double stepMs, int digits)
     {
         if (string.IsNullOrWhiteSpace(pairId))
         {
             throw new RuntimeException("crypto.otpNow: pairId is required.");
         }
 
-        if (stepSec <= 0)
+        if (stepMs <= 0)
         {
-            throw new RuntimeException("crypto.otpNow: stepSec must be greater than 0.");
+            throw new RuntimeException("crypto.otpNow: stepMs must be greater than 0.");
         }
 
         if (digits < 1 || digits > 10)
@@ -139,7 +139,7 @@ internal static class MiniScriptCryptoIntrinsics
             throw new RuntimeException("crypto.otpNow: invalid pairId (base32 expected).", ex);
         }
 
-        var counter = (long)Math.Floor(nowSec / stepSec);
+        var counter = (long)Math.Floor(nowMs / stepMs);
         Span<byte> counterBytes = stackalloc byte[8];
         BinaryPrimitives.WriteInt64BigEndian(counterBytes, counter);
 

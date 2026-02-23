@@ -233,13 +233,24 @@ public partial class WorldRuntime
         return false;
     }
 
-    /// <summary>Parses Nc_numspecial policy form and extracts requested length.</summary>
+    /// <summary>Parses num+special password policy (`Nc_numspecial` or `cN_numspecial`) and extracts requested length.</summary>
     private static bool TryReadNumSpecialLengthPolicy(string policy, out int length)
     {
-        const string suffix = "c_numspecial";
-        if (policy.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+        const string legacySuffix = "c_numspecial";
+        if (policy.EndsWith(legacySuffix, StringComparison.OrdinalIgnoreCase))
         {
-            var numericPart = policy[..^suffix.Length];
+            var numericPart = policy[..^legacySuffix.Length];
+            if (int.TryParse(numericPart, out length) && length > 0)
+            {
+                return true;
+            }
+        }
+
+        const string modernSuffix = "_numspecial";
+        if (policy.StartsWith("c", StringComparison.OrdinalIgnoreCase) &&
+            policy.EndsWith(modernSuffix, StringComparison.OrdinalIgnoreCase))
+        {
+            var numericPart = policy[1..^modernSuffix.Length];
             if (int.TryParse(numericPart, out length) && length > 0)
             {
                 return true;

@@ -73,6 +73,41 @@ public sealed class EventHandlerTest
         Assert.Contains("once_event", firedHandlerIds);
     }
 
+    /// <summary>Ensures print actions enqueue broadcast terminal lines so output is visible regardless of active terminal context.</summary>
+    [Fact]
+    public void EventDispatcher_PrintAction_QueuesBroadcastLine()
+    {
+        var warnings = new List<string>();
+        var world = CreateWorldStub();
+        var eventIndex = CreateInternal("Uplink2.Runtime.Events.EventIndex");
+        var firedHandlerIds = new HashSet<string>(StringComparer.Ordinal);
+        var guardEvaluator = CreateInternal("Uplink2.Runtime.Events.GuardEvaluator", (Action<string>)warnings.Add);
+        var actionExecutor = CreateInternal("Uplink2.Runtime.Events.ActionExecutor", world, (Action<string>)warnings.Add);
+        var dispatcher = CreateDispatcher(eventIndex, firedHandlerIds, guardEvaluator, actionExecutor);
+        var eventQueue = CreateInternal("Uplink2.Runtime.Events.EventQueue");
+        var scenarioFlags = new Dictionary<string, object>(StringComparer.Ordinal);
+
+        var descriptor = CreateDescriptor(
+            "broadcast_event",
+            BlueprintConditionType.PrivilegeAcquire,
+            "node-1",
+            "guest",
+            "execute",
+            "__ANY__",
+            null,
+            new[] { PrintAction("broadcast-line") });
+        Invoke(eventIndex, "Add", descriptor);
+        Invoke(eventQueue, "Enqueue", CreateGameEvent("privilegeAcquire", CreatePrivilegePayload("node-1", "guest", "execute"), 1));
+
+        Invoke(dispatcher, "Drain", eventQueue, scenarioFlags);
+
+        var queue = GetField(world, "terminalEventLines");
+        var firstLine = ((IEnumerable)queue).Cast<object>().Single();
+        Assert.Equal(string.Empty, (string)GetProperty(firstLine, "NodeId"));
+        Assert.Equal(string.Empty, (string)GetProperty(firstLine, "UserKey"));
+        Assert.Equal("broadcast-line", (string)GetProperty(firstLine, "Text"));
+    }
+
     /// <summary>Ensures guard true/false branching controls whether actions run.</summary>
     [Fact]
     public void EventDispatcher_GuardBranching_RunsActionsOnlyWhenTrue()

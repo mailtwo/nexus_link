@@ -26,7 +26,7 @@ ServerSpec:
     users:
       mediumMainUser1:
         userId: root
-        passwd: c5_numspecial
+        passwd: AUTO:c4_numspecial
         authMode: static
         privilege:
           read: true

@@ -1,9 +1,12 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using System.Threading;
 using Miniscript;
 using Uplink2.Blueprint;
@@ -315,6 +318,7 @@ public sealed class SystemCallTest
         AssertIntrinsicNotWrapped(wrappedIntrinsicIds, "len");
         AssertIntrinsicNotWrapped(wrappedIntrinsicIds, "print");
         AssertIntrinsicNotWrapped(wrappedIntrinsicIds, "uplink_crypto_unixTime");
+        AssertIntrinsicNotWrapped(wrappedIntrinsicIds, "uplink_term_exec");
     }
 
     /// <summary>Ensures miniscript string literals support common backslash escapes.</summary>
@@ -1394,6 +1398,249 @@ public sealed class SystemCallTest
         Assert.Empty(remote.Sessions);
     }
 
+    /// <summary>Ensures term.exec executes locally and returns stdout/exitCode result map fields.</summary>
+    [Fact]
+    public void Execute_Miniscript_TermExec_LocalCommand_ReturnsStdoutAndExitCode()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/etc");
+        harness.BaseFileSystem.AddFile("/etc/motd", "local motd", fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/term_exec_ok.ms",
+            """
+            r = term.exec("cat /etc/motd")
+            print "ok=" + str(r.ok)
+            print "code=" + r.code
+            print "exitCode=" + str(r.exitCode)
+            print "stdout=" + r.stdout
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/term_exec_ok.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "stdout=local motd", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures term.exec validates cmd/opts and rejects unsupported opts keys and non-integer maxBytes.</summary>
+    [Fact]
+    public void Execute_Miniscript_TermExec_InvalidArgs_ReturnsInvalidArgs()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/term_exec_invalid.ms",
+            """
+            missing = term.exec()
+            blank = term.exec("   ")
+            badOptsType = term.exec("pwd", 1)
+            badOpts = {}
+            badOpts["port"] = 22
+            badOptsKey = term.exec("pwd", badOpts)
+            badMaxNegOpts = {}
+            badMaxNegOpts["maxBytes"] = -1
+            badMaxNeg = term.exec("pwd", badMaxNegOpts)
+            badMaxFloatOpts = {}
+            badMaxFloatOpts["maxBytes"] = 1.5
+            badMaxFloat = term.exec("pwd", badMaxFloatOpts)
+            print "missing=" + missing.code
+            print "blank=" + blank.code
+            print "optsType=" + badOptsType.code
+            print "optsKey=" + badOptsKey.code
+            print "maxNeg=" + badMaxNeg.code
+            print "maxFloat=" + badMaxFloat.code
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/term_exec_invalid.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "missing=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "blank=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "optsType=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "optsKey=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "maxNeg=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "maxFloat=InvalidArgs", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures term.exec enforces opts.maxBytes against UTF-8 stdout size.</summary>
+    [Fact]
+    public void Execute_Miniscript_TermExec_MaxBytes_Exceed_ReturnsTooLarge()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/etc");
+        harness.BaseFileSystem.AddFile("/etc/motd", "local motd", fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/term_exec_max_bytes.ms",
+            """
+            opts = {}
+            opts["maxBytes"] = 3
+            r = term.exec("cat /etc/motd", opts)
+            print "ok=" + str(r.ok)
+            print "code=" + r.code
+            print "exitCode=" + str(r.exitCode)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/term_exec_max_bytes.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=TooLarge", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=1", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures term.exec uses existing command permission checks instead of bypassing terminal privileges.</summary>
+    [Fact]
+    public void Execute_Miniscript_TermExec_PropagatesPermissionDenied()
+    {
+        var harness = CreateHarness(
+            includeVfsModule: true,
+            privilege: new PrivilegeConfig
+            {
+                Read = true,
+                Write = false,
+                Execute = true,
+            });
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/term_exec_perm.ms",
+            """
+            r = term.exec("mkdir /loot")
+            print "ok=" + str(r.ok)
+            print "code=" + r.code
+            print "exitCode=" + str(r.exitCode)
+            print "stdout=" + r.stdout
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/term_exec_perm.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => line.Contains("permission denied", StringComparison.Ordinal));
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/loot", out _));
+    }
+
+    /// <summary>Ensures term.print/warn/error write expected channels but remain non-fatal script logs.</summary>
+    [Fact]
+    public void Execute_Miniscript_TermLogIntrinsics_ReturnSuccessAndDoNotFailScript()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/term_logs.ms",
+            """
+            p = term.print("p-log")
+            w = term.warn("w-log")
+            e = term.error("e-log")
+            print "pOk=" + str(p.ok)
+            print "pCode=" + p.code
+            print "wOk=" + str(w.ok)
+            print "wCode=" + w.code
+            print "eOk=" + str(e.ok)
+            print "eCode=" + e.code
+            print "done"
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/term_logs.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "p-log", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "warn: w-log", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "error: e-log", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "pOk=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "pCode=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "wOk=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "wCode=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "eOk=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "eCode=None", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures term.error-only stderr is non-fatal, while true MiniScript runtime errors still fail execution.</summary>
+    [Fact]
+    public void Execute_Miniscript_TermError_NonFatalButRuntimeError_RemainsFatal()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/term_error_only.ms",
+            """
+            r = term.error("x")
+            print "ok=" + str(r.ok)
+            print "code=" + r.code
+            print "done"
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/term_runtime_error.ms",
+            """
+            print missingValue
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var termOnly = Execute(harness, "miniscript /scripts/term_error_only.ms");
+        var runtimeError = Execute(harness, "miniscript /scripts/term_runtime_error.ms");
+
+        Assert.True(termOnly.Ok);
+        Assert.Contains(termOnly.Lines, static line => string.Equals(line, "error: x", StringComparison.Ordinal));
+        Assert.Contains(termOnly.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(termOnly.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(termOnly.Lines, static line => string.Equals(line, "done", StringComparison.Ordinal));
+
+        Assert.False(runtimeError.Ok);
+        Assert.Equal(SystemCallErrorCode.InternalError, runtimeError.Code);
+        Assert.Contains(runtimeError.Lines, static line => line.Contains("Runtime Error:", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures async stderr normalization preserves warn/error prefixes emitted by term.warn and term.error.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_TermWarnError_PreservePrefixesInAsyncOutput()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/term_async_logs.ms",
+            """
+            term.warn("w-async")
+            term.error("e-async")
+            print "done"
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "miniscript /scripts/term_async_logs.ms",
+            "ts-term-async-logs");
+        Assert.True(start.Handled);
+        Assert.True(start.Started);
+
+        WaitForTerminalProgramStop(harness.World, "ts-term-async-logs");
+        var outputLines = SnapshotTerminalEventLines(harness.World);
+        Assert.Contains("warn: w-async", outputLines);
+        Assert.Contains("error: e-async", outputLines);
+        Assert.Contains("done", outputLines);
+        Assert.DoesNotContain("error: warn: w-async", outputLines);
+    }
+
     /// <summary>Ensures sandbox async miniscript can mutate world through ssh.exec command execution.</summary>
     [Fact]
     public void TryStartTerminalProgramExecution_SshExecSandbox_AllowsWorldMutation()
@@ -1491,7 +1738,13 @@ public sealed class SystemCallTest
         Assert.Contains("closed=2", outputLines);
         Assert.Empty(hopB.Sessions);
         Assert.Empty(hopC.Sessions);
-        Assert.Empty(DrainQueuedGameEvents(harness.World));
+        var events = DrainQueuedGameEvents(harness.World);
+        Assert.NotEmpty(events);
+        Assert.All(
+            events,
+            static gameEvent => Assert.Equal(
+                "privilegeAcquire",
+                (string)GetPropertyValue(gameEvent, "EventType")));
     }
 
     /// <summary>Ensures async launcher only handles user-script targets and ignores regular built-in commands.</summary>
@@ -1688,7 +1941,13 @@ public sealed class SystemCallTest
         Assert.Contains("d1=1", outputLines);
         Assert.Contains("d2=0", outputLines);
         Assert.Empty(remote.Sessions);
-        Assert.Empty(DrainQueuedGameEvents(harness.World));
+        var events = DrainQueuedGameEvents(harness.World);
+        Assert.NotEmpty(events);
+        Assert.All(
+            events,
+            static gameEvent => Assert.Equal(
+                "privilegeAcquire",
+                (string)GetPropertyValue(gameEvent, "EventType")));
     }
 
     /// <summary>Ensures miniscript ftp.get with session input succeeds and emits fileAcquire on local save.</summary>
@@ -2032,7 +2291,14 @@ public sealed class SystemCallTest
         Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/downloads/a.txt", out _));
         Assert.False(remote.DiskOverlay.TryResolveEntry("/incoming/u.txt", out _));
         Assert.Empty(remote.Sessions);
-        Assert.Empty(DrainQueuedGameEvents(harness.World));
+        var events = DrainQueuedGameEvents(harness.World);
+        Assert.NotEmpty(events);
+        Assert.DoesNotContain(
+            events,
+            static gameEvent => string.Equals(
+                (string)GetPropertyValue(gameEvent, "EventType"),
+                "fileAcquire",
+                StringComparison.Ordinal));
     }
 
     /// <summary>Ensures miniscript FTP rejects unsupported opts keys and returns InvalidArgs.</summary>
@@ -3538,7 +3804,6 @@ public sealed class SystemCallTest
 
     /// <summary>Ensures unsupported auth modes return failure.</summary>
     [Theory]
-    [InlineData(AuthMode.Otp)]
     [InlineData(AuthMode.Other)]
     public void Execute_Connect_Fails_OnUnsupportedAuthMode(AuthMode authMode)
     {
@@ -3550,6 +3815,58 @@ public sealed class SystemCallTest
         Assert.False(result.Ok);
         Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
         Assert.Contains("not supported", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures OTP-auth accounts accept a valid TOTP generated from daemon settings.</summary>
+    [Fact]
+    public void Execute_Connect_Succeeds_OnOtpAuth_WhenTokenMatchesDaemonWindow()
+    {
+        const string otpPairId = "X2BW6QOI53QNUHBXCBYN6XADEQFPR5FJ";
+        const long stepMs = 1000;
+        const int allowedDriftSteps = 1;
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Otp, string.Empty);
+        remote.Daemons[DaemonType.Otp] = new DaemonStruct
+        {
+            DaemonType = DaemonType.Otp,
+        };
+        remote.Daemons[DaemonType.Otp].DaemonArgs["userKey"] = "guest";
+        remote.Daemons[DaemonType.Otp].DaemonArgs["stepMs"] = stepMs;
+        remote.Daemons[DaemonType.Otp].DaemonArgs["allowedDriftSteps"] = allowedDriftSteps;
+        remote.Daemons[DaemonType.Otp].DaemonArgs["otpPairId"] = otpPairId;
+
+        var otpCode = GenerateTotpForTest(otpPairId, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), stepMs, digits: 6);
+        var result = Execute(harness, $"connect 10.0.1.20 guest {otpCode}", terminalSessionId: "ts-authmode-otp-ok");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+    }
+
+    /// <summary>Ensures OTP-auth accounts reject invalid TOTP values.</summary>
+    [Fact]
+    public void Execute_Connect_Fails_OnOtpAuth_WhenTokenMismatches()
+    {
+        const string otpPairId = "X2BW6QOI53QNUHBXCBYN6XADEQFPR5FJ";
+        const long stepMs = 1000;
+        const int allowedDriftSteps = 1;
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Otp, string.Empty);
+        remote.Daemons[DaemonType.Otp] = new DaemonStruct
+        {
+            DaemonType = DaemonType.Otp,
+        };
+        remote.Daemons[DaemonType.Otp].DaemonArgs["userKey"] = "guest";
+        remote.Daemons[DaemonType.Otp].DaemonArgs["stepMs"] = stepMs;
+        remote.Daemons[DaemonType.Otp].DaemonArgs["allowedDriftSteps"] = allowedDriftSteps;
+        remote.Daemons[DaemonType.Otp].DaemonArgs["otpPairId"] = otpPairId;
+
+        var otpCode = GenerateTotpForTest(otpPairId, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), stepMs, digits: 6);
+        var invalidCode = otpCode[..^1] + (otpCode[^1] == '9' ? "0" : ((char)(otpCode[^1] + 1)).ToString());
+        var result = Execute(harness, $"connect 10.0.1.20 guest {invalidCode}", terminalSessionId: "ts-authmode-otp-fail");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Contains("Permission denied", result.Lines[0], StringComparison.Ordinal);
     }
 
     /// <summary>Ensures known prints a hostname/IP table using internet-known nodes only.</summary>
@@ -5041,6 +5358,78 @@ public sealed class SystemCallTest
         {
             field.SetValue(null, originalPool);
         }
+    }
+
+    private const string OtpBase32AlphabetForTest = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+    private static string GenerateTotpForTest(string otpPairId, long nowMs, long stepMs, int digits)
+    {
+        var secretBytes = DecodeBase32SecretForTest(otpPairId);
+        var counter = (long)Math.Floor(nowMs / (double)stepMs);
+        Span<byte> counterBytes = stackalloc byte[8];
+        BinaryPrimitives.WriteInt64BigEndian(counterBytes, counter);
+
+        byte[] hash;
+        using (var hmac = new HMACSHA1(secretBytes))
+        {
+            hash = hmac.ComputeHash(counterBytes.ToArray());
+        }
+
+        var offset = hash[^1] & 0x0F;
+        var binaryCode = ((hash[offset] & 0x7F) << 24) |
+                         ((hash[offset + 1] & 0xFF) << 16) |
+                         ((hash[offset + 2] & 0xFF) << 8) |
+                         (hash[offset + 3] & 0xFF);
+
+        long modulus = 1;
+        for (var index = 0; index < digits; index++)
+        {
+            modulus *= 10;
+        }
+
+        var otp = binaryCode % modulus;
+        return otp.ToString(CultureInfo.InvariantCulture).PadLeft(digits, '0');
+    }
+
+    private static byte[] DecodeBase32SecretForTest(string value)
+    {
+        var normalized = value
+            .Trim()
+            .Replace(" ", string.Empty, StringComparison.Ordinal)
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .TrimEnd('=')
+            .ToUpperInvariant();
+        if (normalized.Length == 0)
+        {
+            throw new InvalidOperationException("OTP pair id cannot be empty.");
+        }
+
+        var bytes = new List<byte>(normalized.Length * 5 / 8 + 1);
+        var bitBuffer = 0;
+        var bitsInBuffer = 0;
+        foreach (var ch in normalized)
+        {
+            var charIndex = OtpBase32AlphabetForTest.IndexOf(ch);
+            if (charIndex < 0)
+            {
+                throw new InvalidOperationException($"Invalid base32 character: '{ch}'.");
+            }
+
+            bitBuffer = (bitBuffer << 5) | charIndex;
+            bitsInBuffer += 5;
+            while (bitsInBuffer >= 8)
+            {
+                bitsInBuffer -= 8;
+                bytes.Add((byte)((bitBuffer >> bitsInBuffer) & 0xFF));
+            }
+        }
+
+        if (bytes.Count == 0)
+        {
+            throw new InvalidOperationException("OTP pair id decoded to an empty payload.");
+        }
+
+        return bytes.ToArray();
     }
 
     private static SystemCallHarness CreateHarness(

@@ -590,7 +590,7 @@ internal sealed class MiniScriptExecutionOptions
 
     internal IReadOnlyList<string> ScriptArguments { get; init; } = Array.Empty<string>();
 
-    internal double MaxIntrinsicCallsPerSecond { get; init; } = 50000;
+    internal double MaxIntrinsicCallsPerSecond { get; init; } = 100000;
 }
 
 internal readonly record struct MiniScriptExecutionResult(SystemCallResult Result, bool WasCancelled);
@@ -625,8 +625,17 @@ internal static class MiniScriptExecutionRunner
         var standardOutput = new ScriptOutputCollector(
             options.StandardOutputLineSink,
             options.CaptureOutputLines);
+        var fatalStderrLineCount = 0;
         var errorOutput = new ScriptOutputCollector(
-            options.StandardErrorLineSink,
+            line =>
+            {
+                if (!options.CaptureOutputLines && !IsNonFatalMiniScriptStderrLine(line))
+                {
+                    fatalStderrLineCount++;
+                }
+
+                options.StandardErrorLineSink?.Invoke(line);
+            },
             options.CaptureOutputLines);
 
         try
@@ -638,6 +647,7 @@ internal static class MiniScriptExecutionRunner
 
             MiniScriptCryptoIntrinsics.InjectCryptoModule(interpreter);
             MiniScriptSshIntrinsics.InjectSshModule(interpreter, executionContext, options.SshMode);
+            MiniScriptTermIntrinsics.InjectTermModule(interpreter, executionContext);
             ArgsIntrinsics.InjectArgs(interpreter, options.ScriptArguments);
             MiniScriptIntrinsicRateLimiter.ConfigureInterpreter(interpreter, options.MaxIntrinsicCallsPerSecond);
             while (!interpreter.done)
@@ -671,35 +681,50 @@ internal static class MiniScriptExecutionRunner
         }
 
         var stdoutLines = standardOutput.ToLines();
+        if (!options.CaptureOutputLines)
+        {
+            return fatalStderrLineCount == 0
+                ? new MiniScriptExecutionResult(SystemCallResultFactory.Success(), false)
+                : new MiniScriptExecutionResult(
+                    new SystemCallResult
+                    {
+                        Ok = false,
+                        Code = SystemCallErrorCode.InternalError,
+                        Lines = Array.Empty<string>(),
+                    },
+                    false);
+        }
+
         var stderrLines = errorOutput.ToLines();
-        if (errorOutput.LineCount == 0)
+        if (stderrLines.Count == 0)
         {
             return new MiniScriptExecutionResult(SystemCallResultFactory.Success(lines: stdoutLines), false);
         }
 
-        if (!options.CaptureOutputLines)
-        {
-            return new MiniScriptExecutionResult(
-                new SystemCallResult
-                {
-                    Ok = false,
-                    Code = SystemCallErrorCode.InternalError,
-                    Lines = Array.Empty<string>(),
-                },
-                false);
-        }
-
-        var lines = new List<string>(stdoutLines.Count + stderrLines.Count);
-        lines.AddRange(stdoutLines);
+        var nonFatalStderrLines = new List<string>();
+        var fatalStderrLines = new List<string>();
         foreach (var line in stderrLines)
         {
-            if (string.IsNullOrWhiteSpace(line))
+            if (IsNonFatalMiniScriptStderrLine(line))
             {
-                lines.Add("error: miniscript execution failed.");
+                nonFatalStderrLines.Add(line);
                 continue;
             }
 
-            lines.Add(line.StartsWith("error:", StringComparison.OrdinalIgnoreCase) ? line : "error: " + line);
+            fatalStderrLines.Add(line);
+        }
+
+        var lines = new List<string>(stdoutLines.Count + nonFatalStderrLines.Count + fatalStderrLines.Count);
+        lines.AddRange(stdoutLines);
+        lines.AddRange(nonFatalStderrLines);
+        if (fatalStderrLines.Count == 0)
+        {
+            return new MiniScriptExecutionResult(SystemCallResultFactory.Success(lines: lines), false);
+        }
+
+        foreach (var line in fatalStderrLines)
+        {
+            lines.Add(NormalizeFatalMiniScriptStderrLine(line));
         }
 
         return new MiniScriptExecutionResult(
@@ -710,6 +735,27 @@ internal static class MiniScriptExecutionRunner
                 Lines = lines,
             },
             false);
+    }
+
+    private static bool IsNonFatalMiniScriptStderrLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        return line.StartsWith("warn:", StringComparison.OrdinalIgnoreCase) ||
+               line.StartsWith("error:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeFatalMiniScriptStderrLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return "error: miniscript execution failed.";
+        }
+
+        return line.StartsWith("error:", StringComparison.OrdinalIgnoreCase) ? line : "error: " + line;
     }
 
     private sealed class ScriptOutputCollector

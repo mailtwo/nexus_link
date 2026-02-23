@@ -1,4 +1,4 @@
 pairId = "X2BW6QOI53QNUHBXCBYN6XADEQFPR5FJ"
-nowSec = floor(crypto.unixTime())
-code = crypto.otpNow(pairId, nowSec, 30, 6)
+nowMs = floor(crypto.unixTime() * 1000)
+code = crypto.otpNow(pairId, nowMs, 1000, 6)
 print "[SecureOTP] Generation:\n" + code

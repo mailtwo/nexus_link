@@ -36,7 +36,7 @@ internal sealed class ActionExecutor
     {
         if (action.ActionType == BlueprintActionType.Print)
         {
-            ExecutePrintAction(action, descriptor, gameEvent);
+            ExecutePrintAction(action, descriptor);
             return;
         }
 
@@ -50,7 +50,7 @@ internal sealed class ActionExecutor
             $"Unsupported actionType '{action.ActionType}'. scenarioId='{descriptor.ScenarioId}', eventId='{descriptor.EventId}'.");
     }
 
-    private void ExecutePrintAction(ActionBlueprint action, EventHandlerDescriptor descriptor, GameEvent gameEvent)
+    private void ExecutePrintAction(ActionBlueprint action, EventHandlerDescriptor descriptor)
     {
         if (!action.ActionArgs.TryGetValue("text", out var textValue) || textValue is not string text)
         {
@@ -59,8 +59,7 @@ internal sealed class ActionExecutor
             return;
         }
 
-        ResolveEventTarget(gameEvent, out var nodeId, out var userKey);
-        world.QueueTerminalEventLine(new TerminalEventLine(nodeId, userKey, text));
+        world.QueueTerminalEventLine(new TerminalEventLine(string.Empty, string.Empty, text));
     }
 
     private void ExecuteSetFlagAction(ActionBlueprint action, EventHandlerDescriptor descriptor)
@@ -82,29 +81,4 @@ internal sealed class ActionExecutor
         world.ScenarioFlags[key] = value;
     }
 
-    private void ResolveEventTarget(GameEvent gameEvent, out string nodeId, out string userKey)
-    {
-        nodeId = world.PlayerWorkstationServer?.NodeId ?? string.Empty;
-        userKey = "player";
-
-        if (gameEvent.Payload is PrivilegeAcquireDto privilege)
-        {
-            nodeId = privilege.NodeId;
-            userKey = privilege.UserKey;
-            return;
-        }
-
-        if (gameEvent.Payload is FileAcquireDto file)
-        {
-            nodeId = file.FromNodeId;
-            userKey = file.UserKey;
-            return;
-        }
-
-        if (gameEvent.Payload is ProcessFinishedDto process)
-        {
-            nodeId = process.HostNodeId;
-            userKey = process.UserKey;
-        }
-    }
 }

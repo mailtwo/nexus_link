@@ -1,7 +1,10 @@
 using Godot;
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Uplink2.Runtime.Events;
@@ -16,6 +19,7 @@ public partial class WorldRuntime
 {
     private const string DefaultTerminalSessionKey = "default";
     private const string MotdPath = "/etc/motd";
+    private const string OtpBase32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
     private Dictionary<string, Stack<TerminalConnectionFrame>>? terminalConnectionFramesBySessionId =
         new(StringComparer.Ordinal);
@@ -716,7 +720,8 @@ public partial class WorldRuntime
             return "error: miniscript execution failed.";
         }
 
-        return line.StartsWith("error:", StringComparison.OrdinalIgnoreCase)
+        return line.StartsWith("warn:", StringComparison.OrdinalIgnoreCase) ||
+               line.StartsWith("error:", StringComparison.OrdinalIgnoreCase)
             ? line
             : "error: " + line;
     }
@@ -1179,7 +1184,7 @@ public partial class WorldRuntime
             return false;
         }
 
-        if (!IsAuthenticationSuccessful(targetUser, password, out failureResult))
+        if (!IsAuthenticationSuccessful(targetServer, targetUserKey, targetUser, password, out failureResult))
         {
             return false;
         }
@@ -1253,6 +1258,8 @@ public partial class WorldRuntime
     }
 
     private static bool IsAuthenticationSuccessful(
+        ServerNodeRuntime targetServer,
+        string targetUserKey,
         UserConfig targetUser,
         string password,
         out SystemCallResult failureResult)
@@ -1275,10 +1282,274 @@ public partial class WorldRuntime
             return false;
         }
 
+        if (targetUser.AuthMode == AuthMode.Otp)
+        {
+            if (IsOtpAuthenticationSuccessful(targetServer, targetUserKey, password))
+            {
+                return true;
+            }
+
+            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.PermissionDenied, "Permission denied, please try again.");
+            return false;
+        }
+
         failureResult = SystemCallResultFactory.Failure(
             SystemCallErrorCode.PermissionDenied,
             $"authentication mode not supported: {targetUser.AuthMode}.");
         return false;
+    }
+
+    private static bool IsOtpAuthenticationSuccessful(
+        ServerNodeRuntime targetServer,
+        string targetUserKey,
+        string password)
+    {
+        if (!TryResolveOtpDaemonSettings(
+                targetServer,
+                targetUserKey,
+                out var otpPairId,
+                out var stepMs,
+                out var allowedDriftSteps))
+        {
+            return false;
+        }
+
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        const int otpDigits = 6;
+        for (var driftStep = -allowedDriftSteps; driftStep <= allowedDriftSteps; driftStep++)
+        {
+            var candidateNowMs = nowMs + (stepMs * driftStep);
+            var candidateCode = GenerateTotpCode(otpPairId, candidateNowMs, stepMs, otpDigits);
+            if (string.Equals(candidateCode, password, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryResolveOtpDaemonSettings(
+        ServerNodeRuntime targetServer,
+        string targetUserKey,
+        out string otpPairId,
+        out long stepMs,
+        out int allowedDriftSteps)
+    {
+        otpPairId = string.Empty;
+        stepMs = 0;
+        allowedDriftSteps = 0;
+
+        if (!targetServer.Daemons.TryGetValue(DaemonType.Otp, out var otpDaemon))
+        {
+            return false;
+        }
+
+        if (!TryReadDaemonStringArg(otpDaemon, "userKey", out var daemonUserKey) ||
+            !string.Equals(daemonUserKey, targetUserKey, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!TryReadDaemonPositiveLongArg(otpDaemon, "stepMs", out stepMs))
+        {
+            return false;
+        }
+
+        if (!TryReadDaemonNonNegativeIntArg(otpDaemon, "allowedDriftSteps", out allowedDriftSteps))
+        {
+            return false;
+        }
+
+        if (!TryReadDaemonStringArg(otpDaemon, "otpPairId", out otpPairId))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryReadDaemonStringArg(DaemonStruct daemon, string key, out string value)
+    {
+        value = string.Empty;
+        if (!daemon.DaemonArgs.TryGetValue(key, out var rawValue) ||
+            rawValue is not string text)
+        {
+            return false;
+        }
+
+        value = text.Trim();
+        return !string.IsNullOrWhiteSpace(value);
+    }
+
+    private static bool TryReadDaemonPositiveLongArg(DaemonStruct daemon, string key, out long value)
+    {
+        value = 0;
+        if (!daemon.DaemonArgs.TryGetValue(key, out var rawValue) ||
+            !TryConvertObjectToLong(rawValue, out value) ||
+            value <= 0)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryReadDaemonNonNegativeIntArg(DaemonStruct daemon, string key, out int value)
+    {
+        value = 0;
+        if (!daemon.DaemonArgs.TryGetValue(key, out var rawValue) ||
+            !TryConvertObjectToLong(rawValue, out var parsedValue) ||
+            parsedValue < 0 ||
+            parsedValue > int.MaxValue)
+        {
+            return false;
+        }
+
+        value = (int)parsedValue;
+        return true;
+    }
+
+    private static bool TryConvertObjectToLong(object? rawValue, out long value)
+    {
+        value = 0;
+        switch (rawValue)
+        {
+            case null:
+            case bool:
+                return false;
+            case byte byteValue:
+                value = byteValue;
+                return true;
+            case sbyte sbyteValue:
+                value = sbyteValue;
+                return true;
+            case short shortValue:
+                value = shortValue;
+                return true;
+            case ushort ushortValue:
+                value = ushortValue;
+                return true;
+            case int intValue:
+                value = intValue;
+                return true;
+            case uint uintValue:
+                value = uintValue;
+                return true;
+            case long longValue:
+                value = longValue;
+                return true;
+            case ulong ulongValue when ulongValue <= long.MaxValue:
+                value = (long)ulongValue;
+                return true;
+            case float floatValue when IsWholeNumber(floatValue) &&
+                                        floatValue >= long.MinValue &&
+                                        floatValue <= long.MaxValue:
+                value = (long)floatValue;
+                return true;
+            case double doubleValue when IsWholeNumber(doubleValue) &&
+                                          doubleValue >= long.MinValue &&
+                                          doubleValue <= long.MaxValue:
+                value = (long)doubleValue;
+                return true;
+            case decimal decimalValue when decimalValue == decimal.Truncate(decimalValue) &&
+                                           decimalValue >= long.MinValue &&
+                                           decimalValue <= long.MaxValue:
+                value = (long)decimalValue;
+                return true;
+            case string stringValue:
+                return long.TryParse(
+                    stringValue.Trim(),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out value);
+            default:
+                return false;
+        }
+    }
+
+    private static bool IsWholeNumber(float value)
+    {
+        return !float.IsNaN(value) &&
+               !float.IsInfinity(value) &&
+               value == MathF.Truncate(value);
+    }
+
+    private static bool IsWholeNumber(double value)
+    {
+        return !double.IsNaN(value) &&
+               !double.IsInfinity(value) &&
+               value == Math.Truncate(value);
+    }
+
+    private static string GenerateTotpCode(string otpPairId, long nowMs, long stepMs, int digits)
+    {
+        var secretBytes = DecodeBase32Secret(otpPairId);
+        if (secretBytes.Length == 0 || digits is < 1 or > 10)
+        {
+            return string.Empty;
+        }
+
+        var counter = (long)Math.Floor(nowMs / (double)stepMs);
+        Span<byte> counterBytes = stackalloc byte[8];
+        BinaryPrimitives.WriteInt64BigEndian(counterBytes, counter);
+
+        byte[] hash;
+        using (var hmac = new HMACSHA1(secretBytes))
+        {
+            hash = hmac.ComputeHash(counterBytes.ToArray());
+        }
+
+        var offset = hash[^1] & 0x0F;
+        var binaryCode = ((hash[offset] & 0x7F) << 24) |
+                         ((hash[offset + 1] & 0xFF) << 16) |
+                         ((hash[offset + 2] & 0xFF) << 8) |
+                         (hash[offset + 3] & 0xFF);
+
+        long modulus = 1;
+        for (var index = 0; index < digits; index++)
+        {
+            modulus *= 10;
+        }
+
+        var otp = binaryCode % modulus;
+        return otp.ToString(CultureInfo.InvariantCulture).PadLeft(digits, '0');
+    }
+
+    private static byte[] DecodeBase32Secret(string value)
+    {
+        var normalized = value
+            .Trim()
+            .Replace(" ", string.Empty, StringComparison.Ordinal)
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .TrimEnd('=')
+            .ToUpperInvariant();
+        if (normalized.Length == 0)
+        {
+            return Array.Empty<byte>();
+        }
+
+        var bytes = new List<byte>(normalized.Length * 5 / 8 + 1);
+        var bitBuffer = 0;
+        var bitsInBuffer = 0;
+        foreach (var ch in normalized)
+        {
+            var charIndex = OtpBase32Alphabet.IndexOf(ch);
+            if (charIndex < 0)
+            {
+                return Array.Empty<byte>();
+            }
+
+            bitBuffer = (bitBuffer << 5) | charIndex;
+            bitsInBuffer += 5;
+            while (bitsInBuffer >= 8)
+            {
+                bitsInBuffer -= 8;
+                bytes.Add((byte)((bitBuffer >> bitsInBuffer) & 0xFF));
+            }
+        }
+
+        return bytes.ToArray();
     }
 
     internal void EmitPrivilegeAcquireForLogin(string nodeId, string userKey, string via)

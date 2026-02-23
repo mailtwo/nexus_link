@@ -12,6 +12,14 @@ namespace Uplink2.Runtime.MiniScript;
 /// <summary>Provides interpreter-scoped intrinsic call pacing.</summary>
 internal static class MiniScriptIntrinsicRateLimiter
 {
+    private static readonly string[] WrappedIntrinsicNamePrefixes =
+    {
+        "uplink_ssh_",
+        "uplink_fs_",
+        "uplink_net_",
+        "uplink_ftp_",
+    };
+
     private static readonly object wrapSync = new();
     private static readonly ConcurrentDictionary<int, IntrinsicCode> originalCodesById = new();
     private static readonly ConditionalWeakTable<Interpreter, LimiterState> limiterStates = new();
@@ -45,6 +53,11 @@ internal static class MiniScriptIntrinsicRateLimiter
                     continue;
                 }
 
+                if (!ShouldWrapIntrinsic(intrinsic.name))
+                {
+                    continue;
+                }
+
                 if (originalCodesById.ContainsKey(intrinsicId))
                 {
                     continue;
@@ -64,6 +77,24 @@ internal static class MiniScriptIntrinsicRateLimiter
                 };
             }
         }
+    }
+
+    private static bool ShouldWrapIntrinsic(string? intrinsicName)
+    {
+        if (string.IsNullOrWhiteSpace(intrinsicName))
+        {
+            return false;
+        }
+
+        for (var index = 0; index < WrappedIntrinsicNamePrefixes.Length; index++)
+        {
+            if (intrinsicName.StartsWith(WrappedIntrinsicNamePrefixes[index], StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private sealed class LimiterState

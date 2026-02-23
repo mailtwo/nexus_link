@@ -184,6 +184,10 @@ internal static partial class MiniScriptSshIntrinsics
                 return new Intrinsic.Result(CreateConnectFailureMap(sandboxFailure.Code, ExtractErrorText(sandboxFailure)));
             }
 
+            // Sandbox mode validates SSH routing/auth without creating persistent world sessions,
+            // but scenario logic still needs privilegeAcquire events on successful login.
+            executionContext.World.EmitPrivilegeAcquireForLogin(validated.TargetNodeId, validated.TargetUserKey, "ssh.connect");
+
             var sandboxSessionId = state.RegisterSandboxSession(
                 validated.TargetNodeId,
                 validated.TargetUserKey,
