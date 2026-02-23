@@ -3506,7 +3506,13 @@ public sealed class SystemCallTest
 
         harness.Server.Users["guest"].UserId = "guest-renamed";
 
-        var disconnect = Execute(harness, "disconnect", terminalSessionId: "ts-disconnect");
+        var disconnect = Execute(
+            harness,
+            "disconnect",
+            nodeId: remote.NodeId,
+            userId: "guest",
+            cwd: "/",
+            terminalSessionId: "ts-disconnect");
 
         Assert.True(disconnect.Ok);
         Assert.Equal("/work", disconnect.NextCwd);
