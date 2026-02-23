@@ -165,7 +165,7 @@ internal sealed class DisconnectCommandHandler : ISystemCallHandler
         {
             NextNodeId = frame.PreviousNodeId,
             NextUserId = previousUserId,
-            NextPromptUser = frame.PreviousPromptUser,
+            NextPromptUser = previousUserId,
             NextPromptHost = frame.PreviousPromptHost,
             NextCwd = frame.PreviousCwd,
         };

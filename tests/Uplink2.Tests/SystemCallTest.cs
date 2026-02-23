@@ -3504,11 +3504,18 @@ public sealed class SystemCallTest
         Assert.True(connect.Ok);
         Assert.Single(remote.Sessions);
 
+        harness.Server.Users["guest"].UserId = "guest-renamed";
+
         var disconnect = Execute(harness, "disconnect", terminalSessionId: "ts-disconnect");
 
         Assert.True(disconnect.Ok);
         Assert.Equal("/work", disconnect.NextCwd);
         Assert.Empty(remote.Sessions);
+
+        var transition = disconnect.Data;
+        Assert.NotNull(transition);
+        Assert.Equal("guest-renamed", (string?)GetPropertyValue(transition!, "NextUserId"));
+        Assert.Equal("guest-renamed", (string?)GetPropertyValue(transition!, "NextPromptUser"));
     }
 
     /// <summary>Ensures disconnect fails when session stack has no active connection.</summary>
