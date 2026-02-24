@@ -26,6 +26,12 @@ public enum SystemCallErrorCode
     IsDirectory,
     NotTextFile,
     TooLarge,
+    /// <summary>Required executable/program tool is missing from the current context.</summary>
+    ToolMissing,
+    /// <summary>Authentication probe failed (user not found is intentionally folded into this code).</summary>
+    AuthFailed,
+    /// <summary>Shared rate limit exceeded for the requested operation.</summary>
+    RateLimited,
 }
 
 /// <summary>Request payload for executing one terminal system call.</summary>

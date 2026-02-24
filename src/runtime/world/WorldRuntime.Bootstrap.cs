@@ -315,6 +315,7 @@ public partial class WorldRuntime
         nextProcessId = 1;
         ResetTerminalSessionState();
         ResetConnectionRateLimiterState();
+        ResetInspectProbeRateLimitState();
         ResetEventRuntimeState();
     }
 

@@ -98,14 +98,20 @@ InspectProbe는 대상 SSH 서비스/계정에 대해 “비밀번호/인증 타
 ##### (B) `kind == "dictionary"`
 - `{ kind: "dictionary" }`
 - 의미: 비밀번호가 “사전(딕셔너리) 기반”이며, 힌트는 타입만 제공됩니다.
-- 금지(MUST): 길이를 추론할 수 있는 모든 정보(`length`, `mask`, `alphabet`, `policyId` 등)를 포함하지 않습니다.
+- 금지(MUST): 길이를 추론할 수 있는 모든 정보(`length`, `mask`, `alphabet` 등)를 포함하지 않습니다.
 
 ##### (C) `kind == "policy"`
-고정 길이 + 문자 집합 기반 정책(`c<LEN>_base64`, `c<LEN>_numspecial`)을 표현합니다.
+고정 길이 + 문자 집합 힌트를 표현합니다.
 
-- `{ kind:"policy", policyId:string, length:int, alphabetId:string, alphabet:string, mask?: string|null }`
+- `{ kind:"policy", length:int, alphabetId:string, alphabet:string, mask?: string|null }`
 - `length`: **비밀번호 길이(확정값)** 입니다.
-- `alphabetId`: `"base64"` 또는 `"numspecial"` (v0.2)
+- `alphabetId`(v0.2):
+  - AUTO 역추론 성공: `"base64"` 또는 `"numspecial"`
+  - AUTO 역추론 실패(비AUTO static 포함 fallback):
+    - `"number"`: 비밀번호 모든 문자가 숫자만
+    - `"alphabet"`: 비밀번호 모든 문자가 영문자만
+    - `"numberalphabet"`: 비밀번호 모든 문자가 숫자+영문자이며, 숫자/영문자를 모두 포함
+    - `"unknown"`: 그 외
 - `alphabet`:
   - brute-force 도구가 그대로 사용할 수 있는 “허용 문자 집합”을 나열한 문자열입니다.
   - `alphabet`은 **항상 제공**되어야 합니다(MUST).
@@ -114,7 +120,7 @@ InspectProbe는 대상 SSH 서비스/계정에 대해 “비밀번호/인증 타
 ##### (D) `kind == "otp"`
 - `{ kind:"otp", length:int, alphabetId:string, alphabet:string }`
 - `length`: **OTP 토큰 길이(확정값)** 입니다.
-- `alphabetId`: `"base64"` (v0.2)
+- `alphabetId`: `"number"` (v0.2)
 - `alphabet`:
   - brute-force/검증 도구가 그대로 사용할 수 있는 “허용 문자 집합”을 나열한 문자열입니다.
   - `alphabet`은 **항상 제공**되어야 합니다(MUST).
@@ -138,19 +144,28 @@ Mask는 비밀번호의 일부 위치를 “확정 문자”로 노출해 unknow
 - 유효성:
   - `policy`에서 확정 문자는 해당 `alphabet`(또는 `alphabetId`가 가리키는 문자 집합)에 포함되어야 합니다(SHOULD).
 
-### 1.6 정책 식별자(policyId) 및 기본 alphabet(v0.2)
-InspectProbe는 아래 정책을 최소 지원합니다.
-
-- `policyId` 문법:
-  - `c<LEN>_base64`
-  - `c<LEN>_numspecial`
-  - 여기서 `<LEN>`은 1 이상의 정수
+### 1.6 기본 alphabet 및 비AUTO static fallback 규칙(v0.2)
+InspectProbe는 아래 alphabet을 최소 지원합니다.
 
 - 기본 alphabet:
   - `base64` (64 chars):
     - `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/`
   - `numspecial` (base20 / 20 chars):
     - `0123456789!@#$%^&*()`
+  - `number` (digits / 10 chars, OTP):
+    - `0123456789`
+  - `alphabet` (letters / 52 chars):
+    - `abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`
+  - `numberalphabet` (digits+letters / 62 chars):
+    - `0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`
+  - `unknown`:
+    - `???`
+
+- 비AUTO static fallback 분류 규칙:
+  - 모든 문자가 숫자만이면 `alphabetId=number`, `alphabet=0123456789`
+  - 모든 문자가 영문자만이면 `alphabetId=alphabet`, `alphabet=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`
+  - 모든 문자가 숫자+영문자이며 둘 다 포함되면 `alphabetId=numberalphabet`, `alphabet=0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ`
+  - 그 외는 `alphabetId=unknown`, `alphabet=???`
 
 ---
 
@@ -253,7 +268,6 @@ host: 10.0.1.20
 port: 22
 user: root
 passwd.kind: policy
-passwd.policyId: c10_numspecial
 passwd.length: 10
 passwd.alphabetId: numspecial
 passwd.alphabet: 0123456789!@#$%^&*()

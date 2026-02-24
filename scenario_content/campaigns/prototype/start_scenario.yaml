@@ -20,18 +20,15 @@ ServerSpec:
           contentId: exec:miniscript
           fileKind: ExecutableHardcode
           size: 32000
+        /opt/bin/inspect:
+          entryKind: File
+          contentId: exec:inspect
+          fileKind: ExecutableHardcode
+          size: 5000
         /opt/bin/password_breaker:
           entryKind: File
           contentId: res://scenario_content/resources/text/executions/password_breaker.ms
           fileKind: ExecutableScript
-        /password_breaker_hard.ms:
-          entryKind: File
-          contentId: res://prototype_answer/password_breaker_hard.ms
-          fileKind: Text
-        /fastconnect.ms:
-          entryKind: File
-          contentId: res://prototype_answer/fastconnect.ms
-          fileKind: Text
         /opt/bin/password_breaker.ms:
           entryKind: File
           contentId: res://scenario_content/resources/text/executions/password_breaker.ms

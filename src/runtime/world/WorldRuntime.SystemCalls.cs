@@ -20,6 +20,12 @@ public partial class WorldRuntime
     private const string DefaultTerminalSessionKey = "default";
     private const string MotdPath = "/etc/motd";
     private const string OtpBase32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    private const string InspectNumberAlphabet = "0123456789";
+    private const string InspectAlphabetOnlyAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    private const string InspectNumberAlphabetWithLetters = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    private const string InspectUnknownAlphabet = "???";
+    private const int OtpTokenDigits = 6;
+    private const int InspectProbeRateLimitPerSecond = 100000;
     private const string ConnectionRateLimiterBlockedMessage =
         "connectionRateLimiter daemon blocked this connection attempt.";
 
@@ -32,8 +38,11 @@ public partial class WorldRuntime
 
     private int nextTerminalSessionSerial = 1;
     private int nextTerminalRemoteSessionId = 1;
+    private long inspectProbeRateLimitWindowStartMs;
+    private int inspectProbeRateLimitCallsInWindow;
     private readonly object terminalProgramExecutionSync = new();
     private object? connectionRateLimiterSync = new();
+    private object? inspectProbeRateLimiterSync = new();
 
     /// <summary>Initializes system-call modules and command dispatch processor.</summary>
     private void InitializeSystemCalls()
@@ -1248,6 +1257,286 @@ public partial class WorldRuntime
         return true;
     }
 
+    internal bool TryRunInspectProbe(
+        ServerNodeRuntime sourceServer,
+        string hostOrIp,
+        string userId,
+        int port,
+        out InspectProbeResult inspectResult,
+        out SystemCallResult failureResult)
+    {
+        inspectResult = null!;
+        failureResult = SystemCallResultFactory.Success();
+
+        var normalizedHostOrIp = hostOrIp?.Trim() ?? string.Empty;
+        var normalizedUserId = userId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedHostOrIp) ||
+            string.IsNullOrWhiteSpace(normalizedUserId) ||
+            port is < 1 or > 65535)
+        {
+            failureResult = SystemCallResultFactory.Failure(
+                SystemCallErrorCode.InvalidArgs,
+                ToInspectProbeHumanMessage(SystemCallErrorCode.InvalidArgs));
+            return false;
+        }
+
+        if (!TryConsumeInspectProbeRateLimit())
+        {
+            failureResult = SystemCallResultFactory.Failure(
+                SystemCallErrorCode.RateLimited,
+                ToInspectProbeHumanMessage(SystemCallErrorCode.RateLimited));
+            return false;
+        }
+
+        if (!TryResolveServerByHostOrIp(normalizedHostOrIp, out var targetServer) ||
+            targetServer.Status != ServerStatus.Online)
+        {
+            failureResult = SystemCallResultFactory.Failure(
+                SystemCallErrorCode.NotFound,
+                ToInspectProbeHumanMessage(SystemCallErrorCode.NotFound));
+            return false;
+        }
+
+        if (!targetServer.Ports.TryGetValue(port, out var targetPort) ||
+            targetPort is null ||
+            targetPort.PortType == PortType.None ||
+            targetPort.PortType != PortType.Ssh)
+        {
+            failureResult = SystemCallResultFactory.Failure(
+                SystemCallErrorCode.PortClosed,
+                ToInspectProbeHumanMessage(SystemCallErrorCode.PortClosed));
+            return false;
+        }
+
+        if (!IsPortExposureAllowed(sourceServer, targetServer, targetPort.Exposure))
+        {
+            failureResult = SystemCallResultFactory.Failure(
+                SystemCallErrorCode.NetDenied,
+                ToInspectProbeHumanMessage(SystemCallErrorCode.NetDenied));
+            return false;
+        }
+
+        if (!TryResolveUserByUserId(targetServer, normalizedUserId, out var targetUserKey, out var targetUser) ||
+            !TryBuildInspectPasswdInfo(targetServer, targetUserKey, targetUser, out var passwdInfo))
+        {
+            failureResult = SystemCallResultFactory.Failure(
+                SystemCallErrorCode.AuthFailed,
+                ToInspectProbeHumanMessage(SystemCallErrorCode.AuthFailed));
+            return false;
+        }
+
+        var banner = (targetPort.ServiceId ?? string.Empty).Trim();
+        inspectResult = new InspectProbeResult
+        {
+            HostOrIp = normalizedHostOrIp,
+            Port = port,
+            UserId = normalizedUserId,
+            Banner = string.IsNullOrWhiteSpace(banner) ? null : banner,
+            PasswdInfo = passwdInfo,
+        };
+        return true;
+    }
+
+    internal static string ToInspectProbeErrorCodeToken(SystemCallErrorCode code)
+    {
+        return code switch
+        {
+            SystemCallErrorCode.InvalidArgs => "ERR_INVALID_ARGS",
+            SystemCallErrorCode.ToolMissing => "ERR_TOOL_MISSING",
+            SystemCallErrorCode.PermissionDenied => "ERR_PERMISSION_DENIED",
+            SystemCallErrorCode.NotFound => "ERR_NOT_FOUND",
+            SystemCallErrorCode.PortClosed => "ERR_PORT_CLOSED",
+            SystemCallErrorCode.NetDenied => "ERR_NET_DENIED",
+            SystemCallErrorCode.AuthFailed => "ERR_AUTH_FAILED",
+            SystemCallErrorCode.RateLimited => "ERR_RATE_LIMITED",
+            _ => "ERR_INTERNAL_ERROR",
+        };
+    }
+
+    internal static string ToInspectProbeHumanMessage(SystemCallErrorCode code)
+    {
+        return code switch
+        {
+            SystemCallErrorCode.InvalidArgs => "invalid args",
+            SystemCallErrorCode.NotFound => "host not found",
+            SystemCallErrorCode.PortClosed => "port is closed",
+            SystemCallErrorCode.NetDenied => "network access denied",
+            SystemCallErrorCode.AuthFailed => "authentication failed",
+            SystemCallErrorCode.RateLimited => "rate limited",
+            SystemCallErrorCode.PermissionDenied => "permission denied",
+            SystemCallErrorCode.ToolMissing => "tool missing",
+            _ => "internal error",
+        };
+    }
+
+    private bool TryBuildInspectPasswdInfo(
+        ServerNodeRuntime targetServer,
+        string targetUserKey,
+        UserConfig targetUser,
+        out InspectPasswdInfo passwdInfo)
+    {
+        passwdInfo = new InspectPasswdInfo();
+        if (targetUser.AuthMode == AuthMode.None)
+        {
+            passwdInfo = new InspectPasswdInfo
+            {
+                Kind = "none",
+            };
+            return true;
+        }
+
+        if (targetUser.AuthMode == AuthMode.Otp)
+        {
+            passwdInfo = new InspectPasswdInfo
+            {
+                Kind = "otp",
+                Length = OtpTokenDigits,
+                AlphabetId = "number",
+                Alphabet = InspectNumberAlphabet,
+            };
+            return true;
+        }
+
+        if (targetUser.AuthMode != AuthMode.Static)
+        {
+            return false;
+        }
+
+        return TryBuildInspectStaticPasswdInfo(
+            targetServer,
+            targetUserKey,
+            targetUser.UserPasswd,
+            out passwdInfo);
+    }
+
+    private bool TryBuildInspectStaticPasswdInfo(
+        ServerNodeRuntime targetServer,
+        string targetUserKey,
+        string? password,
+        out InspectPasswdInfo passwdInfo)
+    {
+        var normalizedPassword = password ?? string.Empty;
+        if (IsInspectAutoPolicyMatch(targetServer, targetUserKey, "dictionary", normalizedPassword) ||
+            IsInspectAutoPolicyMatch(targetServer, targetUserKey, "dictionaryHard", normalizedPassword))
+        {
+            passwdInfo = new InspectPasswdInfo
+            {
+                Kind = "dictionary",
+            };
+            return true;
+        }
+
+        var length = normalizedPassword.Length;
+        var numSpecialPolicy = $"c{length}_numspecial";
+        if (IsInspectAutoPolicyMatch(targetServer, targetUserKey, numSpecialPolicy, normalizedPassword))
+        {
+            passwdInfo = CreateInspectPolicyInfo(length, "numspecial", NumSpecialAlphabet);
+            return true;
+        }
+
+        var base64Policy = $"c{length}_base64";
+        if (IsInspectAutoPolicyMatch(targetServer, targetUserKey, base64Policy, normalizedPassword))
+        {
+            passwdInfo = CreateInspectPolicyInfo(length, "base64", Base64Alphabet);
+            return true;
+        }
+
+        ClassifyNonAutoStaticAlphabet(normalizedPassword, out var alphabetId, out var alphabet);
+        passwdInfo = CreateInspectPolicyInfo(length, alphabetId, alphabet);
+        return true;
+    }
+
+    private bool IsInspectAutoPolicyMatch(
+        ServerNodeRuntime targetServer,
+        string targetUserKey,
+        string policy,
+        string expectedPassword)
+    {
+        try
+        {
+            var resolvedPassword = ResolvePassword(
+                "AUTO:" + policy,
+                worldSeed,
+                targetServer.NodeId,
+                targetUserKey);
+            return string.Equals(resolvedPassword, expectedPassword, StringComparison.Ordinal);
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static void ClassifyNonAutoStaticAlphabet(
+        string password,
+        out string alphabetId,
+        out string alphabet)
+    {
+        var hasDigits = false;
+        var hasLetters = false;
+        foreach (var ch in password)
+        {
+            if (char.IsDigit(ch))
+            {
+                hasDigits = true;
+                continue;
+            }
+
+            if (IsAsciiLetter(ch))
+            {
+                hasLetters = true;
+                continue;
+            }
+
+            alphabetId = "unknown";
+            alphabet = InspectUnknownAlphabet;
+            return;
+        }
+
+        if (hasDigits && !hasLetters)
+        {
+            alphabetId = "number";
+            alphabet = InspectNumberAlphabet;
+            return;
+        }
+
+        if (!hasDigits && hasLetters)
+        {
+            alphabetId = "alphabet";
+            alphabet = InspectAlphabetOnlyAlphabet;
+            return;
+        }
+
+        if (hasDigits && hasLetters)
+        {
+            alphabetId = "numberalphabet";
+            alphabet = InspectNumberAlphabetWithLetters;
+            return;
+        }
+
+        alphabetId = "unknown";
+        alphabet = InspectUnknownAlphabet;
+    }
+
+    private static bool IsAsciiLetter(char ch)
+    {
+        return (ch is >= 'a' and <= 'z') || (ch is >= 'A' and <= 'Z');
+    }
+
+    private static InspectPasswdInfo CreateInspectPolicyInfo(
+        int length,
+        string alphabetId,
+        string alphabet)
+    {
+        return new InspectPasswdInfo
+        {
+            Kind = "policy",
+            Length = length,
+            AlphabetId = alphabetId,
+            Alphabet = alphabet,
+        };
+    }
+
     private static string GetPortTypeToken(PortType portType)
     {
         return portType switch
@@ -1329,11 +1618,10 @@ public partial class WorldRuntime
         }
 
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        const int otpDigits = 6;
         for (var driftStep = -allowedDriftSteps; driftStep <= allowedDriftSteps; driftStep++)
         {
             var candidateNowMs = nowMs + (stepMs * driftStep);
-            var candidateCode = GenerateTotpCode(otpPairId, candidateNowMs, stepMs, otpDigits);
+            var candidateCode = GenerateTotpCode(otpPairId, candidateNowMs, stepMs, OtpTokenDigits);
             if (string.Equals(candidateCode, password, StringComparison.Ordinal))
             {
                 return true;
@@ -1360,6 +1648,42 @@ public partial class WorldRuntime
         {
             var state = GetOrCreateConnectionRateLimiterState(targetServer.NodeId);
             return TryConsumeConnectionRateLimiterAttempt(state, normalizedSourceIp, nowMs, settings);
+        }
+    }
+
+    private bool TryConsumeInspectProbeRateLimit()
+    {
+        EnsureInspectProbeRateLimiterStorage();
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var limiterSync = GetInspectProbeRateLimiterSync();
+        lock (limiterSync)
+        {
+            if (inspectProbeRateLimitWindowStartMs <= 0 ||
+                nowMs < inspectProbeRateLimitWindowStartMs ||
+                nowMs - inspectProbeRateLimitWindowStartMs >= 1000)
+            {
+                inspectProbeRateLimitWindowStartMs = nowMs;
+                inspectProbeRateLimitCallsInWindow = 0;
+            }
+
+            if (inspectProbeRateLimitCallsInWindow >= InspectProbeRateLimitPerSecond)
+            {
+                return false;
+            }
+
+            inspectProbeRateLimitCallsInWindow++;
+            return true;
+        }
+    }
+
+    internal void ResetInspectProbeRateLimitState()
+    {
+        EnsureInspectProbeRateLimiterStorage();
+        var limiterSync = GetInspectProbeRateLimiterSync();
+        lock (limiterSync)
+        {
+            inspectProbeRateLimitWindowStartMs = 0;
+            inspectProbeRateLimitCallsInWindow = 0;
         }
     }
 
@@ -1848,10 +2172,28 @@ public partial class WorldRuntime
         return existing ?? created;
     }
 
+    private object GetInspectProbeRateLimiterSync()
+    {
+        var sync = inspectProbeRateLimiterSync;
+        if (sync is not null)
+        {
+            return sync;
+        }
+
+        var created = new object();
+        var existing = Interlocked.CompareExchange(ref inspectProbeRateLimiterSync, created, null);
+        return existing ?? created;
+    }
+
     private void EnsureConnectionRateLimiterStorage()
     {
         connectionRateLimiterStatesByNodeId ??= new Dictionary<string, ConnectionRateLimiterState>(StringComparer.Ordinal);
         _ = GetConnectionRateLimiterSync();
+    }
+
+    private void EnsureInspectProbeRateLimiterStorage()
+    {
+        _ = GetInspectProbeRateLimiterSync();
     }
 
     private void EnsureTerminalConnectionStorage()
@@ -1966,6 +2308,30 @@ public partial class WorldRuntime
         internal string RemoteIp { get; init; } = string.Empty;
 
         internal string HostOrIp { get; init; } = string.Empty;
+    }
+
+    internal sealed class InspectProbeResult
+    {
+        internal string HostOrIp { get; init; } = string.Empty;
+
+        internal int Port { get; init; }
+
+        internal string UserId { get; init; } = string.Empty;
+
+        internal string? Banner { get; init; }
+
+        internal InspectPasswdInfo PasswdInfo { get; init; } = new();
+    }
+
+    internal sealed class InspectPasswdInfo
+    {
+        internal string Kind { get; init; } = "none";
+
+        internal int? Length { get; init; }
+
+        internal string? AlphabetId { get; init; }
+
+        internal string? Alphabet { get; init; }
     }
 
     private readonly record struct ConnectionRateLimiterSettings(
