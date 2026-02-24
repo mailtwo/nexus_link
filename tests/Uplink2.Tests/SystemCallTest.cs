@@ -20,6 +20,7 @@ using Xunit;
 namespace Uplink2.Tests;
 
 /// <summary>Unit tests for SystemCallProcessor command dispatch and program fallback contracts.</summary>
+[Trait("Speed", "medium")]
 public sealed class SystemCallTest
 {
     /// <summary>Ensures unknown system-call names fall back to executable program resolution.</summary>
@@ -2670,7 +2671,7 @@ public sealed class SystemCallTest
         Assert.False(remote.DiskOverlay.TryResolveEntry("/incoming/u.txt", out _));
     }
 
-    /// <summary>Ensures source metadata is required for session/route inputs across ssh/fs/net/ftp APIs.</summary>
+    /// <summary>Ensures source metadata is required for session inputs and route semantics are applied per API contract.</summary>
     [Fact]
     public void Execute_Miniscript_SessionOrRoute_WithoutSourceMetadata_ReturnsInvalidArgs()
     {
@@ -2756,8 +2757,8 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "g=InvalidArgs", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "c=InvalidArgs", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "er=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "fr=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "nr=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "fr=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "nr=None", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "gr=InvalidArgs", StringComparison.Ordinal));
         Assert.Empty(first.Sessions);
         Assert.Empty(last.Sessions);
@@ -3819,6 +3820,242 @@ public sealed class SystemCallTest
         Assert.False(unknownUserId.Ok);
         Assert.Equal(SystemCallErrorCode.NotFound, unknownUserId.Code);
         Assert.Contains("user not found: nope", unknownUserId.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures inspect validates argument shape and returns canonical invalid-args output.</summary>
+    [Theory]
+    [InlineData("inspect")]
+    [InlineData("inspect -p")]
+    [InlineData("inspect --port 70000 10.0.1.20 guest")]
+    [InlineData("inspect --invalid 10.0.1.20 guest")]
+    [InlineData("inspect -p 22 10.0.1.20")]
+    public void Execute_Inspect_InvalidArgs_ReturnsCanonicalFailure(string commandLine)
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+
+        var result = Execute(harness, commandLine, terminalSessionId: "ts-inspect-invalid");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Equal("error: invalid args", result.Lines[0]);
+        Assert.Equal("code: ERR_INVALID_ARGS", result.Lines[1]);
+    }
+
+    /// <summary>Ensures inspect reports not-found for unknown hosts.</summary>
+    [Fact]
+    public void Execute_Inspect_UnknownHost_ReturnsNotFound()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+
+        var result = Execute(harness, "inspect 10.0.1.99 guest", terminalSessionId: "ts-inspect-host");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFound, result.Code);
+        Assert.Equal("error: host not found", result.Lines[0]);
+        Assert.Equal("code: ERR_NOT_FOUND", result.Lines[1]);
+    }
+
+    /// <summary>Ensures inspect folds closed and non-SSH ports into PortClosed.</summary>
+    [Fact]
+    public void Execute_Inspect_PortClosedAndNonSsh_ReturnPortClosed()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(harness, "node-2", "remote-a", "10.0.1.20", AuthMode.Static, "pw");
+        AddRemoteServer(harness, "node-3", "remote-b", "10.0.1.30", AuthMode.Static, "pw", portType: PortType.Http);
+
+        var missingPort = Execute(harness, "inspect -p 9999 10.0.1.20 guest", terminalSessionId: "ts-inspect-port-missing");
+        Assert.False(missingPort.Ok);
+        Assert.Equal(SystemCallErrorCode.PortClosed, missingPort.Code);
+        Assert.Equal("error: port is closed", missingPort.Lines[0]);
+        Assert.Equal("code: ERR_PORT_CLOSED", missingPort.Lines[1]);
+
+        var nonSshPort = Execute(harness, "inspect 10.0.1.30 guest", terminalSessionId: "ts-inspect-port-nonssh");
+        Assert.False(nonSshPort.Ok);
+        Assert.Equal(SystemCallErrorCode.PortClosed, nonSshPort.Code);
+        Assert.Equal("error: port is closed", nonSshPort.Lines[0]);
+        Assert.Equal("code: ERR_PORT_CLOSED", nonSshPort.Lines[1]);
+    }
+
+    /// <summary>Ensures inspect applies exposure rules and returns NetDenied for blocked source/target pairs.</summary>
+    [Fact]
+    public void Execute_Inspect_ExposureDenied_ReturnsNetDenied()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(
+            harness,
+            "node-2",
+            "remote",
+            "10.0.1.20",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Localhost);
+
+        var result = Execute(harness, "inspect 10.0.1.20 guest", terminalSessionId: "ts-inspect-net-denied");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.NetDenied, result.Code);
+        Assert.Equal("error: network access denied", result.Lines[0]);
+        Assert.Equal("code: ERR_NET_DENIED", result.Lines[1]);
+    }
+
+    /// <summary>Ensures inspect masks unknown users as AuthFailed to prevent account enumeration.</summary>
+    [Fact]
+    public void Execute_Inspect_MissingUser_ReturnsAuthFailed()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var result = Execute(harness, "inspect 10.0.1.20 admin", terminalSessionId: "ts-inspect-auth-fail");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.AuthFailed, result.Code);
+        Assert.Equal("error: authentication failed", result.Lines[0]);
+        Assert.Equal("code: ERR_AUTH_FAILED", result.Lines[1]);
+        Assert.Empty(remote.Sessions);
+        var events = DrainQueuedGameEvents(harness.World);
+        Assert.Empty(events);
+    }
+
+    /// <summary>Ensures inspect none-auth output includes only kind metadata and keeps world side effects empty.</summary>
+    [Fact]
+    public void Execute_Inspect_NoneAuth_Succeeds_WithoutSideEffects()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.None, "ignored");
+
+        var result = Execute(harness, "inspect 10.0.1.20 guest", terminalSessionId: "ts-inspect-none");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Contains("passwd.kind: none", result.Lines);
+        Assert.DoesNotContain(result.Lines, static line => line.StartsWith("passwd.length:", StringComparison.Ordinal));
+        Assert.Empty(remote.Sessions);
+        var events = DrainQueuedGameEvents(harness.World);
+        Assert.Empty(events);
+    }
+
+    /// <summary>Ensures inspect recognizes AUTO cN_numspecial static policy and exposes policy fields.</summary>
+    [Fact]
+    public void Execute_Inspect_StaticAutoNumSpecial_ReturnsPolicy()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+        var worldSeed = GetWorldSeedBackingField(harness.World);
+        var generatedPassword = InvokeResolvePassword("AUTO:c4_numspecial", worldSeed, "node-2", "guest");
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, generatedPassword);
+
+        var result = Execute(harness, "inspect 10.0.1.20 guest", terminalSessionId: "ts-inspect-policy");
+
+        Assert.True(result.Ok);
+        Assert.Contains("passwd.kind: policy", result.Lines);
+        Assert.Contains("passwd.length: 4", result.Lines);
+        Assert.Contains("passwd.alphabetId: numspecial", result.Lines);
+        Assert.Contains("passwd.alphabet: 0123456789!@#$%^&*()", result.Lines);
+        Assert.DoesNotContain(result.Lines, static line => line.StartsWith("passwd.policyId:", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures inspect recognizes dictionary-based static password policies without leaking length/alphabet fields.</summary>
+    [Fact]
+    public void Execute_Inspect_StaticDictionary_ReturnsDictionaryKindOnly()
+    {
+        WithDictionaryPasswordPool(
+            new[] { "tiny", "verylongpassword" },
+            () =>
+            {
+                var harness = CreateHarness(includeVfsModule: true);
+                harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+                var worldSeed = GetWorldSeedBackingField(harness.World);
+                var generatedPassword = InvokeResolvePassword("AUTO:dictionaryHard", worldSeed, "node-2", "guest");
+                AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, generatedPassword);
+
+                var result = Execute(harness, "inspect 10.0.1.20 guest", terminalSessionId: "ts-inspect-dictionary");
+
+                Assert.True(result.Ok);
+                Assert.Contains("passwd.kind: dictionary", result.Lines);
+                Assert.DoesNotContain(result.Lines, static line => line.StartsWith("passwd.length:", StringComparison.Ordinal));
+                Assert.DoesNotContain(result.Lines, static line => line.StartsWith("passwd.alphabet:", StringComparison.Ordinal));
+            });
+    }
+
+    /// <summary>Ensures inspect returns OTP metadata with numeric alphabet according to runtime token format.</summary>
+    [Fact]
+    public void Execute_Inspect_Otp_ReturnsNumericAlphabet()
+    {
+        const string otpPairId = "X2BW6QOI53QNUHBXCBYN6XADEQFPR5FJ";
+        const long stepMs = 1000;
+        const int allowedDriftSteps = 1;
+
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Otp, string.Empty);
+        remote.Daemons[DaemonType.Otp] = new DaemonStruct
+        {
+            DaemonType = DaemonType.Otp,
+        };
+        remote.Daemons[DaemonType.Otp].DaemonArgs["userKey"] = "guest";
+        remote.Daemons[DaemonType.Otp].DaemonArgs["stepMs"] = stepMs;
+        remote.Daemons[DaemonType.Otp].DaemonArgs["allowedDriftSteps"] = allowedDriftSteps;
+        remote.Daemons[DaemonType.Otp].DaemonArgs["otpPairId"] = otpPairId;
+
+        var result = Execute(harness, "inspect 10.0.1.20 guest", terminalSessionId: "ts-inspect-otp");
+
+        Assert.True(result.Ok);
+        Assert.Contains("passwd.kind: otp", result.Lines);
+        Assert.Contains("passwd.length: 6", result.Lines);
+        Assert.Contains("passwd.alphabetId: number", result.Lines);
+        Assert.Contains("passwd.alphabet: 0123456789", result.Lines);
+    }
+
+    /// <summary>Ensures inspect classifies non-AUTO static passwords into number/alphabet/numberalphabet/unknown fallback policies.</summary>
+    [Theory]
+    [InlineData("12345", 5, "number", "0123456789")]
+    [InlineData("root", 4, "alphabet", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")]
+    [InlineData("abc123", 6, "numberalphabet", "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")]
+    [InlineData("manual-pass", 11, "unknown", "???")]
+    public void Execute_Inspect_StaticFallback_ClassifiesNonAutoPasswords(
+        string password,
+        int expectedLength,
+        string expectedAlphabetId,
+        string expectedAlphabet)
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, password);
+
+        var result = Execute(harness, "inspect 10.0.1.20 guest", terminalSessionId: "ts-inspect-fallback");
+
+        Assert.True(result.Ok);
+        Assert.Contains("passwd.kind: policy", result.Lines);
+        Assert.Contains($"passwd.length: {expectedLength}", result.Lines);
+        Assert.Contains("passwd.alphabetId: " + expectedAlphabetId, result.Lines);
+        Assert.Contains("passwd.alphabet: " + expectedAlphabet, result.Lines);
+        Assert.DoesNotContain(result.Lines, static line => line.StartsWith("passwd.policyId:", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures inspect uses its dedicated shared limiter and returns RateLimited when the bucket is exhausted.</summary>
+    [Fact]
+    public void Execute_Inspect_RateLimited_ReturnsErrRateLimited()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        SetInspectProbeRateLimitState(
+            harness.World,
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            100000);
+
+        var result = Execute(harness, "inspect 10.0.1.20 guest", terminalSessionId: "ts-inspect-rate-limit");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.RateLimited, result.Code);
+        Assert.Equal("error: rate limited", result.Lines[0]);
+        Assert.Equal("code: ERR_RATE_LIMITED", result.Lines[1]);
     }
 
     /// <summary>Ensures connect validates usage and strict port syntax.</summary>
@@ -6078,6 +6315,21 @@ public sealed class SystemCallTest
 
         overloadedUntilMs = parsedValue;
         return true;
+    }
+
+    private static void SetInspectProbeRateLimitState(WorldRuntime world, long windowStartMs, int callsInWindow)
+    {
+        var windowField = typeof(WorldRuntime).GetField(
+            "inspectProbeRateLimitWindowStartMs",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(windowField);
+        var countField = typeof(WorldRuntime).GetField(
+            "inspectProbeRateLimitCallsInWindow",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(countField);
+
+        windowField!.SetValue(world, windowStartMs);
+        countField!.SetValue(world, callsInWindow);
     }
 
     private static WorldRuntime CreateHeadlessWorld(bool debugOption, params ServerNodeRuntime[] servers)

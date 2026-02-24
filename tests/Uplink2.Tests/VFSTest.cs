@@ -12,6 +12,7 @@ using Xunit;
 namespace Uplink2.Tests;
 
 /// <summary>Unit tests for VFS merge, tombstone, and path behavior.</summary>
+[Trait("Speed", "fast")]
 public sealed class VFSTest
 {
     /// <summary>Normalizes absolute/relative paths with dot segment handling.</summary>

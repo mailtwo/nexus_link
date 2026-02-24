@@ -11,6 +11,7 @@ using Xunit;
 namespace Uplink2.Tests;
 
 /// <summary>Tests for save/load persistence container and value conversion helpers.</summary>
+[Trait("Speed", "fast")]
 public sealed class PersistenceCodecTest
 {
     /// <summary>Ensures container write/read preserves header fields and payload bytes.</summary>

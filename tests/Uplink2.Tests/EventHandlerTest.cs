@@ -15,6 +15,7 @@ using Xunit;
 namespace Uplink2.Tests;
 
 /// <summary>Unit tests for event indexing/dispatch, action execution, guard evaluation, and min-heap scheduling.</summary>
+[Trait("Speed", "medium")]
 public sealed class EventHandlerTest
 {
     /// <summary>Ensures ANY sentinel combinations in EventIndex match both specific and wildcard handlers.</summary>

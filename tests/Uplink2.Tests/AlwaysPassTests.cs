@@ -3,6 +3,7 @@ using Xunit;
 namespace Uplink2.Tests;
 
 /// <summary>Minimal smoke test to validate the test project wiring.</summary>
+[Trait("Speed", "fast")]
 public sealed class AlwaysPassTests
 {
     /// <summary>Ensures baseline test execution is working.</summary>

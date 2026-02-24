@@ -14,6 +14,7 @@ using Xunit;
 namespace Uplink2.Tests;
 
 /// <summary>Unit tests for blueprint YAML parsing and blueprint-content loading contracts.</summary>
+[Trait("Speed", "medium")]
 public sealed class BlueprintTest
 {
     /// <summary>Ensures scenario-level scripts and event guardContent fields are parsed from YAML.</summary>

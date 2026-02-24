@@ -14,6 +14,7 @@ using Xunit;
 namespace Uplink2.Tests;
 
 /// <summary>Integration-oriented tests for world-runtime event flow wiring and hook behavior.</summary>
+[Trait("Speed", "medium")]
 public sealed class WorldRuntimeEventFlowTest
 {
     /// <summary>Ensures execute privilege hook reveals newly unlocked net and applies initiallyExposed known-node seeds.</summary>

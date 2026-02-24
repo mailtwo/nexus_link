@@ -9,6 +9,7 @@ using Xunit;
 namespace Uplink2.Tests;
 
 /// <summary>Unit tests for command-line token parsing in SystemCallParser.</summary>
+[Trait("Speed", "fast")]
 public sealed class SystemCallParserTest
 {
     /// <summary>Ensures empty or whitespace-only input fails with the expected error.</summary>
