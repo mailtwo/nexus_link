@@ -17,6 +17,14 @@ This project follows context7 principles:
 - If a request conflicts with the `plans/` documents, ask the developer for confirmation before proceeding.
 - Files in `plans/` are UTF-8 encoded; when reading them in tools/shell, explicitly use UTF-8 encoding.
 
+## Documentation routing (SSOT)
+- Before implementing, changing specs, or updating docs, **read `DOCS_INDEX.md` first**.
+- Treat `DOCS_INDEX.md` as the **single source of truth for where each kind of information belongs**.
+- When you need to add or change a spec, **edit only the SSOT document for that topic**.
+- In non-SSOT documents, do not duplicate the spec; **only add a short reference** (e.g., “See DOCS_INDEX.md → <DocID>”).
+- If you find inconsistencies, report them as:  
+  `DocA <section> contradicts DocB <section>: <1–2 line summary>`, in Korean.
+
 ### Code Documentation Policy
 - Add XML docstrings for all `public`/`protected` classes and members.
 - For `private` members, write docstrings only when the logic is non-obvious or risky.

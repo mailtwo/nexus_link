@@ -78,23 +78,13 @@
 - `fileKind == Text`는 **직접 실행 불가**
 - `ExecutableScript`:
   - 파일 내용은 MiniScript 소스 텍스트
-  - 파일명을 직접 실행하면 내장 MiniScript 인터프리터로 실행
 - `ExecutableHardcode`:
   - 파일 내용은 `exec:<executableId>` 텍스트
-  - 파일명을 직접 실행하면 `executableId` 기반 dispatcher로 실행
-  - 예: `exec:miniscript`, `exec:noop`
-- MiniScript 스크립트 실행은 `miniscript <scriptPath>` 형태를 지원
-  - `miniscript`는 **시스템콜이 아니라 VFS 실행 파일 이름**이다(예: `/opt/bin/miniscript`)
-  - `<scriptPath>`는 `fileKind == Text`면 확장자와 무관하게 실행 시도 가능
-  - 스크립트가 MiniScript 문법/런타임 조건을 만족하지 않으면 인터프리터 오류 반환
-- 개발/검증 전용 예외:
-  - 프로젝트 `DEBUG` 옵션이 켜진 경우에 한해 `DEBUG_miniscript <scriptPath>` 시스템콜을 임시 허용할 수 있다
 - 확장자(예: `.ms`)는 실행 가능성 판정 키가 아니라 표시/편의용 메타데이터로만 취급
-- 실행계열 파일(`ExecutableScript`, `ExecutableHardcode`)은 바이너리처럼 취급:
-  - `cat` 대상에서 차단
-  - `edit`은 열기는 허용하되 non-text read-only(16진수 유사 뷰)로만 표시
-  - `edit`의 표시 길이(유사 hex 길이)는 `size`(논리 크기) 기준으로 산정
-  - 권장 오류 문구: `error: cannot read executable file: <path>`
+- 실행 파일 해석/디스패처/오류 처리 계약은 `14_official_programs.md`를 따른다.  
+  See DOCS_INDEX.md → 14.
+- `cat`/`edit` 등 시스템콜의 파일종류별 UX는 `07_ui_terminal_prototype_godot.md`를 따른다.  
+  See DOCS_INDEX.md → 07.
 
 ---
 
@@ -118,30 +108,15 @@
 - (선택) `ResolveEntry(dir/name)`로 실제 존재 확인 후 필터링(초기 개발 안전장치)
 
 ### 4.3 find(dir, pattern)
-- MVP는 DFS/BFS 재귀 탐색
-- 자식 목록은 `ls(dir)`를 사용해 tombstone/override를 자동 반영
+- `find(dir, pattern)`는 VFS 내부/엔진 보조 API로 정의한다.
+- MiniScript intrinsic `fs.find`의 포함 여부는 `03_game_api_modules.md`를 따른다.
+- 터미널 명령어 `find`의 포함 여부는 `07_ui_terminal_prototype_godot.md`를 따른다.
+- 구현은 DFS/BFS 재귀 탐색을 권장한다.
+- 자식 목록은 `ls(dir)`를 사용해 tombstone/override를 자동 반영한다.
 
-### 4.4 명령 실행 해석(시스템콜 + 프로그램 fallback)
-- 디스패치 순서:
-  1) 시스템콜 registry 조회
-  2) 미일치 시 프로그램 실행 탐색
-  3) 최종 미해결 시 `unknown command`
-- 프로그램 탐색 규칙(PATH 하드코딩):
-  - `PATH = ["/opt/bin"]`
-  - `command`에 `/`가 포함되면 `Normalize(cwd, command)`만 시도하고 PATH는 탐색하지 않음
-  - `/`가 없으면 순서대로:
-    1) `Normalize(cwd, command)`
-    2) `/opt/bin/<command>`
-- 상대경로 실행 지원:
-  - `../prog`, `./tools/prog` 모두 `Normalize(cwd, command)`로 해석
-- 실행 권한:
-  - 프로그램 실행은 `read + execute` 둘 다 필요
-
-### 4.5 ExecutableHardcode 미등록 ID 처리
-- `ExecutableHardcode` 실행 시 payload 형식이 잘못되었거나(`exec:` prefix 없음/빈 id), `executableId`가 미등록이면 사용자 응답은 `unknown command: <command>`로 통일
-- 내부 디버그 로그:
-  - `WorldRuntime.DebugOption == true`일 때만 `GD.PushWarning(...)` 출력
-  - 권장 포함 필드: `command`, `resolvedProgramPath`, `rawContentId`, `executableId`, `nodeId`, `userKey`, `cwd`
+### 4.4 프로그램 실행 해석/디스패치 참조
+- 명령 해석 순서(시스템콜 → 프로그램 fallback), PATH 규칙, `ExecutableHardcode` 디스패처 오류 처리 규약은 `14_official_programs.md`를 따른다.  
+  See DOCS_INDEX.md → 14.
 
 ---
 
@@ -229,9 +204,9 @@
 - 전개 방식은 tombstone이 많아질 수 있음(대신 구현이 단순).
 - HashSet이라 동일 경로의 반복 삭제는 누적되지 않음.
 
-### 6.5 mv/cp (선택, MVP 이후)
-- `mv`: read+write+rm 조합으로 구현 가능(권한/메타 고려)
-- `cp`: BlobStore contentId 재사용 가능(내용 복사 대신 참조 복사)
+### 6.5 rename/copy 엔진 연산(선택)
+- 엔진 레벨 VFS primitive로 rename/copy를 둘 수 있다.
+- 사용자 명령 노출(`mv`/`cp`)과 UX는 `07_ui_terminal_prototype_godot.md`를 따른다.
 
 ---
 
@@ -256,11 +231,10 @@
 
 ---
 
-## 8) 저장/로드(권장 정책)
-- 저장: 서버별로 `overlayEntries + tombstones`만 저장
-- 로드: `dirDelta`는 재구성(overlay/tombstone을 훑어 ApplyAdd/Remove로 rebuild)
-- BlobStore:
-  - 전역 저장 시 refCount는 overlayEntries를 스캔해서 재계산 가능(안전)
+## 8) 저장/로드 참조
+- 저장 대상/제외, 스냅샷 포맷, 재구축 경계는 `12_save_load_persistence_spec_v0_1.md`가 SSOT다.  
+  See DOCS_INDEX.md → 12.
+- 본 문서는 VFS **런타임 의미/자료구조**만 정의하며 저장 정책은 재정의하지 않는다.
 
 ---
 
@@ -275,6 +249,3 @@
 - [ ] BlobStore(refCount) 기본 동작 + overlay 파일 교체/삭제 시 refCount 감소
 - [ ] `EntryMeta.size(Optional[int])` + `realSize` 분리 규칙 반영
 - [ ] `fileKind` 확장 반영(`ExecutableScript`, `ExecutableHardcode`)
-- [ ] 시스템콜 미일치 시 프로그램 fallback + `PATH=/opt/bin` + 상대경로 실행 확인
-- [ ] 실행계열 파일 `cat` 차단 + `edit` non-text read-only(16진수 유사 뷰) 규칙 적용
-- [ ] `ExecutableHardcode` 미등록 ID 시 사용자 `unknown command` 유지 + DEBUG warning 로그 출력

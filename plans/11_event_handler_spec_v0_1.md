@@ -23,7 +23,6 @@ Codex는 이 문서만 보고 **인덱싱 기반 디스패치 + MiniScript guard
 - `print` action의 출력 목적지는 **터미널 즉시 출력(프로그램 stdout 유사)** 으로 고정한다.
 - `fileAcquire.fileName` 매칭 기준은 **basename(확장자 포함 파일명 전체)** 으로 고정한다.
 - `guardContent`의 `path-...`는 **프로젝트 루트 기준 상대경로**로 해석한다.
-- Save/Load는 아직 확정하지 않되, 저장 후보(필수)만 본문에 언급한다.
 
 ---
 
@@ -110,7 +109,7 @@ public sealed record PrivilegeAcquireDto(
 **발생 조건**
 - “전송 결과가 local endpoint(수신 측)에 반영되어 파일이 접근 가능해지는 순간” 1회 enqueue.
 - 전송 방식(ftp/process 완료/직접 복사 등)과 무관하게 **해당 API가 정의한 local 반영 지점 1곳**에서 발행한다.
-- 예: 시스템콜 `ftp`는 기존 규약대로 워크스테이션 local 반영 지점에서 enqueue한다.
+- 예: `ftp.get(session, ...)`는 현재 실행 컨텍스트 local endpoint, `ftp.get(route, ...)`는 route의 first endpoint에서 enqueue한다.
 
 **Payload**
 ```csharp
@@ -359,20 +358,12 @@ ActionBlueprint (v0): `{ print, setFlag }`
 
 ---
 
-## 9) Save/Load (언급만)
+## 9) Save/Load 참조
 
-저장/로드 포맷은 추후 결정한다. 다만 EventSystem 관점에서 저장 후보는 다음과 같다.
+저장/로드 범위, 포맷, 재구축 경계는 `12_save_load_persistence_spec_v0_1.md`가 SSOT다.  
+See DOCS_INDEX.md → 12.
 
-- `firedHandlerIds` (once-only 보장)
-- `processList` (및 endAt/state 등)
-- `worldTickIndex` (또는 now)
-- (선택) `eventQueue` 미처리 이벤트들  
-  - 결정론/정합성 요구에 따라 저장 여부 결정
-
-로드 시에는:
-- 시나리오 events를 다시 인덱싱
-- guardContent를 다시 resolve/wrap/compile
-- processList로부터 ProcessScheduler 힙(또는 정렬 리스트)을 재구축
+본 문서는 런타임 처리 로직만 정의하며, 영속화 항목을 중복 정의하지 않는다.
 
 ---
 

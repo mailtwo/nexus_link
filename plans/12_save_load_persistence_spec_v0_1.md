@@ -57,12 +57,17 @@
 - `logs` (필수, **순서/ID 보존**)
 - `ports`, `daemons` (런타임에서 변경될 수 있으면 저장)
 
+8. 멀티 윈도우 레이아웃 상태(13 문서 계약)
+- 모드별 윈도우 지오메트리(위치/크기/최대화 등)
+- WindowKind별 직렬화 상태(`serialize_state` 결과)
+
 ### 1.2 저장 제외 대상 (필수)
 
 1. UI/터미널 일시 상태
 - 터미널 버퍼
 - 명령 히스토리
 - 에디터 UI 상태
+- (예외) 멀티 윈도우 레이아웃 상태는 저장 대상(위 1.1-8)
 
 2. 세션 연결 상태
 - 터미널 연결 스택 (`terminalConnectionFramesBySessionId`)
@@ -74,7 +79,7 @@
 - `eventIndex`
 - `processScheduler`
 - `scheduledProcessEndAtById`
-- `overlayDir`
+- `dirDelta`
 
 4. 정적 원본 데이터
 - Base 이미지 원본
@@ -178,7 +183,7 @@ Chunk
 - `path: string`
 - `processType: enum/string`
 - `processArgs: Dictionary<string, object>`
-- `endAt: long`
+- `endAt: long`   # worldTimeMs 기준
 
 ### 3.6 ServerStateChunk v1
 
@@ -326,4 +331,3 @@ Chunk
 - 저장/로드 UI
 - 클라우드 동기화
 - 완전한 anti-cheat/암호학적 비밀보장
-

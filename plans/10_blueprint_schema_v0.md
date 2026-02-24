@@ -73,6 +73,7 @@ PortConfig
 - portType: ENUM { none, ssh, ftp, http, sql }
 - serviceId?: string
 - exposure: ENUM { public, lan, localhost }
+- banner?: string
 ```
 
 규칙(v0.2):
@@ -83,6 +84,8 @@ PortConfig
 - `portType=none`이면 해당 포트는 비할당(unassigned) 상태로 간주한다.
   - 비할당 포트는 연결 가능한 서비스가 없는 것으로 판정한다.
   - 이 경우 `exposure` 값은 입력 가능하지만 런타임 판정에서 무시된다.
+- `banner`는 `net.banner` 단서 문자열용 선택 필드다.
+  - 생략 시 런타임에서 빈 문자열로 취급할 수 있다.
 
 ### 1.3 DaemonBlueprint: OTP (인증 모듈 설정)
 
@@ -102,6 +105,7 @@ DaemonBlueprint (OTP)
 
 > otpPairId는 플레이어에게 노출될 필요가 없다(엔진 내부용).  
 > 실제 OTP 문자열 포맷은 엔진이 고정된 표준(예: 6자리 숫자 or 8자리 base32 등)로 정의해도 된다.
+> v0 OTP 모델은 `stepMs/allowedDriftSteps` 기반 TOTP만 허용하며, 서버 발급형 TTL 토큰 모델은 사용하지 않는다.
 
 ---
 
@@ -393,7 +397,8 @@ CampaignBlueprint
   - 각 subnetId의 hubs/links로 adjacency 계산
   - 결과는 “서버별, netId별 이웃 목록”을 만들기 권장
   - 런타임 캐시는 `lanNeighbors: List<nodeId>`로 유지
-  - 플레이어 노출(`net.scan("lan")`)은 nodeId를 현재 netId 기준 IP로 변환해 IP 리스트를 반환
+  - `net.scan` API/시스템콜 반환 형식은 `03_game_api_modules.md` / `07_ui_terminal_prototype_godot.md`를 따른다.
+    See DOCS_INDEX.md → 03, 07.
   - 서버별 `subnetMembership` / `isExposedByNet` 캐시를 생성
 
 5) **접근 불가(unreachable) 경고(권장)**
@@ -406,35 +411,15 @@ CampaignBlueprint
 
 ---
 
-## 8) 런타임 스키마(09 문서)와의 정합성 메모(필수 확인)
+## 8) 런타임 스키마 정합성 참조
 
-기존 런타임(v0) 스키마는 `serverList: Dictionary<IP, ServerStruct>` 처럼 “서버=단일 IP”를 전제로 한다.  
-그러나 본 블루프린트는 **서버가 multiple interface(IP 여러 개)** 를 가질 수 있으므로, 런타임 스키마 수정이 필요하다.
+런타임 저장 구조의 단일 기준은 `09_server_node_runtime_schema_v0.md`다.  
+See DOCS_INDEX.md → 09.
 
-### serverList를 nodeId 키로 전환
-- `serverList: Dictionary<string /*nodeId*/, ServerStruct>`
-- `ipIndex: Dictionary<IP, string /*nodeId*/>` 추가
-- ServerStruct에 `interfaces: List<{ netId, ip }>` 포함
-- ServerStruct에 `primaryIp: Optional<IP>` 포함
-  - 규칙: `interfaces` 중 `netId="internet"`이 있으면 해당 IP
-  - 없으면 `None`
-- 커맨드/접속 입력이 IP 기반이면, `ipIndex`로 nodeId를 역참조
-
-### users 키 전환과 값 흡수 규칙
-- `users: Dictionary<string /*userKey*/, UserConfig>`
-- `userId`는 key가 아니라 `UserConfig.userId` 값 필드로 보존
-- 내부 참조/권한 검증은 `userKey` 기준, 표시/로그 텍스트는 `userId` 기준
-
-### 네트워크 런타임 캐시 정책
-- `lanNeighbors`는 유지하되 내부 타입은 `List<nodeId>`
-- `net.scan("lan")` 결과는 기존 UX 유지 차원에서 IP 목록 반환
-- 런타임은 서버별로 `subnetMembership` / `isExposedByNet`을 보유
-- `initiallyExposed`는 `InterfaceBlueprint` 입력(섹션 2.2 / 섹션 6 규칙)으로만 사용한다.
-- 월드 생성 시 `initiallyExposed`로 초기 `KnownNodes/isExposedByNet`을 계산하고,
-  계산 이후 런타임 `ServerStruct.interfaces`에는 저장하지 않는다.
-
-### OTP 참조 규칙 통일
-- OTP 제어 계정 참조는 `userKey`만 사용(`userId` 참조 금지)
+본 문서는 blueprint → runtime **초기화 매핑 규칙**만 유지한다.
+- 서버 런타임 컨테이너 키/필드(`serverList`, `ipIndex`, `users`, `interfaces`, `lanNeighbors` 등)의 상세 스키마는 09를 따른다.
+- `initiallyExposed`는 초기 노출 계산 입력으로만 사용하고, 런타임 저장 필드 계약은 09를 따른다.
+- OTP 참조 키(`userKey`)의 런타임 저장/검증 규칙은 09를 따른다.
 
 ---
 

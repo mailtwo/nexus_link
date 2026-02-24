@@ -1,13 +1,14 @@
 ﻿# 서버 노드 런타임 데이터 스키마 v0.2 (Godot/PC, C#)
 
-목적: 게임 실행 중(World runtime) 각 서버 노드가 유지해야 하는 상태를 **Blueprint v0(10 문서)와 정합되게** 정의한다.  
-Codex는 이 문서만 보고 런타임 모델(월드 `serverList`, `ipIndex`, `processList`)과 서버 동작(로그인/프로세스/로그/디스크 오버레이)을 구현할 수 있어야 한다.
+목적: 게임 실행 중(World runtime) 각 서버 노드가 유지해야 하는 **저장 상태 필드/구조**를 `10` 문서와 정합되게 정의한다.  
+Codex는 이 문서를 기준으로 런타임 데이터 컨테이너(월드 `serverList`, `ipIndex`, `processList`)의 **스키마**를 구현할 수 있어야 한다.
 
 범위(v0.2):
 - 플랫폼: PC
 - 엔진: Godot(로직 C#)
 - 실제 OS/네트워크 접근 없음(전부 가상)
-- 저장/로드 포맷은 **나중에** 결정(이번 문서는 런타임 메모리 구조 중심)
+- 저장/로드 범위/포맷/재구축 경계는 `12_save_load_persistence_spec_v0_1.md`를 따른다(See DOCS_INDEX.md → 12).
+- 이번 문서는 런타임 메모리 **스키마 구조**만 정의한다.
 - `lanNeighbors`는 유지하되 내부 참조 키는 `nodeId`를 사용
 
 ---
@@ -62,12 +63,8 @@ Codex는 이 문서만 보고 런타임 모델(월드 `serverList`, `ipIndex`, `
 
 ## 1) 공통 Struct: EntryMeta (VFS 오버레이용)
 
-```text
-EntryMeta
-- type: ENUM { File, Dir }
-- contentId: Optional<string>    # BlobStore id (File일 때)
-# (추가 가능) size/perms/owner/mtime...
-```
+- `EntryMeta`의 정의/해석은 `08_vfs_overlay_design_v0.md`를 따른다.  
+  See DOCS_INDEX.md → 08.
 
 ---
 
@@ -87,26 +84,12 @@ ProcessStruct
 - path: string                    # 프로세스/프로그램 경로(예: /usr/local/bin/passwdGen)
 - processType: ENUM               # 완료 시 수행할 행동 타입(예: booting, ftpSend, fileWrite...)
 - processArgs: Dictionary<string, Any>
-- endAt: int                      # 완료 시각(Unix time, ms 권장)
+- endAt: int                      # 완료 시각(worldTimeMs 기준, ms)
 ```
 
-### 2.3 프로세스 처리 규칙(v0.2)
-- 월드는 주기적으로 `processList`를 순회하며, `now >= endAt`인 `running` 프로세스를 완료 처리한다.
-- 완료 처리:
-  - 기본은 `state = finished`
-  - `processType`에 따라 완료 효과 실행(예: booting이면 서버 online 전환)
-- 서버 상태 보호 규칙:
-  - 완료 효과 적용 전에 `serverList[hostNodeId]`의 `status/reason`을 확인한다.
-  - 서버 `reason`이 `disabled` 또는 `crashed`면 완료 효과를 적용하지 않는다(프로세스는 finished 처리만 수행).
-
-### 2.4 reboot(booting) 프로세스 규칙(v0.2)
-- reboot 명령 실행 시:
-  1) 서버를 `status=offline`, `reason=reboot`로 전환
-  2) 해당 서버가 가진 `server.process`에 포함된 모든 프로세스를 canceled 처리하고 set을 비움
-  3) `booting` 타입 프로세스 1개를 생성하여 `processList`/`server.process`에 등록
-- booting 완료 시:
-  - 서버가 `status=offline`이고 `reason=reboot`일 때만 `status=online`, `reason=OK`로 전환
-  - 그 외 상태는 효과 없음
+### 2.3 프로세스 처리 로직 참조
+- `endAt` 판정, 스케줄링, 완료 효과, reboot 처리 순서는 `11_event_handler_spec_v0_1.md`를 따른다.  
+  See DOCS_INDEX.md → 11.
 
 ---
 
@@ -199,7 +182,8 @@ SessionConfig
 ### 5.3 lanNeighbors
 - 타입: `List<string /*nodeId*/>`
 - 의미: 현재 서버 기준 직접 이동 가능한 이웃 서버의 내부 참조 목록
-- 비고: 내부는 nodeId 캐시를 유지하지만, `net.scan("lan")`의 플레이어 노출 결과는 IP 목록으로 반환한다.
+- 비고: API/시스템콜 노출 형식(예: `net.scan` 반환 형식)은 `03_game_api_modules.md` / `07_ui_terminal_prototype_godot.md`를 따른다.  
+  See DOCS_INDEX.md → 03, 07.
 
 ### 5.4 ports
 - 타입: `Dictionary<int /*portNum*/, PortConfig>`
@@ -210,65 +194,14 @@ PortConfig
 - portType: ENUM { NONE, SSH, FTP, HTTP, SQL }
 - serviceId?: string
 - exposure: ENUM { public, lan, localhost }
+- banner?: string
 ```
 
-기본 포트 시드 규칙(v0.2):
-- 모든 서버는 생성 시 아래 기본 포트를 가진 상태로 시작한다.
-  - `22`: `{ portType: SSH, exposure: public }`
-  - `21`: `{ portType: FTP, exposure: public }`
-- 이후 ServerSpec/Scenario overlay가 같은 `portNum`을 정의하면 해당 값으로 통째로 교체된다.
-
-`portType` 판정 규칙(v0.2):
-- `NONE`: 비할당(unassigned) 포트로 간주한다.
-- 비할당 포트는 해당 `portNum`이 존재해도 “사용 가능한 서비스 없음”으로 판정한다.
-- `NONE`일 때 `exposure` 값은 무시된다.
-
-`exposure` 판정 규칙(v0.2):
-- 용어: `source`는 접속을 시도하는 서버, `target`은 해당 포트를 가진 서버
-- `public`: 모든 source에서 접근 허용
-- `lan`: `source.subnetMembership`과 `target.subnetMembership`이 1개 이상 겹칠 때만 허용
-- `localhost`: `source.nodeId == target.nodeId`일 때만 허용
-
-`net.scan("lan")` 권장 동작(v0.2):
-1) 현재 접속 노드의 `lanNeighbors(nodeId)`를 읽는다.
-2) 각 nodeId를 현재 컨텍스트(netId) 기준 IP로 변환한다.
-3) 최종 결과를 IP 문자열 리스트로 반환한다(기존 UX 유지).
-
-터미널 시스템콜 출력 규칙(v0.2):
-- `known`
-  - 데이터 소스: `KnownNodesByNet["internet"]`
-  - 필터: `internet` 인터페이스 IP를 가진 노드만 포함
-  - 출력: `hostname` / `IP` 2열 테이블(행당 1노드)
-- `scan`
-  - 데이터 소스: 현재 서버의 `lanNeighbors`
-  - 권한: 현재 접속 계정의 `privilege.execute=true` 필요
-  - 출력:
-    1) 첫 줄: `현재IP - 연결IP1`
-    2) 후속 줄: `연결IPn`만 출력하되 첫 줄의 연결 IP 컬럼에 세로 정렬
-  - 권한 부족 시: `scan: permission denied` 에러를 반환
-  - 예외: player workstation이거나 subnet 미연결(또는 이웃 없음)이면
-    "인접 서버를 찾을 수 없음" 안내 문장 1줄 출력
-- `edit <path>`
-  - 파일 존재 + read 없음: `permission denied: edit` 에러
-  - 파일 존재 + `fileKind=Text`: 에디터 오픈
-    - write 있음: editable
-    - write 없음: read-only
-  - 파일 존재 + `fileKind!=Text`(`Binary`, `Image`, `Executable*`):
-    - 에디터는 항상 read-only
-    - 내용은 16진수 유사 문자열(라인당 100문자, 파일 크기 비례, 최대 표시 상한 적용)로 표시
-  - 파일 없음:
-    - write 없음: `permission denied: edit` 에러
-    - write 있음: 빈 버퍼로 오픈(new file draft)
-    - 단, 부모 경로가 없거나 디렉토리가 아니면 열기 단계에서 `not found`/`not directory` 에러
-  - 저장(`Ctrl+S`)은 별도 브리지 API `SaveEditorContent(nodeId,userId,cwd,path,content)`로 처리
-    - read-only 버퍼 저장 시 에러를 출력하고 에디터는 유지
-
-접속 성공 이벤트 규칙(v0.2):
-- `connect` 및 MiniScript `ssh.connect`가 성공하면 `privilegeAcquire` 이벤트를 발행한다.
-- 발행 대상 privilege는 로그인 계정이 이미 보유한 granted flag(`read/write/execute`) 각각이다.
-- `PrivilegeAcquireDto.via`는 호출 경로를 구분해 기록한다:
-  - 터미널 시스템콜 경로: `connect`
-  - MiniScript intrinsic 경로: `ssh.connect`
+포트 시드/판정/API 의미/시스템콜 출력 규칙은 본 문서 범위 밖이며 다음 SSOT를 따른다.
+- intrinsic/API 의미: `03_game_api_modules.md` (See DOCS_INDEX.md → 03)
+- 시스템콜 출력/UX: `07_ui_terminal_prototype_godot.md` (See DOCS_INDEX.md → 07)
+- 블루프린트 초기 시드/overlay 적용: `10_blueprint_schema_v0.md` (See DOCS_INDEX.md → 10)
+- 이벤트/프로세스 처리 로직: `11_event_handler_spec_v0_1.md` (See DOCS_INDEX.md → 11)
 
 ---
 
@@ -281,15 +214,14 @@ PortConfig
 diskOverlay
 - overlayEntries: Dictionary<string /*path*/, EntryMeta>
 - tombstones: HashSet<string /*path*/>
-- overlayDir: Dictionary<string /*dirPath*/, DirDelta>
+- dirDelta: Dictionary<string /*dirPath*/, DirDelta>
     DirDelta
     - added: HashSet<string /*childName*/>
     - removed: HashSet<string /*childName*/>
 ```
 
-운영 규칙(v0):
-- Resolve 우선순위: tombstone > overlayEntries > baseEntries
-- overlayDir는 현재 델타만 유지(added/removed가 모두 비면 제거)
+운영 의미(Resolve 우선순위/dirDelta 유지 규칙)는 `08_vfs_overlay_design_v0.md`를 따른다.  
+See DOCS_INDEX.md → 08.
 
 ---
 
@@ -330,42 +262,9 @@ DaemonStruct
       - recoveryMs: int     # rateLimit 초과 과부하 발생 시 비활성 시간(ms)
 ```
 
-OTP 규칙(v0.2):
-- OTP 제어 계정 참조는 반드시 `userKey`를 사용한다(`userId` 참조 금지).
-
-connectionRateLimiter 규칙(v0.2):
-- 목적: 특정 IP의 과도한 접속 시도를 탐지/차단하되, 데몬 자체 처리량 한계를 모델링한다.
-- 접속 시도 처리 단위 시간은 ms 기준으로 계산한다.
-- 런타임 권장 상태:
-  - `blockedUntilByIp: Dictionary<IP, int /*unixMs*/>`
-  - `recentAttemptsByIp: Dictionary<IP, Queue<int /*unixMs*/>>` (monitorMs 윈도우 관리)
-  - `rateWindowStartMs: int`, `rateCheckedInWindow: int`
-  - `overloadedUntilMs: int`
-
-처리 순서(접속 시도 1건 기준):
-1) `now < overloadedUntilMs`면 데몬 비활성 상태로 간주한다.  
-   - 이 구간에서는 데몬이 어떤 시도도 block하지 않는다(통과 처리).
-2) `blockedUntilByIp[ip] > now`면 즉시 drop한다.  
-   - 이 시도는 `rateLimit` 카운트에서 제외한다.
-3) `recentAttemptsByIp[ip]`에서 `now - monitorMs`보다 오래된 기록을 제거한다.
-4) 만약 이번 시도로 `threshold`를 초과하면:
-   - `blockedUntilByIp[ip] = now + blockMs`
-   - 이번 시도는 즉시 drop
-   - 이번 시도는 `rateLimit` 카운트에서 제외
-5) 위 조건에 걸리지 않은 시도만 `rateLimit` 검사 대상으로 본다.  
-   - 현재 1초 윈도우(`rateWindowStartMs`)의 `rateCheckedInWindow`가 `rateLimit` 미만이면 검사 성공:
-     - `rateCheckedInWindow++`
-     - `recentAttemptsByIp[ip]`에 `now` 추가
-     - 시도는 통과
-   - `rateLimit` 이상이면 과부하 발생:
-     - `overloadedUntilMs = now + recoveryMs`
-     - 이번 시도는 block하지 않고 통과
-     - 이후 `recoveryMs` 동안 모든 시도는 block하지 않음
-
-카운트 규칙(필수):
-- 차단된 IP에서 들어온 시도는 `rateLimit` 카운트에서 제외한다.
-- `threshold` 초과를 유발한 시도는 즉시 drop하며 `rateLimit` 카운트에서 제외한다.
-- 과부하 상태로 넘어간 이후의 시도는 검사 자체를 수행하지 않으므로 `rateLimit` 카운트 증가 대상이 아니다.
+OTP/레이트리미터의 동작 규칙(검증/판정/처리 순서)은 본 문서 범위 밖이다.
+- intrinsic/API 관점 의미: `03_game_api_modules.md` (See DOCS_INDEX.md → 03)
+- 런타임 처리 순서/스케줄링: `11_event_handler_spec_v0_1.md` (See DOCS_INDEX.md → 11)
 
 ---
 
@@ -402,14 +301,8 @@ LogStruct
 - [ ] `interfaces[].initiallyExposed` 입력으로 초기 `KnownNodes/isExposedByNet`을 계산한 뒤 런타임에는 저장하지 않음
 - [ ] `users`를 `userKey` 키로 관리하고 `UserConfig.userId`를 필수값으로 저장
 - [ ] 세션/프로세스 내부 참조는 `userKey`, 표시/로그는 `userId` 사용
-- [ ] `lanNeighbors`를 nodeId 기반으로 유지하고 `net.scan("lan")`은 IP 목록 반환
-- [ ] 시스템콜 `known`: `KnownNodesByNet["internet"]` 기반 public IP 테이블 출력
-- [ ] 시스템콜 `scan`: `execute` 권한 필요 + `현재IP - 연결IP` 형식 + 후속 IP 컬럼 정렬 + no-neighbor 안내 문장
-- [ ] 서버 생성 시 기본 포트(`22:SSH/public`, `21:FTP/public`)를 시드하고 overlay로 덮어쓰기/삭제를 반영
-- [ ] `portType=NONE`을 비할당 포트로 취급하고 해당 포트의 `exposure`를 무시
-- [ ] OTP daemon 참조를 `userKey` 기준으로 검증
-- [ ] `connectionRateLimiter` daemon 구현: `monitorMs/threshold/blockMs/rateLimit/recoveryMs` 규칙 반영
-- [ ] 프로세스 tick: `now >= endAt` 처리 + 서버 reason 보호 규칙
-- [ ] reboot 규칙: 서버 offline(reboot) 전환 + 프로세스/세션 정리 + booting 생성
-- [ ] VFS overlay: `diskOverlay` + Resolve 우선순위 + overlayDir 델타 유지
+- [ ] `lanNeighbors`를 nodeId 기반 캐시로 유지
+- [ ] `ports` 스키마(`portType/serviceId/exposure/banner`) 필드 유지
+- [ ] `daemons` 스키마(`OTP/firewall/connectionRateLimiter`) 필드 유지
+- [ ] VFS overlay 스키마: `overlayEntries` / `tombstones` / `dirDelta` 필드 유지
 - [ ] Logs: ringbuffer + origin 유지 규칙

@@ -36,6 +36,7 @@
 - `OK`
 - `ERR_INVALID_ARGS` (인자 타입/개수 오류)
 - `ERR_NOT_FOUND` (대상 없음)
+- `ERR_TOOL_MISSING` (필요한 공식 프로그램/툴이 없음)
 - `ERR_PERMISSION_DENIED` (권한 부족)
 - `ERR_NOT_TEXT_FILE` (텍스트가 아닌 파일을 text API로 다룸)
 - `ERR_ALREADY_EXISTS` (overwrite=false에서 파일 존재)
@@ -136,8 +137,9 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - MiniScript 실행 컨텍스트는 전역 `argv`, `argc`를 제공한다.
 - `argv`: `List<string>` (스크립트에 전달된 인자 목록)
 - `argc`: `int` (`argv` 길이)
-- `miniscript <script> [args...]` 실행 시 `argv`에는 `<script>` 뒤 인자들만 들어간다.
-- `ExecutableScript` 직접 실행(`<scriptPath> [args...]`)도 동일하게 `argv`/`argc`를 제공한다.
+- 프로그램 실행 경로(`miniscript`, `ExecutableScript`)의 해석/실행 계약은 `14_official_programs.md`를 따른다.  
+  See DOCS_INDEX.md → 14.
+- 본 문서에서는 그 실행 결과로 전달되는 `argv`/`argc` 노출 규약만 정의한다.
 - 인자가 없으면 `argv=[]`, `argc=0`이다.
 
 ### 0.11 intrinsic 호출 속도 제한(shared 100k)
@@ -156,8 +158,8 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 인자:
   - `text: string`
 - 반환:
-  - 성공: `{ ok:1, code:"None", err:null }`
-  - 실패(인자 오류): `{ ok:0, code:"InvalidArgs", err:string }`
+  - 성공: `{ ok:1, data:{ printed:1 }, err:null, code:"OK", cost:{...}, trace:{...} }`
+  - 실패(인자 오류): `{ ok:0, data:null, err:string, code:"ERR_INVALID_ARGS", cost:{...}, trace:{...} }`
 
 ### 1.2 `term.warn(text)` / `term.error(text)`
 - 목적: 경고/에러 로그를 표준 오류로 출력
@@ -171,8 +173,8 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `warn:` 또는 `error:` prefix stderr 라인은 non-fatal로 취급
   - 그 외 stderr 라인만 fatal로 취급
 - 반환:
-  - 성공: `{ ok:1, code:"None", err:null }`
-  - 실패(인자 오류): `{ ok:0, code:"InvalidArgs", err:string }`
+  - 성공: `{ ok:1, data:{ printed:1 }, err:null, code:"OK", cost:{...}, trace:{...} }`
+  - 실패(인자 오류): `{ ok:0, data:null, err:string, code:"ERR_INVALID_ARGS", cost:{...}, trace:{...} }`
 
 ### 1.3 `term.exec(cmd, opts?)`
 - 목적: 현재 실행 컨텍스트(현재 node/user/cwd)에서 로컬 명령 실행 (`ssh.exec`의 로컬 버전)
@@ -181,20 +183,20 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `opts?: map`
 - `opts`:
   - `maxBytes?: int` (UTF-8 stdout byte 상한)
-  - 지원하지 않는 key/음수/비정수는 `InvalidArgs`
+  - 지원하지 않는 key/음수/비정수는 `ERR_INVALID_ARGS`
 - 권한:
   - 별도 우회 없이 기존 터미널 system call 권한 검사(read/write/execute 등)를 그대로 따른다
 - 반환:
-  - 성공: `{ ok:1, code:"None", err:null, stdout:string, exitCode:0 }`
-  - 실패: `{ ok:0, code:string, err:string, stdout:string, exitCode:1 }`
+  - 성공: `{ ok:1, data:{ stdout:string, exitCode:int }, err:null, code:"OK", cost:{...}, trace:{...} }`
+  - 실패: `{ ok:0, data:null, err:string, code:"ERR_*", cost:{...}, trace:{...} }`
 - 실패 코드 예시:
-  - `InvalidArgs`, `PermissionDenied`, `TooLarge`, `UnknownCommand`, `NotFound`, `InternalError`
+  - `ERR_INVALID_ARGS`, `ERR_PERMISSION_DENIED`, `ERR_TOO_LARGE`, `ERR_NOT_FOUND`
 
 ---
 
 ## 2) time (대기)
 
-> 이번 버전에서는 `time.now()`를 **노출하지 않는다**. (OTP window 계산 등 플레이어 수학을 요구하지 않기 위함)
+> 이번 버전에서는 `time.now()`를 **노출하지 않는다**. (`authMode=otp`의 TOTP window 계산을 플레이어 입력/수학 과제로 만들지 않기 위함)
 
 ### 2.1 `time.sleep(seconds)`
 - 목적:
@@ -213,12 +215,14 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 
 지원 함수(이번 버전): `list/read/write/delete/stat`
 
-> 파일 탐색은 `fs.list`를 조합해 플레이어(또는 스크립트)가 직접 수행한다. (`fs.find`는 이번 버전에서 제외)
+> 파일 탐색은 `fs.list`를 조합해 플레이어(또는 스크립트)가 직접 수행한다. (`fs.find` intrinsic은 이번 버전에서 제외)
+>
+> 주의: 여기서 제외되는 것은 **MiniScript intrinsic `fs.find`** 이다.  
+> VFS 내부 구현 보조 함수(`08_vfs_overlay_design_v0.md`의 `find`)와는 별개다.
 
 공통 규칙:
-- 경로는 POSIX 스타일 문자열(`/` 시작 절대경로 권장)
-- 경로는 정규화한다: `.` 제거, `..` pop, 중복 `/` 제거
-- VFS 병합 우선순위: `tombstone > overlay > base`
+- 경로 문자열/정규화/병합 우선순위는 `08_vfs_overlay_design_v0.md`를 따른다.  
+  See DOCS_INDEX.md → 08.
 
 ### 3.1 `fs.list([sessionOrRoute], path)`
 - 목적: 디렉토리 목록
@@ -357,21 +361,8 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 실패:
   - `ERR_PERMISSION_DENIED`, `ERR_INVALID_ARGS`, `ERR_NOT_FOUND`(지정 netId 미존재)
 
-#### scan systemcall 출력 규격(v0.2)
-- `scan`:
-  - 현재 노드의 모든 비-internet 인터페이스를 스캔해 인터페이스 블록 단위로 출력
-- `scan <netId>`:
-  - 해당 인터페이스 블록만 출력
-- 출력 형식:
-  - `[interface <netId> <localIp>] -`
-  - `    <neighbor1>, <neighbor2>, ...`
-- neighbor 표시 규칙:
-  - `hostname` 우선, hostname이 비어 있으면 `ip` fallback
-- 예시:
-  - `[interface sub1 10.0.10.5] -`
-  - `    medium_gateway, 10.0.10.8`
-  - `[interface sub2 10.0.20.5] -`
-  - `    medium_server`
+> `scan` 시스템콜 출력 포맷/UX는 터미널 문서가 SSOT다.  
+> See DOCS_INDEX.md → 07 (`07_ui_terminal_prototype_godot.md`).
 
 ### 4.3 `net.ports([sessionOrRoute], hostOrIp, opts?)`
 - 목적: 대상 호스트의 열린 포트(서비스) 조회
@@ -400,6 +391,8 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 조건:
   - `net.ports`와 동일한 네트워크 접근 판정 적용(실행 source 컨텍스트 기준)
   - 포트가 비할당(`portType==none`)이면 `ERR_PORT_CLOSED`
+  - `banner` 값은 target `ports[port].banner`를 우선 사용하고, 미정의면 빈 문자열로 처리한다.
+  - `banner` 저장 위치/스키마는 `09_server_node_runtime_schema_v0.md` / `10_blueprint_schema_v0.md`의 `PortConfig`를 따른다.
 - 반환 `data`:
   - `{ banner: string }` (없으면 빈 문자열 허용)
 - 실패:
@@ -409,7 +402,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 
 ## 5) ssh (로그인/세션/원격 실행)
 
-지원 함수(이번 버전): `connect/disconnect/exec`
+지원 함수(이번 버전): `connect/disconnect/exec/inspect`
 
 ### 5.1 `ssh.connect(hostOrIp, userId, password, port=22, opts?)`
 - 목적: 가상 SSH 로그인(세션 생성)
@@ -430,6 +423,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 인증:
   - 서버의 계정 설정(authMode/daemon)에 따라 성공/실패를 결정한다.
   - 이 레이어에서는 “현실 SSH”가 아니라 **가상 인증 모듈**로 취급한다.
+  - `authMode=otp` 계정은 daemon(`stepMs/allowedDriftSteps/otpPairId`) 기반 TOTP 검증만 사용한다(발급 토큰 TTL 모델 미사용).
 - 반환 `data`:
   - 기본: `{ session: Session, route: null }`
   - 체인(`opts.session` 사용): `{ session: Session, route: SshRoute }`
@@ -465,16 +459,44 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `cmd: string` (단일 커맨드 라인)
   - `opts.maxBytes?: int` (stdout 상한 권장)
 - 커맨드 해석(권장):
-  - 터미널 명령 실행 규칙과 동일하게 처리한다.
-    1) 시스템콜 registry 조회
-    2) 미일치 시 프로그램 탐색(PATH=`/opt/bin`, 상대/절대 경로 규칙)
-    3) 최종 미해결 시 `unknown command`
-  - v0.2에서는 토큰화는 단순 공백 split을 허용(따옴표/이스케이프는 추후).
+  - 터미널 명령 파싱/시스템콜/프로그램 fallback 규칙은 `07_ui_terminal_prototype_godot.md` 및 `14_official_programs.md`를 따른다.  
+    See DOCS_INDEX.md → 07, 14.
+  - 본 API는 해당 실행 결과(`stdout`, `exitCode`)를 route/session 컨텍스트로 래핑해 반환한다.
 - 반환 `data`(권장):
   - `{ stdout: string, exitCode: int }`
 - 실패:
   - route 구조 검증 실패 시 `ERR_INVALID_ARGS`
   - `ERR_INVALID_ARGS`, `ERR_PERMISSION_DENIED`, `ERR_NOT_FOUND`(프로그램/경로 없음), `ERR_TOO_LARGE`
+
+
+### 5.4 `ssh.inspect(hostOrIp, userId, port=22, opts?)`
+- 목적: 공식 제공 프로그램 `inspect`가 정의한 InspectProbe 결과를 intrinsic 형태로 조회한다.
+  - 힌트 산출 규약(처리 순서/은닉/스키마 의미), 에러 의미, 실패 로그/부작용, 비용·탐지, 레이트리밋(shared limit) 규칙은 `14_official_programs.md`의 InspectProbe를 source of truth로 한다.
+- 인자:
+  - `hostOrIp: string`
+  - `userId: string` (필수)
+  - `port: int` (기본 22)
+  - `opts?: map` (v0.2 예약)
+- 인자 파싱(허용):
+  - `ssh.inspect(hostOrIp, userId, { ...opts })`
+  - `ssh.inspect(hostOrIp, userId, port, { ...opts })`
+- 추가 사전조건(ssh.inspect 전용): `inspect` 실행 파일 존재
+  - `inspect`는 현재 실행 컨텍스트에서 **터미널과 동일한 resolve 규칙**으로 찾아져야 한다(MUST).
+  - resolve 실패 또는 실행 파일 종류 불일치(`ExecutableHardcode(exec:inspect)`가 아님) → `ERR_TOOL_MISSING`
+  - 실행 권한 부족(`read + execute` 필요) → `ERR_PERMISSION_DENIED`
+- 반환:
+  - ResultMap(`ok/code/err/data/cost/trace`)
+  - 성공 시 `data`는 `InspectResult`(14 문서 정의)
+- 실패(code):
+  - `ERR_INVALID_ARGS`
+  - `ERR_TOOL_MISSING`
+  - `ERR_PERMISSION_DENIED`
+  - `ERR_NOT_FOUND`
+  - `ERR_PORT_CLOSED`
+  - `ERR_NET_DENIED`
+  - `ERR_AUTH_FAILED`
+  - `ERR_RATE_LIMITED`
+
 
 ---
 
@@ -571,7 +593,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 이번 파일에서 제외했지만, 추후 아래 확장을 고려할 수 있다(상세 스펙은 별도 문서/버전에서 정의).
 
 - `ftp.list/stat/delete/rename/mkdir/rmdir` : FTP 작업 디렉토리/조작 커맨드군
-- `fs.find` : 대규모 파일 트리에서 패턴 탐색(현재는 `fs.list` 조합으로 대체)
+- `fs.find` (MiniScript intrinsic) : 대규모 파일 트리에서 패턴 탐색(현재는 `fs.list` 조합으로 대체)
 - `net.traceroute/route` : 라우팅/중계 퍼즐 확장
 - `ssh.whoami/session.tokens` : 계정/토큰 가시화(디버깅/퍼즐용)
 - hostname/DNS: `hostOrIp`에 hostname 지원 및 해석 규칙 추가

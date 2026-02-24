@@ -13,7 +13,8 @@
 
 **프로젝트 결정**  
 - 유저 스크립트 언어: **MiniScript**
-- 프로그램 배포 형태: 인게임 파일(`.ms`) + 에디터로 수정 가능
+- 프로그램 실행 자산(`ExecutableHardcode`/`ExecutableScript`)의 정의와 실행 계약은 `14_official_programs.md`를 따른다.  
+  See DOCS_INDEX.md → 14.
 - 샌드박스 원칙: “실제 OS/네트워크 접근 0” (전부 가상 API만)
 
 ---
