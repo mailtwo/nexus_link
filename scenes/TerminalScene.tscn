@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/terminal_scene.gd" id="1_h7q7u"]
+[ext_resource type="CodeHighlighter" path="res://scenes/MiniscriptHighlighter.tres" id="2_q8j0n"]
 
 [node name="TerminalScene" type="Control"]
 layout_mode = 3
@@ -99,6 +100,13 @@ theme_override_constants/separation = 4
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
+caret_blink = true
+syntax_highlighter = ExtResource("2_q8j0n")
+highlight_current_line = true
+gutters_draw_line_numbers = true
+indent_automatic = true
+auto_brace_completion_enabled = true
+auto_brace_completion_highlight_matching = true
 
 [node name="EditorStatus" type="Label" parent="EditorOverlay/EditorLayout"]
 custom_minimum_size = Vector2(0, 28)

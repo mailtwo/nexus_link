@@ -15,6 +15,7 @@ internal static partial class MiniScriptSshIntrinsics
     private const string SshConnectIntrinsicName = "uplink_ssh_connect";
     private const string SshDisconnectIntrinsicName = "uplink_ssh_disconnect";
     private const string SshExecIntrinsicName = "uplink_ssh_exec";
+    private const string SshInspectIntrinsicName = "uplink_ssh_inspect";
     private const string KindKey = "kind";
     private const string SessionKind = "sshSession";
     private const string RouteKind = "sshRoute";
@@ -30,6 +31,10 @@ internal static partial class MiniScriptSshIntrinsics
     private const string SessionSourceNodeIdKey = "sourceNodeId";
     private const string SessionSourceUserIdKey = "sourceUserId";
     private const string SessionSourceCwdKey = "sourceCwd";
+    private const string ExecutableHardcodePrefix = "exec:";
+    private const string InspectExecutableId = "inspect";
+    private const string InspectPathDirectory = "/opt/bin";
+    private const string InspectSuccessCodeToken = "OK";
     private const int RouteVersion = 1;
     private const int MaxRouteHops = 8;
 
@@ -49,6 +54,7 @@ internal static partial class MiniScriptSshIntrinsics
             RegisterSshConnectIntrinsic();
             RegisterSshDisconnectIntrinsic();
             RegisterSshExecIntrinsic();
+            RegisterSshInspectIntrinsic();
             RegisterFtpGetIntrinsic();
             RegisterFtpPutIntrinsic();
             RegisterFsListIntrinsic();
@@ -90,6 +96,7 @@ internal static partial class MiniScriptSshIntrinsics
         sshModule["connect"] = Intrinsic.GetByName(SshConnectIntrinsicName).GetFunc();
         sshModule["disconnect"] = Intrinsic.GetByName(SshDisconnectIntrinsicName).GetFunc();
         sshModule["exec"] = Intrinsic.GetByName(SshExecIntrinsicName).GetFunc();
+        sshModule["inspect"] = Intrinsic.GetByName(SshInspectIntrinsicName).GetFunc();
         interpreter.SetGlobalValue("ssh", sshModule);
         InjectFtpModule(interpreter, moduleState);
         InjectFsModule(interpreter, moduleState);
@@ -418,6 +425,65 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
+    private static void RegisterSshInspectIntrinsic()
+    {
+        if (Intrinsic.GetByName(SshInspectIntrinsicName) is not null)
+        {
+            return;
+        }
+
+        var intrinsic = Intrinsic.Create(SshInspectIntrinsicName);
+        intrinsic.AddParam("hostOrIp");
+        intrinsic.AddParam("userId");
+        intrinsic.AddParam("port", 22);
+        intrinsic.AddParam("opts");
+        intrinsic.code = (context, partialResult) =>
+        {
+            if (!TryGetExecutionState(context, out var state) || state.ExecutionContext is null)
+            {
+                return new Intrinsic.Result(
+                    CreateInspectFailureMap(
+                        SystemCallErrorCode.InternalError,
+                        "ssh.inspect is unavailable in this execution context."));
+            }
+
+            if (!TryParseInspectArguments(
+                    context,
+                    out var hostOrIp,
+                    out var userId,
+                    out var port,
+                    out _))
+            {
+                return new Intrinsic.Result(
+                    CreateInspectFailureMap(
+                        SystemCallErrorCode.InvalidArgs,
+                        WorldRuntime.ToInspectProbeHumanMessage(SystemCallErrorCode.InvalidArgs)));
+            }
+
+            var executionContext = state.ExecutionContext;
+            if (!TryValidateInspectToolPreflight(
+                    executionContext,
+                    out var preflightErrorCode,
+                    out var preflightError))
+            {
+                return new Intrinsic.Result(CreateInspectFailureMap(preflightErrorCode, preflightError));
+            }
+
+            if (!executionContext.World.TryRunInspectProbe(
+                    executionContext.Server,
+                    hostOrIp,
+                    userId,
+                    port,
+                    out var inspectResult,
+                    out var failureResult))
+            {
+                return new Intrinsic.Result(CreateInspectFailureMap(failureResult.Code, ExtractErrorText(failureResult)));
+            }
+
+            return new Intrinsic.Result(CreateInspectSuccessMap(inspectResult));
+        };
+    }
+
     private static bool TryGetExecutionState(TAC.Context context, out SshModuleState state)
     {
         state = null!;
@@ -536,6 +602,197 @@ internal static partial class MiniScriptSshIntrinsics
 
         optsMap = parsedOptsMap;
         return TryParseExecOpts(optsMap, out maxBytes, out error);
+    }
+
+    private static bool TryParseInspectArguments(
+        TAC.Context context,
+        out string hostOrIp,
+        out string userId,
+        out int port,
+        out string error)
+    {
+        hostOrIp = string.Empty;
+        userId = string.Empty;
+        port = 22;
+        error = string.Empty;
+
+        var rawHostOrIp = context.GetLocal("hostOrIp");
+        if (rawHostOrIp is null || rawHostOrIp is ValMap)
+        {
+            error = "hostOrIp is required.";
+            return false;
+        }
+
+        hostOrIp = rawHostOrIp.ToString().Trim();
+        if (string.IsNullOrWhiteSpace(hostOrIp))
+        {
+            error = "hostOrIp is required.";
+            return false;
+        }
+
+        var rawUserId = context.GetLocal("userId");
+        if (rawUserId is null || rawUserId is ValMap)
+        {
+            error = "userId is required.";
+            return false;
+        }
+
+        userId = rawUserId.ToString().Trim();
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            error = "userId is required.";
+            return false;
+        }
+
+        var rawPort = context.GetLocal("port");
+        var rawOpts = context.GetLocal("opts");
+        ValMap? optsMap = null;
+        if (rawPort is ValMap optsFromPort)
+        {
+            if (rawOpts is not null)
+            {
+                error = "opts must be omitted when port argument is already a map.";
+                return false;
+            }
+
+            optsMap = optsFromPort;
+        }
+        else
+        {
+            if (!TryReadPort(rawPort, out port, out error))
+            {
+                return false;
+            }
+
+            if (rawOpts is not null)
+            {
+                if (rawOpts is not ValMap parsedOpts)
+                {
+                    error = "opts must be a map.";
+                    return false;
+                }
+
+                optsMap = parsedOpts;
+            }
+        }
+
+        return TryParseInspectOpts(optsMap, out error);
+    }
+
+    private static bool TryParseInspectOpts(ValMap? optsMap, out string error)
+    {
+        error = string.Empty;
+        if (optsMap is null)
+        {
+            return true;
+        }
+
+        foreach (var key in optsMap.Keys)
+        {
+            var keyText = key?.ToString().Trim() ?? string.Empty;
+            error = $"unsupported opts key: {keyText}";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryValidateInspectToolPreflight(
+        SystemCallExecutionContext executionContext,
+        out SystemCallErrorCode errorCode,
+        out string errorMessage)
+    {
+        errorCode = SystemCallErrorCode.None;
+        errorMessage = string.Empty;
+        if (!TryResolveInspectToolExecutable(executionContext, out var inspectToolPath, out var inspectToolEntry))
+        {
+            errorCode = SystemCallErrorCode.ToolMissing;
+            errorMessage = WorldRuntime.ToInspectProbeHumanMessage(errorCode);
+            return false;
+        }
+
+        if (inspectToolEntry.FileKind != VfsFileKind.ExecutableHardcode)
+        {
+            errorCode = SystemCallErrorCode.ToolMissing;
+            errorMessage = WorldRuntime.ToInspectProbeHumanMessage(errorCode);
+            return false;
+        }
+
+        if (!executionContext.Server.DiskOverlay.TryReadFileText(inspectToolPath, out var executablePayload) ||
+            !TryParseExecutableHardcodePayload(executablePayload, out var executableId) ||
+            !string.Equals(executableId, InspectExecutableId, StringComparison.Ordinal))
+        {
+            errorCode = SystemCallErrorCode.ToolMissing;
+            errorMessage = WorldRuntime.ToInspectProbeHumanMessage(errorCode);
+            return false;
+        }
+
+        if (!executionContext.User.Privilege.Read || !executionContext.User.Privilege.Execute)
+        {
+            errorCode = SystemCallErrorCode.PermissionDenied;
+            errorMessage = WorldRuntime.ToInspectProbeHumanMessage(errorCode);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryResolveInspectToolExecutable(
+        SystemCallExecutionContext executionContext,
+        out string resolvedPath,
+        out VfsEntryMeta resolvedEntry)
+    {
+        resolvedPath = string.Empty;
+        resolvedEntry = null!;
+
+        var candidatePaths = new[]
+        {
+            BaseFileSystem.NormalizePath(executionContext.Cwd, InspectExecutableId),
+            BaseFileSystem.NormalizePath("/", InspectPathDirectory + "/" + InspectExecutableId),
+        };
+        var seenPaths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var candidatePath in candidatePaths)
+        {
+            if (!seenPaths.Add(candidatePath))
+            {
+                continue;
+            }
+
+            if (!executionContext.Server.DiskOverlay.TryResolveEntry(candidatePath, out var entry))
+            {
+                continue;
+            }
+
+            if (entry.EntryKind != VfsEntryKind.File || !entry.IsDirectExecutable())
+            {
+                continue;
+            }
+
+            resolvedPath = candidatePath;
+            resolvedEntry = entry;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryParseExecutableHardcodePayload(string rawContentId, out string executableId)
+    {
+        executableId = string.Empty;
+        var trimmed = rawContentId?.Trim() ?? string.Empty;
+        if (!trimmed.StartsWith(ExecutableHardcodePrefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var parsedId = trimmed[ExecutableHardcodePrefix.Length..];
+        if (string.IsNullOrWhiteSpace(parsedId))
+        {
+            return false;
+        }
+
+        executableId = parsedId;
+        return true;
     }
 
     private static bool TryParseExecOpts(
@@ -1588,6 +1845,69 @@ internal static partial class MiniScriptSshIntrinsics
             ["stdout"] = new ValString(stdout ?? string.Empty),
             ["exitCode"] = ValNumber.one,
         };
+    }
+
+    private static ValMap CreateInspectSuccessMap(WorldRuntime.InspectProbeResult inspectResult)
+    {
+        var result = new ValMap
+        {
+            ["ok"] = ValNumber.one,
+            ["code"] = new ValString(ToInspectCodeToken(SystemCallErrorCode.None)),
+            ["err"] = (Value)null!,
+            ["hostOrIp"] = new ValString(inspectResult.HostOrIp ?? string.Empty),
+            ["port"] = new ValNumber(inspectResult.Port),
+            ["userId"] = new ValString(inspectResult.UserId ?? string.Empty),
+            ["passwdInfo"] = CreateInspectPasswdInfoMap(inspectResult.PasswdInfo),
+        };
+        result["banner"] = string.IsNullOrWhiteSpace(inspectResult.Banner)
+            ? (Value)null!
+            : new ValString(inspectResult.Banner.Trim());
+        return result;
+    }
+
+    private static ValMap CreateInspectFailureMap(SystemCallErrorCode code, string err)
+    {
+        var normalizedMessage = string.IsNullOrWhiteSpace(err)
+            ? WorldRuntime.ToInspectProbeHumanMessage(code)
+            : err.Trim();
+        return new ValMap
+        {
+            ["ok"] = ValNumber.zero,
+            ["code"] = new ValString(ToInspectCodeToken(code)),
+            ["err"] = new ValString(normalizedMessage),
+        };
+    }
+
+    private static ValMap CreateInspectPasswdInfoMap(WorldRuntime.InspectPasswdInfo passwdInfo)
+    {
+        var normalizedKind = passwdInfo.Kind?.Trim();
+        var map = new ValMap
+        {
+            ["kind"] = new ValString(string.IsNullOrWhiteSpace(normalizedKind) ? "none" : normalizedKind),
+        };
+        if (passwdInfo.Length.HasValue)
+        {
+            map["length"] = new ValNumber(passwdInfo.Length.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(passwdInfo.AlphabetId))
+        {
+            map["alphabetId"] = new ValString(passwdInfo.AlphabetId.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(passwdInfo.Alphabet))
+        {
+            map["alphabet"] = new ValString(passwdInfo.Alphabet);
+        }
+
+        return map;
+    }
+
+    private static string ToInspectCodeToken(SystemCallErrorCode code)
+    {
+        return code == SystemCallErrorCode.None
+            ? InspectSuccessCodeToken
+            : WorldRuntime.ToInspectProbeErrorCodeToken(code);
     }
 
     private static string JoinResultLines(SystemCallResult result)
