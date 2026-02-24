@@ -311,6 +311,7 @@ public sealed class SystemCallTest
         Assert.True(result.Ok);
         var wrappedIntrinsicIds = GetWrappedIntrinsicIdsFromRateLimiter();
         AssertIntrinsicWrapped(wrappedIntrinsicIds, "uplink_ssh_connect");
+        AssertIntrinsicWrapped(wrappedIntrinsicIds, "uplink_ssh_inspect");
         AssertIntrinsicWrapped(wrappedIntrinsicIds, "uplink_fs_read");
         AssertIntrinsicWrapped(wrappedIntrinsicIds, "uplink_net_interfaces");
         AssertIntrinsicWrapped(wrappedIntrinsicIds, "uplink_net_scan");
@@ -949,6 +950,241 @@ public sealed class SystemCallTest
                 "r2err=connectionRateLimiter daemon blocked this connection attempt.",
                 StringComparison.Ordinal));
         Assert.Empty(remote.Sessions);
+    }
+
+    /// <summary>Ensures ssh.inspect returns top-level InspectProbe fields with OK/ERR token contract and no side effects.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshInspect_ReturnsTopLevelResultWithoutSideEffects()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "abc123");
+        remote.Ports[22].ServiceId = "OpenSSH_8.9";
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_inspect_ok.ms",
+            """
+            opts = {}
+            r = ssh.inspect("10.0.1.20", "guest", 22, opts)
+            print "ok=" + str(r.ok)
+            print "code=" + r.code
+            print "hasData=" + str(hasIndex(r, "data"))
+            print "host=" + r.hostOrIp
+            print "port=" + str(r.port)
+            print "user=" + r.userId
+            print "banner=" + r.banner
+            print "kind=" + r.passwdInfo.kind
+            print "length=" + str(r.passwdInfo.length)
+            print "alphabetId=" + r.passwdInfo.alphabetId
+            print "alphabet=" + r.passwdInfo.alphabet
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_inspect_ok.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "hasData=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "host=10.0.1.20", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "port=22", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "user=guest", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "banner=OpenSSH_8.9", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "kind=policy", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "length=6", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "alphabetId=numberalphabet", StringComparison.Ordinal));
+        Assert.Contains(
+            result.Lines,
+            static line => string.Equals(
+                line,
+                "alphabet=0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+                StringComparison.Ordinal));
+        Assert.Empty(remote.Sessions);
+
+        var events = DrainQueuedGameEvents(harness.World);
+        var privilegeEvents = events
+            .Where(static gameEvent => string.Equals((string)GetPropertyValue(gameEvent, "EventType"), "privilegeAcquire", StringComparison.Ordinal))
+            .ToList();
+        var fileAcquireEvents = events
+            .Where(static gameEvent => string.Equals((string)GetPropertyValue(gameEvent, "EventType"), "fileAcquire", StringComparison.Ordinal))
+            .ToList();
+        Assert.Empty(privilegeEvents);
+        Assert.Empty(fileAcquireEvents);
+        Assert.Empty(events);
+    }
+
+    /// <summary>Ensures ssh.inspect returns ERR_TOOL_MISSING when inspect executable is not resolvable from the current context.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshInspect_MissingTool_ReturnsErrToolMissing()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_inspect_missing_tool.ms",
+            """
+            r = ssh.inspect("10.0.1.20", "guest")
+            print "ok=" + str(r.ok)
+            print "code=" + r.code
+            print "err=" + r.err
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_inspect_missing_tool.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=ERR_TOOL_MISSING", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "err=tool missing", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures ssh.inspect preflight honors cwd-first executable resolution and rejects shadowed non-inspect hardcodes.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshInspect_CwdShadowedByNonInspectExecutable_ReturnsErrToolMissing()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/inspect", "exec:notinspect", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_inspect_shadowed.ms",
+            """
+            r = ssh.inspect("10.0.1.20", "guest")
+            print "ok=" + str(r.ok)
+            print "code=" + r.code
+            print "err=" + r.err
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_inspect_shadowed.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=ERR_TOOL_MISSING", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "err=tool missing", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures ssh.inspect probe failures map to canonical ERR_* codes and message tokens.</summary>
+    [Theory]
+    [InlineData("not_found", "ERR_NOT_FOUND", "host not found")]
+    [InlineData("port_closed", "ERR_PORT_CLOSED", "port is closed")]
+    [InlineData("net_denied", "ERR_NET_DENIED", "network access denied")]
+    [InlineData("auth_failed", "ERR_AUTH_FAILED", "authentication failed")]
+    [InlineData("rate_limited", "ERR_RATE_LIMITED", "rate limited")]
+    public void Execute_Miniscript_SshInspect_ProbeFailures_MapToErrTokens(
+        string scenario,
+        string expectedCode,
+        string expectedErr)
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+
+        ServerNodeRuntime? remote = null;
+        var hostOrIp = "10.0.1.20";
+        var userId = "guest";
+        switch (scenario)
+        {
+            case "not_found":
+                hostOrIp = "10.0.1.99";
+                break;
+            case "port_closed":
+                remote = AddRemoteServer(harness, "node-2", "remote", hostOrIp, AuthMode.Static, "pw", portType: PortType.Http);
+                break;
+            case "net_denied":
+                remote = AddRemoteServer(harness, "node-2", "remote", hostOrIp, AuthMode.Static, "pw", exposure: PortExposure.Localhost);
+                break;
+            case "auth_failed":
+                remote = AddRemoteServer(harness, "node-2", "remote", hostOrIp, AuthMode.Static, "pw");
+                userId = "admin";
+                break;
+            case "rate_limited":
+                remote = AddRemoteServer(harness, "node-2", "remote", hostOrIp, AuthMode.Static, "pw");
+                SetInspectProbeRateLimitState(
+                    harness.World,
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    100000);
+                break;
+            default:
+                throw new InvalidOperationException("unknown inspect failure scenario: " + scenario);
+        }
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_inspect_fail.ms",
+            $"""
+            r = ssh.inspect("{hostOrIp}", "{userId}")
+            print "ok=" + str(r.ok)
+            print "code=" + r.code
+            print "err=" + r.err
+            print "hasData=" + str(hasIndex(r, "data"))
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_inspect_fail.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, line => string.Equals(line, "code=" + expectedCode, StringComparison.Ordinal));
+        Assert.Contains(result.Lines, line => string.Equals(line, "err=" + expectedErr, StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "hasData=0", StringComparison.Ordinal));
+        if (remote is not null)
+        {
+            Assert.Empty(remote.Sessions);
+        }
+
+        var events = DrainQueuedGameEvents(harness.World);
+        var privilegeEvents = events
+            .Where(static gameEvent => string.Equals((string)GetPropertyValue(gameEvent, "EventType"), "privilegeAcquire", StringComparison.Ordinal))
+            .ToList();
+        var fileAcquireEvents = events
+            .Where(static gameEvent => string.Equals((string)GetPropertyValue(gameEvent, "EventType"), "fileAcquire", StringComparison.Ordinal))
+            .ToList();
+        Assert.Empty(privilegeEvents);
+        Assert.Empty(fileAcquireEvents);
+        Assert.Empty(events);
+    }
+
+    /// <summary>Ensures ssh.inspect preflight reports ERR_PERMISSION_DENIED when execution context lacks read+execute.</summary>
+    [Fact]
+    public void SshInspect_Preflight_UserWithoutReadOrExecute_ReturnsPermissionDenied()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+        var limitedUser = new UserConfig
+        {
+            UserId = "guest",
+            AuthMode = AuthMode.None,
+            Privilege = new PrivilegeConfig
+            {
+                Read = true,
+                Write = true,
+                Execute = false,
+            },
+        };
+        var executionContext = CreateSystemCallExecutionContextForTest(
+            harness.World,
+            harness.Server,
+            limitedUser,
+            harness.Server.NodeId,
+            "guest",
+            "/",
+            "ts-ssh-inspect-preflight");
+        var intrinsicsType = RequireRuntimeType("Uplink2.Runtime.MiniScript.MiniScriptSshIntrinsics");
+        var method = intrinsicsType.GetMethod("TryValidateInspectToolPreflight", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        object?[] args = { executionContext, SystemCallErrorCode.None, string.Empty };
+        var validated = (bool)method!.Invoke(null, args)!;
+
+        Assert.False(validated);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, Assert.IsType<SystemCallErrorCode>(args[1]));
+        Assert.Equal("permission denied", Assert.IsType<string>(args[2]));
     }
 
     /// <summary>Ensures ssh.connect supports opts.session chaining and returns an sshRoute payload.</summary>
@@ -6539,6 +6775,26 @@ public sealed class SystemCallTest
         var type = typeof(SystemCallResult).Assembly.GetType(fullTypeName);
         Assert.NotNull(type);
         return type!;
+    }
+
+    private static object CreateSystemCallExecutionContextForTest(
+        WorldRuntime world,
+        ServerNodeRuntime server,
+        UserConfig user,
+        string nodeId,
+        string userKey,
+        string cwd,
+        string terminalSessionId)
+    {
+        var contextType = RequireRuntimeType("Uplink2.Runtime.Syscalls.SystemCallExecutionContext");
+        var instance = Activator.CreateInstance(
+            contextType,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            args: new object?[] { world, server, user, nodeId, userKey, cwd, terminalSessionId },
+            culture: null);
+        Assert.NotNull(instance);
+        return instance!;
     }
 
     private static SystemCallResult Execute(

@@ -485,8 +485,16 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - resolve 실패 또는 실행 파일 종류 불일치(`ExecutableHardcode(exec:inspect)`가 아님) → `ERR_TOOL_MISSING`
   - 실행 권한 부족(`read + execute` 필요) → `ERR_PERMISSION_DENIED`
 - 반환:
-  - ResultMap(`ok/code/err/data/cost/trace`)
-  - 성공 시 `data`는 `InspectResult`(14 문서 정의)
+  - `ssh.inspect`는 이번 버전에서 **최상위 직접 필드**를 반환한다(`data` 중첩 사용 안 함).
+  - 성공:
+    - `ok=1`
+    - `code="OK"`
+    - `err=null`
+    - `hostOrIp`, `port`, `userId`, `banner`, `passwdInfo`
+  - 실패:
+    - `ok=0`
+    - `code="ERR_*"`
+    - `err=<string>`
 - 실패(code):
   - `ERR_INVALID_ARGS`
   - `ERR_TOOL_MISSING`

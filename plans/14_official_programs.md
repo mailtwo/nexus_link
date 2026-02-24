@@ -183,10 +183,10 @@ InspectProbe는 아래 alphabet을 최소 지원합니다.
   - `inspect` 프로그램과 `ssh.inspect` intrinsic 모두 동일하게 적용됩니다(MUST).
 
 ### 2.2 실패 로그(프로그램 `inspect`)
-`inspect` 프로그램은 실패 시 stderr에 아래 형식으로 출력하는 것을 권장합니다.
+`inspect` 프로그램은 실패 시 stderr를 아래 2줄 형식으로 출력합니다.
 
 - 1행: `error: <humanMessage>`
-- 2행(선택): `code: <ERR_...>`
+- 2행: `code: <ERR_...>`
 
 권장 humanMessage:
 - `ERR_PORT_CLOSED` → `port is closed`
@@ -202,7 +202,8 @@ InspectProbe는 아래 alphabet을 최소 지원합니다.
 
 ### 2.3 실패 반환( `ssh.inspect` )
 `ssh.inspect`는 ResultMap으로 실패를 반환합니다.
-- `ok=0`, `code="ERR_*"`, `err=<string>`, `data=null`
+- `ok=0`, `code="ERR_*"`, `err=<string>`
+- `data=null`을 강제하지 않으며, 실패 반환은 위 3개 필드를 기준으로 해석합니다.
 - ResultMap의 세부 필드 규칙은 API 공통 규약을 따릅니다.
 
 ---
