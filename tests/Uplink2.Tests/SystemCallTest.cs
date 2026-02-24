@@ -155,6 +155,20 @@ public sealed class SystemCallTest
         Assert.Equal(SystemCallErrorCode.None, result.Code);
     }
 
+    /// <summary>Ensures bare-command PATH lookup falls back to workstation /opt/bin for remote execution contexts.</summary>
+    [Fact]
+    public void Execute_BareCommand_RemoteContext_UsesWorkstationGlobalPathFallback()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        harness.BaseFileSystem.AddFile("/opt/bin/tool", "exec:noop", fileKind: VfsFileKind.ExecutableHardcode);
+
+        var result = Execute(harness, "tool", nodeId: remote.NodeId, userId: "guest");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+    }
+
     /// <summary>Ensures relative path commands like ../bin/tool are executed via cwd normalization.</summary>
     [Fact]
     public void Execute_RelativePathCommand_IsResolvedFromCwd()
@@ -1785,6 +1799,34 @@ public sealed class SystemCallTest
         Assert.Empty(remote.Sessions);
     }
 
+    /// <summary>Ensures ssh.exec command resolution falls back to workstation /opt/bin when remote endpoint lacks executable.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshExec_RemoteCommand_UsesWorkstationGlobalPathFallback()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddFile("/opt/bin/tool", "exec:noop", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_exec_global_tool.ms",
+            """
+            r = ssh.connect("10.0.1.20", "guest", "pw")
+            e = ssh.exec(r.session, "tool")
+            print "ok=" + str(e.ok)
+            print "code=" + e.code
+            d = ssh.disconnect(r.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_exec_global_tool.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
+    }
+
     /// <summary>Ensures ssh.exec async mode returns immediate schedule result with null stdout/exitCode and non-null jobId.</summary>
     [Fact]
     public void Execute_Miniscript_SshExec_Async_ReturnsImmediateJobShape()
@@ -1911,6 +1953,38 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=0", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "stdout=local motd", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "jobIdNull=1", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures term.exec command resolution falls back to workstation /opt/bin for remote script contexts.</summary>
+    [Fact]
+    public void Execute_Miniscript_TermExec_RemoteContext_UsesWorkstationGlobalPathFallback()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/tool", "exec:noop", fileKind: VfsFileKind.ExecutableHardcode);
+
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.DiskOverlay.AddDirectory("/opt");
+        remote.DiskOverlay.AddDirectory("/opt/bin");
+        remote.DiskOverlay.WriteFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        remote.DiskOverlay.AddDirectory("/scripts");
+        remote.DiskOverlay.WriteFile(
+            "/scripts/term_exec_global_tool.ms",
+            """
+            r = term.exec("tool")
+            print "ok=" + str(r.ok)
+            print "code=" + r.code
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(
+            harness,
+            "miniscript /scripts/term_exec_global_tool.ms",
+            nodeId: remote.NodeId,
+            userId: "guest");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures term.exec validates cmd/opts and rejects unsupported opts keys and non-integer maxBytes.</summary>

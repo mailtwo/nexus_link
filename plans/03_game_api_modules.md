@@ -497,7 +497,9 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `ssh.inspect(hostOrIp, userId, { ...opts })`
   - `ssh.inspect(hostOrIp, userId, port, { ...opts })`
 - 추가 사전조건(ssh.inspect 전용): `inspect` 실행 파일 존재
-  - `inspect`는 현재 실행 컨텍스트에서 **터미널과 동일한 resolve 규칙**으로 찾아져야 한다(MUST).
+  - `inspect`는 현재 실행 컨텍스트 preflight 규칙으로 찾아져야 한다(MUST).
+    - 탐색 순서: `Normalize(cwd, "inspect")` -> 현재 endpoint `/opt/bin/inspect`
+    - 워크스테이션 global PATH fallback은 `ssh.inspect` preflight에는 적용하지 않는다.
   - resolve 실패 또는 실행 파일 종류 불일치(`ExecutableHardcode(exec:inspect)`가 아님) → `ERR_TOOL_MISSING`
   - 실행 권한 부족(`read + execute` 필요) → `ERR_PERMISSION_DENIED`
 - 반환:

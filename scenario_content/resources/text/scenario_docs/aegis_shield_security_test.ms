@@ -22,16 +22,22 @@ opts["async"] = 1
 ex = term.exec("ms connection_test.ms", opts)
 print "exec connection_test [guard1_ssh] ok=" + str(ex.ok) + " code=" + ex.code
 
-ex = ssh.exec(guard2_ssh, "ms connection_test.ms", opts)
+ex = ssh.exec(guard2_ssh.session, "ms connection_test.ms", opts)
 print "exec connection_test [guard2_ssh] ok=" + str(ex.ok) + " code=" + ex.code
 
-ex = ssh.exec(guard3_ssh, "ms connection_test.ms", opts)
+ex = ssh.exec(guard3_ssh.session, "ms connection_test.ms", opts)
 print "exec connection_test [guard3_ssh] ok=" + str(ex.ok) + " code=" + ex.code
 
-ex = term.exec("password_breaker hard_mainframe root")
+ex = term.exec("password_breaker 4 hard_mainframe root")
 print "exec password_breaker [guard1_ssh] ok=" + str(ex.ok) + " code=" + ex.code
 if ex != null and ex.ok == 1 then
-    attack_result = ex.stdout.split("\n")[1]
+    lines = ex.stdout.split("\n")
+    attack_result = ""
+    if len(lines) > 1 then
+        attack_result = lines[1]
+    else if len(lines) == 1 then
+        attack_result = lines[0]
+    end if
     print attack_result
 end if
 

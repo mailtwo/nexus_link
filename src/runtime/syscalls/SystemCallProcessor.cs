@@ -118,7 +118,7 @@ internal sealed class SystemCallProcessor
                 out immediateResult);
         }
 
-        if (!TryResolveProgramPath(context!, command, out var resolvedProgramPath, out var resolvedProgramEntry))
+        if (!TryResolveProgramPath(context!, command, out var resolvedProgram))
         {
             return false;
         }
@@ -129,24 +129,27 @@ internal sealed class SystemCallProcessor
             return true;
         }
 
-        if (resolvedProgramEntry!.FileKind == VfsFileKind.ExecutableScript)
+        if (resolvedProgram.ResolvedProgramEntry.FileKind == VfsFileKind.ExecutableScript)
         {
             return TryPrepareExecutableScriptLaunch(
                 context,
+                resolvedProgram.SourceServer,
                 command,
                 request.CommandLine ?? string.Empty,
-                resolvedProgramPath,
+                resolvedProgram.ResolvedProgramPath,
                 arguments,
                 out launch,
                 out immediateResult);
         }
 
-        if (resolvedProgramEntry.FileKind != VfsFileKind.ExecutableHardcode)
+        if (resolvedProgram.ResolvedProgramEntry.FileKind != VfsFileKind.ExecutableHardcode)
         {
             return false;
         }
 
-        if (!context.Server.DiskOverlay.TryReadFileText(resolvedProgramPath, out var executablePayload))
+        if (!resolvedProgram.SourceServer.DiskOverlay.TryReadFileText(
+                resolvedProgram.ResolvedProgramPath,
+                out var executablePayload))
         {
             return false;
         }
@@ -161,7 +164,7 @@ internal sealed class SystemCallProcessor
             context,
             command,
             request.CommandLine ?? string.Empty,
-            resolvedProgramPath,
+            resolvedProgram.ResolvedProgramPath,
             arguments,
             out launch,
             out immediateResult);
@@ -180,10 +183,18 @@ internal sealed class SystemCallProcessor
             commandNames.Add(registeredCommand);
         }
 
-        AddExecutableProgramNamesFromDirectory(context, context.Cwd, commandNames);
+        AddExecutableProgramNamesFromDirectory(context.Server, context.Cwd, commandNames);
         foreach (var searchDirectory in ProgramPathDirectories)
         {
-            AddExecutableProgramNamesFromDirectory(context, searchDirectory, commandNames);
+            AddExecutableProgramNamesFromDirectory(context.Server, searchDirectory, commandNames);
+        }
+
+        if (TryGetGlobalProgramPathServer(context, out var globalPathServer))
+        {
+            foreach (var searchDirectory in ProgramPathDirectories)
+            {
+                AddExecutableProgramNamesFromDirectory(globalPathServer, searchDirectory, commandNames);
+            }
         }
 
         return commandNames
@@ -239,23 +250,23 @@ internal sealed class SystemCallProcessor
     }
 
     private static void AddExecutableProgramNamesFromDirectory(
-        SystemCallExecutionContext context,
+        ServerNodeRuntime sourceServer,
         string directoryPath,
         HashSet<string> commandNames)
     {
         var normalizedDirectoryPath = BaseFileSystem.NormalizePath("/", directoryPath);
-        if (!context.Server.DiskOverlay.TryResolveEntry(normalizedDirectoryPath, out var directoryEntry) ||
+        if (!sourceServer.DiskOverlay.TryResolveEntry(normalizedDirectoryPath, out var directoryEntry) ||
             directoryEntry.EntryKind != VfsEntryKind.Dir)
         {
             return;
         }
 
-        foreach (var childName in context.Server.DiskOverlay.ListChildren(normalizedDirectoryPath))
+        foreach (var childName in sourceServer.DiskOverlay.ListChildren(normalizedDirectoryPath))
         {
             var childPath = normalizedDirectoryPath == "/"
                 ? "/" + childName
                 : normalizedDirectoryPath + "/" + childName;
-            if (!context.Server.DiskOverlay.TryResolveEntry(childPath, out var childEntry) ||
+            if (!sourceServer.DiskOverlay.TryResolveEntry(childPath, out var childEntry) ||
                 childEntry.EntryKind != VfsEntryKind.File ||
                 !childEntry.IsDirectExecutable())
             {
@@ -268,6 +279,7 @@ internal sealed class SystemCallProcessor
 
     private static bool TryPrepareExecutableScriptLaunch(
         SystemCallExecutionContext context,
+        ServerNodeRuntime programSourceServer,
         string command,
         string commandLine,
         string resolvedProgramPath,
@@ -276,7 +288,7 @@ internal sealed class SystemCallProcessor
         out SystemCallResult? immediateResult)
     {
         launch = null;
-        if (!context.Server.DiskOverlay.TryReadFileText(resolvedProgramPath, out var scriptSource))
+        if (!programSourceServer.DiskOverlay.TryReadFileText(resolvedProgramPath, out var scriptSource))
         {
             immediateResult = SystemCallResultFactory.NotFile(resolvedProgramPath);
             return true;
@@ -421,7 +433,7 @@ internal sealed class SystemCallProcessor
     {
         result = SystemCallResultFactory.Success();
 
-        if (!TryResolveProgramPath(context, command, out var resolvedProgramPath, out var resolvedProgramEntry))
+        if (!TryResolveProgramPath(context, command, out var resolvedProgram))
         {
             return false;
         }
@@ -432,53 +444,110 @@ internal sealed class SystemCallProcessor
             return true;
         }
 
-        if (resolvedProgramEntry!.FileKind == VfsFileKind.ExecutableScript)
+        if (resolvedProgram.ResolvedProgramEntry.FileKind == VfsFileKind.ExecutableScript)
         {
-            return TryExecuteScriptProgram(context, resolvedProgramPath, arguments, out result);
+            return TryExecuteScriptProgram(
+                context,
+                resolvedProgram.SourceServer,
+                resolvedProgram.ResolvedProgramPath,
+                arguments,
+                out result);
         }
 
-        if (resolvedProgramEntry.FileKind == VfsFileKind.ExecutableHardcode)
+        if (resolvedProgram.ResolvedProgramEntry.FileKind == VfsFileKind.ExecutableHardcode)
         {
-            return TryExecuteHardcodedProgram(context, command, resolvedProgramPath, arguments, out result);
+            return TryExecuteHardcodedProgram(
+                context,
+                resolvedProgram.SourceServer,
+                command,
+                resolvedProgram.ResolvedProgramPath,
+                arguments,
+                out result);
         }
 
         return false;
     }
 
-    private static bool TryResolveProgramPath(
+    private bool TryResolveProgramPath(
         SystemCallExecutionContext context,
         string command,
-        out string resolvedProgramPath,
-        out VfsEntryMeta? resolvedProgramEntry)
+        out ResolvedProgram resolvedProgram)
     {
-        resolvedProgramPath = string.Empty;
-        resolvedProgramEntry = null;
+        resolvedProgram = default;
 
         if (string.IsNullOrWhiteSpace(command))
         {
             return false;
         }
 
-        var candidatePaths = new List<string>();
         if (command.Contains("/", StringComparison.Ordinal))
         {
-            candidatePaths.Add(BaseFileSystem.NormalizePath(context.Cwd, command));
-        }
-        else
-        {
-            candidatePaths.Add(BaseFileSystem.NormalizePath(context.Cwd, command));
-            foreach (var searchDir in ProgramPathDirectories)
-            {
-                var joined = searchDir.EndsWith("/", StringComparison.Ordinal)
-                    ? searchDir + command
-                    : searchDir + "/" + command;
-                candidatePaths.Add(BaseFileSystem.NormalizePath("/", joined));
-            }
+            var directPathCandidate = BaseFileSystem.NormalizePath(context.Cwd, command);
+            return TryResolveProgramPathFromServer(
+                context.Server,
+                new[] { directPathCandidate },
+                out resolvedProgram);
         }
 
-        foreach (var candidatePath in candidatePaths.Distinct(StringComparer.Ordinal))
+        var localCandidatePaths = new List<string>
         {
-            if (!context.Server.DiskOverlay.TryResolveEntry(candidatePath, out var entry))
+            BaseFileSystem.NormalizePath(context.Cwd, command),
+        };
+        foreach (var searchDir in ProgramPathDirectories)
+        {
+            var joined = searchDir.EndsWith("/", StringComparison.Ordinal)
+                ? searchDir + command
+                : searchDir + "/" + command;
+            localCandidatePaths.Add(BaseFileSystem.NormalizePath("/", joined));
+        }
+
+        if (TryResolveProgramPathFromServer(context.Server, localCandidatePaths, out resolvedProgram))
+        {
+            return true;
+        }
+
+        if (!TryGetGlobalProgramPathServer(context, out var globalPathServer))
+        {
+            return false;
+        }
+
+        var globalPathCandidatePaths = new List<string>();
+        foreach (var searchDir in ProgramPathDirectories)
+        {
+            var joined = searchDir.EndsWith("/", StringComparison.Ordinal)
+                ? searchDir + command
+                : searchDir + "/" + command;
+            globalPathCandidatePaths.Add(BaseFileSystem.NormalizePath("/", joined));
+        }
+
+        return TryResolveProgramPathFromServer(globalPathServer, globalPathCandidatePaths, out resolvedProgram);
+    }
+
+    private bool TryGetGlobalProgramPathServer(SystemCallExecutionContext context, out ServerNodeRuntime sourceServer)
+    {
+        sourceServer = null!;
+        var workstation = world.PlayerWorkstationServer;
+        if (workstation is null ||
+            string.Equals(workstation.NodeId, context.Server.NodeId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        sourceServer = workstation;
+        return true;
+    }
+
+    private static bool TryResolveProgramPathFromServer(
+        ServerNodeRuntime sourceServer,
+        IReadOnlyList<string> candidatePaths,
+        out ResolvedProgram resolvedProgram)
+    {
+        resolvedProgram = default;
+        var seenPaths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var candidatePath in candidatePaths)
+        {
+            if (!seenPaths.Add(candidatePath) ||
+                !sourceServer.DiskOverlay.TryResolveEntry(candidatePath, out var entry))
             {
                 continue;
             }
@@ -488,8 +557,7 @@ internal sealed class SystemCallProcessor
                 continue;
             }
 
-            resolvedProgramPath = candidatePath;
-            resolvedProgramEntry = entry;
+            resolvedProgram = new ResolvedProgram(sourceServer, candidatePath, entry);
             return true;
         }
 
@@ -498,13 +566,14 @@ internal sealed class SystemCallProcessor
 
     private static bool TryExecuteScriptProgram(
         SystemCallExecutionContext context,
+        ServerNodeRuntime programSourceServer,
         string resolvedProgramPath,
         IReadOnlyList<string> arguments,
         out SystemCallResult result)
     {
         result = SystemCallResultFactory.Success();
 
-        if (!context.Server.DiskOverlay.TryReadFileText(resolvedProgramPath, out var scriptSource))
+        if (!programSourceServer.DiskOverlay.TryReadFileText(resolvedProgramPath, out var scriptSource))
         {
             result = SystemCallResultFactory.NotFile(resolvedProgramPath);
             return true;
@@ -516,6 +585,7 @@ internal sealed class SystemCallProcessor
 
     private bool TryExecuteHardcodedProgram(
         SystemCallExecutionContext context,
+        ServerNodeRuntime programSourceServer,
         string command,
         string resolvedProgramPath,
         IReadOnlyList<string> arguments,
@@ -523,7 +593,7 @@ internal sealed class SystemCallProcessor
     {
         result = SystemCallResultFactory.Success();
 
-        if (!context.Server.DiskOverlay.TryReadFileText(resolvedProgramPath, out var executablePayload))
+        if (!programSourceServer.DiskOverlay.TryReadFileText(resolvedProgramPath, out var executablePayload))
         {
             return false;
         }
@@ -598,4 +668,9 @@ internal sealed class SystemCallProcessor
         executableId = parsed;
         return true;
     }
+
+    private readonly record struct ResolvedProgram(
+        ServerNodeRuntime SourceServer,
+        string ResolvedProgramPath,
+        VfsEntryMeta ResolvedProgramEntry);
 }

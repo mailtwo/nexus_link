@@ -32,8 +32,10 @@
 - command에 `/`가 포함되면 `Normalize(cwd, command)`만 시도
 - `/`가 없으면:
   1) `Normalize(cwd, command)`
-  2) `/opt/bin/<command>`
+  2) 현재 endpoint의 `/opt/bin/<command>`
+  3) (fallback) 플레이어 로컬 워크스테이션의 `/opt/bin/<command>` (global toolchain)
 - 실행은 `read + execute` 권한이 모두 필요합니다.
+- 위 global fallback은 **터미널 직접 명령**, `term.exec`, `ssh.exec`의 명령 해석 경로에 적용합니다.
 
 ### 0.3 `ExecutableHardcode` 디스패처 오류 처리
 - `exec:<executableId>` 형식이 아니거나, `<executableId>`가 등록되지 않은 경우 실행 실패로 처리한다.
@@ -67,7 +69,8 @@ InspectProbe는 대상 SSH 서비스/계정에 대해 “비밀번호/인증 타
 
 1) 인자 검증 → 실패 시 `ERR_INVALID_ARGS`
 2) (intrinsic 전용 preflight) `inspect` 실행 파일 존재/권한 확인
-   - `ssh.inspect`는 현재 실행 컨텍스트에서 `inspect` 실행 파일을 **터미널과 동일한 resolve 규칙**으로 찾을 수 있어야 합니다(MUST).
+   - `ssh.inspect` preflight는 현재 실행 컨텍스트 기준으로 `inspect`를 찾습니다(MUST).
+   - 탐색 순서: `Normalize(cwd, "inspect")` -> 현재 endpoint `/opt/bin/inspect` (워크스테이션 global fallback 미적용)
    - 미존재/종류 불일치 시 `ERR_TOOL_MISSING`
    - 존재하나 실행 권한 부족 시 `ERR_PERMISSION_DENIED`
 3) `hostOrIp` → `nodeId` 역참조 실패 시 `ERR_NOT_FOUND`

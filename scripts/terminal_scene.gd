@@ -62,6 +62,7 @@ var completion_candidate_index: int = -1
 var completion_last_applied_text: String = ""
 var completion_last_applied_caret: int = -1
 var input_placeholder_default_text: String = INPUT_PLACEHOLDER_DEFAULT_FALLBACK
+var editor_default_syntax_highlighter: SyntaxHighlighter = null
 
 @onready var background: ColorRect = $Background
 @onready var terminal_vbox: VBoxContainer = $VBox
@@ -79,6 +80,7 @@ func _ready() -> void:
 	input_placeholder_default_text = input_line.placeholder_text
 	if input_placeholder_default_text.is_empty():
 		input_placeholder_default_text = INPUT_PLACEHOLDER_DEFAULT_FALLBACK
+	editor_default_syntax_highlighter = editor.syntax_highlighter
 	_refresh_input_placeholder()
 	input_line.keep_editing_on_text_submit = true
 	input_line.text_submitted.connect(_on_input_submitted)
@@ -966,6 +968,7 @@ func _open_editor_mode(
 	current_editor_node_id = current_node_id
 	current_editor_user_id = current_user_id
 	current_editor_cwd = current_cwd
+	_apply_editor_highlighting(target_path, display_mode)
 	editor.text = content
 	editor.editable = not read_only
 	editor.set_caret_line(0)
@@ -975,6 +978,25 @@ func _open_editor_mode(
 	editor_exit_without_save_armed = false
 	_enter_editor_mode()
 	_show_editor_status_persistent(EDITOR_HELP_TEXT)
+
+
+func _apply_editor_highlighting(target_path: String, display_mode: String) -> void:
+	if _should_enable_miniscript_highlighting(target_path, display_mode):
+		editor.syntax_highlighter = editor_default_syntax_highlighter
+		return
+
+	editor.syntax_highlighter = null
+
+
+func _should_enable_miniscript_highlighting(target_path: String, display_mode: String) -> bool:
+	if display_mode != "text":
+		return false
+
+	var normalized_path := target_path.strip_edges().to_lower()
+	if normalized_path.is_empty():
+		return false
+
+	return normalized_path.ends_with(".ms")
 
 
 func _exit_editor_mode() -> void:
