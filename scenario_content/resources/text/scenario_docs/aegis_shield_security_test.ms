@@ -6,18 +6,19 @@
 
 guard2_ssh = ssh.connect("hard_guard2", "root", "black_security_pw2")
 if guard2_ssh == null or guard2_ssh.ok != 1 then
-print "failed: connect hard_guard2"
-return
+    print "failed: connect hard_guard2"
+    return
 end if
 
 guard3_ssh = ssh.connect("hard_guard3", "root", "black_security_pw3")
 if guard3_ssh == null or guard3_ssh.ok != 1 then
-print "failed: connect hard_guard3"
-return
-end if\
+    ssh.disconnect(guard2_ssh.session)
+    print "failed: connect hard_guard3"
+    return
+end if
 
 opts = {}
-opts["async"] = true
+opts["async"] = 1
 ex = term.exec("ms connection_test.ms", opts)
 print "exec connection_test [guard1_ssh] ok=" + str(ex.ok) + " code=" + ex.code
 
@@ -29,5 +30,10 @@ print "exec connection_test [guard3_ssh] ok=" + str(ex.ok) + " code=" + ex.code
 
 ex = term.exec("password_breaker hard_mainframe root")
 print "exec password_breaker [guard1_ssh] ok=" + str(ex.ok) + " code=" + ex.code
-attack_result = ex.stdout.split("\n")[1]
-print attack_result
+if ex != null and ex.ok == 1 then
+    attack_result = ex.stdout.split("\n")[1]
+    print attack_result
+end if
+
+ssh.disconnect(guard2_ssh.session)
+ssh.disconnect(guard3_ssh.session)

@@ -64,9 +64,11 @@ internal sealed class MiniScriptExecutableHardcodeHandler : IExecutableHardcodeH
     }
 }
 
-/// <summary>Inspect hardcoded executable handler (`inspect [(-p|--port) &lt;port&gt;] &lt;host|ip&gt; &lt;userId&gt;`).</summary>
+/// <summary>Inspect hardcoded executable handler (`inspect [(-p|--port) &lt;port&gt;] &lt;host|ip&gt; [userId]`).</summary>
 internal sealed class InspectExecutableHardcodeHandler : IExecutableHardcodeHandler
 {
+    private const string DefaultInspectUserId = "root";
+
     public string ExecutableId => "inspect";
 
     public SystemCallResult Execute(ExecutableHardcodeInvocation invocation)
@@ -165,13 +167,16 @@ internal sealed class InspectExecutableHardcodeHandler : IExecutableHardcodeHand
             return false;
         }
 
-        if (arguments.Count - index != 2)
+        var remainingCount = arguments.Count - index;
+        if (remainingCount is not 1 and not 2)
         {
             return false;
         }
 
         var hostOrIp = arguments[index].Trim();
-        var userId = arguments[index + 1].Trim();
+        var userId = remainingCount == 2
+            ? arguments[index + 1].Trim()
+            : DefaultInspectUserId;
         if (string.IsNullOrWhiteSpace(hostOrIp) || string.IsNullOrWhiteSpace(userId))
         {
             return false;

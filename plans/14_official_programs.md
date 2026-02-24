@@ -56,7 +56,9 @@ InspectProbe는 대상 SSH 서비스/계정에 대해 “비밀번호/인증 타
 
 ### 1.2 입력
 - `hostOrIp: string`
-- `userId: string` (필수)
+- `userId: string`
+  - `ssh.inspect(hostOrIp, userId, ...)`에서는 필수
+  - 프로그램 `inspect`에서는 생략 가능하며, 생략 시 기본값 `"root"` 적용
 - `port: int` (기본 22)
 - `opts?: map` (v0.2 예약)
 
@@ -263,8 +265,9 @@ InspectProbe는 “API 요청”으로 취급되며, shared API limit(0.11; 100k
 
 #### 사용법
 ```text
-inspect [(-p|--port) <port>] <host|ip> <userId>
+inspect [(-p|--port) <port>] <host|ip> [userId]
 ```
+- `userId`를 생략하면 `"root"`를 기본값으로 사용합니다.
 
 #### 출력(권장)
 성공 시, key-value 형태 출력(예시):

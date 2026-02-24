@@ -119,9 +119,9 @@ ServerSpec:
           entryKind: File
           contentId: res://scenario_content/resources/text/scenario_docs/aegis_shield_security_test.ms
           fileKind: Text
-        /connection_test.ms:
+        /break_hard2.ms:
           entryKind: File
-          contentId: res://scenario_content/resources/text/scenario_docs/aegis_shield_security_test.ms
+          contentId: res://prototype_answer/break_hard2.ms
           fileKind: Text
         /connection_test.ms:
           entryKind: File
@@ -197,6 +197,13 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    diskOverlay:
+      overlayEntries:
+        /opt/bin/ms:
+          entryKind: File
+          contentId: exec:miniscript
+          fileKind: ExecutableHardcode
+          size: 32000
   hardMainframeServer:
     initialStatus: online
     initialReason: OK
@@ -252,12 +259,6 @@ Scenario:
         interfaces:
           - netId: hardSubnet
             initiallyExposed: false
-      hardScenario/hardTerminal5Server:
-        specId: hardTerminal5Server
-        role: terminal
-        interfaces:
-          - netId: hardSubnet
-            initiallyExposed: false
       hardScenario/hardGuard1Server:
         specId: hardGuard1Server
         role: terminal
@@ -304,13 +305,11 @@ Scenario:
           b: hardScenario/hardGuard1Server
         - a: hardScenario/hardTerminal4Server
           b: hardScenario/hardGuard2Server
-        - a: hardScenario/hardTerminal3Server
-          b: hardScenario/hardTerminal5Server
-        - a: hardScenario/hardGuard2Server
-          b: hardScenario/hardTerminal5Server
-        - a: hardScenario/hardTerminal5Server
+        - a: hardScenario/hardGuard1Server
+          b: hardScenario/hardGuard2Server
+        - a: hardScenario/hardGuard1Server
           b: hardScenario/hardGuard3Server
-        - a: hardScenario/hardGuard3Server
+        - a: hardScenario/hardGuard1Server
           b: hardScenario/hardGuard4Server
         - a: hardScenario/hardGuard1Server
           b: hardScenario/hardMainframeServer

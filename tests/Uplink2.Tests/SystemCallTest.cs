@@ -4359,9 +4359,9 @@ public sealed class SystemCallTest
     [Theory]
     [InlineData("inspect")]
     [InlineData("inspect -p")]
+    [InlineData("inspect -p 22")]
     [InlineData("inspect --port 70000 10.0.1.20 guest")]
     [InlineData("inspect --invalid 10.0.1.20 guest")]
-    [InlineData("inspect -p 22 10.0.1.20")]
     public void Execute_Inspect_InvalidArgs_ReturnsCanonicalFailure(string commandLine)
     {
         var harness = CreateHarness(includeVfsModule: true);
@@ -4373,6 +4373,29 @@ public sealed class SystemCallTest
         Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
         Assert.Equal("error: invalid args", result.Lines[0]);
         Assert.Equal("code: ERR_INVALID_ARGS", result.Lines[1]);
+    }
+
+    /// <summary>Ensures inspect defaults omitted userId to root for terminal command convenience.</summary>
+    [Fact]
+    public void Execute_Inspect_OmittedUserId_DefaultsToRoot()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(
+            harness,
+            "node-2",
+            "remote",
+            "10.0.1.20",
+            AuthMode.Static,
+            "pw",
+            userKey: "root",
+            userId: "root");
+
+        var result = Execute(harness, "inspect 10.0.1.20", terminalSessionId: "ts-inspect-default-root");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Contains("user: root", result.Lines);
     }
 
     /// <summary>Ensures inspect reports not-found for unknown hosts.</summary>
