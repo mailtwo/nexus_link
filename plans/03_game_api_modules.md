@@ -186,12 +186,18 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `opts?: map`
 - `opts`:
   - `maxBytes?: int` (UTF-8 stdout byte 상한)
+  - `async?: bool` (내부 파싱은 `0/1` 기준)
   - 지원하지 않는 key/음수/비정수는 `ERR_INVALID_ARGS`
+  - `async=true`일 때 `maxBytes`는 허용되지만 무시한다
 - 권한:
   - 별도 우회 없이 기존 터미널 system call 권한 검사(read/write/execute 등)를 그대로 따른다
 - 반환:
-  - 성공: `{ ok:1, stdout:string, exitCode:int, err:null, code:"OK", cost:{...}, trace:{...} }`
-  - 실패: `{ ok:0, err:string, code:"ERR_*", cost:{...}, trace:{...} }`
+  - 동기 성공: `{ ok:1, code:"OK", err:null, stdout:string, exitCode:int, jobId:null, cost:{...}, trace:{...} }`
+  - 동기 실패: `{ ok:0, code:"ERR_*", err:string, stdout:string, exitCode:int, jobId:null, cost:{...}, trace:{...} }`
+  - 비동기 스케줄 성공(`opts.async=true`): `{ ok:1, code:"OK", err:null, stdout:null, exitCode:null, jobId:string, cost:{...}, trace:{...} }`
+  - 비동기 즉시 실패(파싱/스케줄 실패): `{ ok:0, code:"ERR_*", err:string, stdout:null, exitCode:null, jobId:null, cost:{...}, trace:{...} }`
+- 해석 규칙:
+  - `opts.async=true`일 때 `ok/code`는 "명령 완료"가 아니라 "비동기 작업 스케줄 성공" 의미다
 - 실패 코드 예시:
   - `ERR_INVALID_ARGS`, `ERR_PERMISSION_DENIED`, `ERR_TOO_LARGE`, `ERR_NOT_FOUND`, `ERR_UNKNOWN_COMMAND`, `ERR_INTERNAL_ERROR`
 
@@ -461,12 +467,19 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
     - `SshRoute`이면 `route.lastSession`의 서버/계정/cwd에서 실행한다.
   - `cmd: string` (단일 커맨드 라인)
   - `opts.maxBytes?: int` (stdout 상한 권장)
+  - `opts.async?: bool` (내부 파싱은 `0/1` 기준)
 - 커맨드 해석(권장):
   - 터미널 명령 파싱/시스템콜/프로그램 fallback 규칙은 `07_ui_terminal_prototype_godot.md` 및 `14_official_programs.md`를 따른다.  
     See DOCS_INDEX.md → 07, 14.
   - 본 API는 해당 실행 결과(`stdout`, `exitCode`)를 route/session 컨텍스트로 래핑해 반환한다.
-- 반환(최상위 필드, 권장):
-  - `{ stdout: string, exitCode: int }`
+- 반환:
+  - 동기 성공: `{ ok:1, code:"OK", err:null, stdout:string, exitCode:int, jobId:null }`
+  - 동기 실패: `{ ok:0, code:"ERR_*", err:string, stdout:string, exitCode:int, jobId:null }`
+  - 비동기 스케줄 성공(`opts.async=true`): `{ ok:1, code:"OK", err:null, stdout:null, exitCode:null, jobId:string }`
+  - 비동기 즉시 실패(파싱/스케줄 실패): `{ ok:0, code:"ERR_*", err:string, stdout:null, exitCode:null, jobId:null }`
+- 추가 규칙:
+  - `opts.async=true`일 때 `maxBytes`는 허용되지만 무시한다
+  - `opts.async=true`일 때 `ok/code`는 "원격 명령 완료"가 아니라 "비동기 작업 스케줄 성공" 의미다
 - 실패:
   - route 구조 검증 실패 시 `ERR_INVALID_ARGS`
   - `ERR_INVALID_ARGS`, `ERR_PERMISSION_DENIED`, `ERR_NOT_FOUND`(프로그램/경로 없음), `ERR_UNKNOWN_COMMAND`, `ERR_TOO_LARGE`, `ERR_INTERNAL_ERROR`
@@ -610,6 +623,10 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - `ssh.whoami/session.tokens` : 계정/토큰 가시화(디버깅/퍼즐용)
 - hostname/DNS: `hostOrIp`에 hostname 지원 및 해석 규칙 추가
 - 고급 quoting/escaping: `ssh.exec` 커맨드 라인 파서 강화
+- `job.jobStatus(jobId)` : `term.exec`/`ssh.exec` 비동기 job 상태 조회
+- `job.jobRead(jobId, opts?)` : 비동기 job 출력/결과 조회
+- `job.jobCancel(jobId)` : 비동기 job 취소
+- `term.exec`/`ssh.exec`의 `jobId`는 공용 `job` 네임스페이스로 관리
 
 ---
 

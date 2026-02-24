@@ -16,7 +16,7 @@ ServerSpec:
   hardTerminal1Server:
     initialStatus: online
     initialReason: OK
-    hostname: hard_terminal
+    hostname: hard_terminal1
     users:
       hardTerminal1User1:
         userId: root
@@ -35,7 +35,7 @@ ServerSpec:
   hardTerminal2Server:
     initialStatus: online
     initialReason: OK
-    hostname: hard_terminal
+    hostname: hard_terminal2
     users:
       hardTerminal2User1:
         userId: root
@@ -48,7 +48,7 @@ ServerSpec:
   hardTerminal3Server:
     initialStatus: online
     initialReason: OK
-    hostname: hard_terminal
+    hostname: hard_terminal3
     users:
       hardTerminal3User1:
         userId: root
@@ -61,7 +61,7 @@ ServerSpec:
   hardTerminal4Server:
     initialStatus: online
     initialReason: OK
-    hostname: hard_terminal
+    hostname: hard_terminal4
     users:
       hardTerminal4User1:
         userId: root
@@ -80,7 +80,7 @@ ServerSpec:
   hardTerminal5Server:
     initialStatus: online
     initialReason: OK
-    hostname: hard_terminal
+    hostname: hard_terminal5
     users:
       hardTerminal5User1:
         userId: root
@@ -99,24 +99,11 @@ ServerSpec:
   hardGuard1Server:
     initialStatus: online
     initialReason: OK
-    hostname: hard_terminal
+    hostname: hard_guard1
     users:
       hardGuard1User1:
         userId: root
         passwd: AUTO:c3_numspecial
-        authMode: static
-        privilege:
-          read: true
-          write: true
-          execute: true
-  hardGuard2Server:
-    initialStatus: online
-    initialReason: OK
-    hostname: hard_terminal
-    users:
-      hardGuard2User1:
-        userId: root
-        passwd: AUTO:c4_numspecial
         authMode: static
         privilege:
           read: true
@@ -128,23 +115,79 @@ ServerSpec:
           entryKind: File
           contentId: res://scenario_content/resources/text/scenario_docs/hard_hint4.txt 
           fileKind: Text
-  hardGuard3Server:
+        /aegis_shield_security_test.ms:
+          entryKind: File
+          contentId: res://scenario_content/resources/text/scenario_docs/aegis_shield_security_test.ms
+          fileKind: Text
+        /connection_test.ms:
+          entryKind: File
+          contentId: res://scenario_content/resources/text/scenario_docs/aegis_shield_security_test.ms
+          fileKind: Text
+        /connection_test.ms:
+          entryKind: File
+          contentId: res://scenario_content/resources/text/scenario_docs/connection_test.ms
+          fileKind: Text
+        /opt/bin/ms:
+          entryKind: File
+          contentId: exec:miniscript
+          fileKind: ExecutableHardcode
+          size: 32000
+        /opt/bin/password_breaker:
+          entryKind: File
+          contentId: res://scenario_content/resources/text/executions/password_breaker.ms
+          fileKind: ExecutableScript
+  hardGuard2Server:
     initialStatus: online
     initialReason: OK
-    hostname: hard_terminal
+    hostname: hard_guard2
     users:
-      hardGuard3User1:
+      hardGuard2User1:
         userId: root
-        passwd: AUTO:c4_numspecial
+        passwd: "black_security_pw2"
         authMode: static
         privilege:
           read: true
           write: true
           execute: true
+    diskOverlay:
+      overlayEntries:
+        /connection_test.ms:
+          entryKind: File
+          contentId: res://scenario_content/resources/text/scenario_docs/connection_test.ms
+          fileKind: Text
+        /opt/bin/ms:
+          entryKind: File
+          contentId: exec:miniscript
+          fileKind: ExecutableHardcode
+          size: 32000
+  hardGuard3Server:
+    initialStatus: online
+    initialReason: OK
+    hostname: hard_guard3
+    users:
+      hardGuard3User1:
+        userId: root
+        passwd: "black_security_pw3"
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
+    diskOverlay:
+      overlayEntries:
+        /connection_test.ms:
+          entryKind: File
+          contentId: res://scenario_content/resources/text/scenario_docs/connection_test.ms
+          fileKind: Text
+        /opt/bin/ms:
+          entryKind: File
+          contentId: exec:miniscript
+          fileKind: ExecutableHardcode
+          size: 32000
   hardGuard4Server:
     initialStatus: online
     initialReason: OK
-    hostname: hard_terminal
+    hostname: hard_guard4
     users:
       hardGuard4User1:
         userId: root

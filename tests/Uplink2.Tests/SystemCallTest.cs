@@ -1519,6 +1519,11 @@ public sealed class SystemCallTest
             print "code=" + e.code
             print "exitCode=" + str(e.exitCode)
             print "stdout=" + e.stdout
+            if e.jobId == null then
+              print "jobIdNull=1"
+            else
+              print "jobIdNull=0"
+            end if
             d = ssh.disconnect(r.session)
             """,
             fileKind: VfsFileKind.Text);
@@ -1530,6 +1535,7 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=0", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "stdout=remote motd", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "jobIdNull=1", StringComparison.Ordinal));
         Assert.Empty(remote.Sessions);
     }
 
@@ -1574,6 +1580,11 @@ public sealed class SystemCallTest
             print "ok=" + str(e.ok)
             print "code=" + e.code
             print "stdout=" + e.stdout
+            if e.jobId == null then
+              print "jobIdNull=1"
+            else
+              print "jobIdNull=0"
+            end if
             d = ssh.disconnect(r2.route)
             """,
             fileKind: VfsFileKind.Text);
@@ -1584,6 +1595,7 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "stdout=motd-c", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "jobIdNull=1", StringComparison.Ordinal));
         Assert.Empty(hopB.Sessions);
         Assert.Empty(hopC.Sessions);
     }
@@ -1620,12 +1632,31 @@ public sealed class SystemCallTest
             badMax = {}
             badMax["maxBytes"] = -1
             badMaxRes = ssh.exec(r.session, "pwd", badMax)
+            badAsync = {}
+            badAsync["async"] = 2
+            badAsyncRes = ssh.exec(r.session, "pwd", badAsync)
             print "badType=" + badType.code
             print "badKind=" + badKindRes.code
             print "badRoute=" + badRouteRes.code
             print "badCmd=" + badCmd.code
             print "badOpts=" + badOptsRes.code
             print "badMax=" + badMaxRes.code
+            print "badAsync=" + badAsyncRes.code
+            if badAsyncRes.stdout == null then
+              print "badAsyncStdoutNull=1"
+            else
+              print "badAsyncStdoutNull=0"
+            end if
+            if badAsyncRes.exitCode == null then
+              print "badAsyncExitCodeNull=1"
+            else
+              print "badAsyncExitCodeNull=0"
+            end if
+            if badAsyncRes.jobId == null then
+              print "badAsyncJobIdNull=1"
+            else
+              print "badAsyncJobIdNull=0"
+            end if
             d = ssh.disconnect(r.session)
             """,
             fileKind: VfsFileKind.Text);
@@ -1639,6 +1670,10 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "badCmd=ERR_INVALID_ARGS", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "badOpts=ERR_INVALID_ARGS", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "badMax=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badAsync=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badAsyncStdoutNull=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badAsyncExitCodeNull=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badAsyncJobIdNull=1", StringComparison.Ordinal));
         Assert.Empty(remote.Sessions);
     }
 
@@ -1750,6 +1785,99 @@ public sealed class SystemCallTest
         Assert.Empty(remote.Sessions);
     }
 
+    /// <summary>Ensures ssh.exec async mode returns immediate schedule result with null stdout/exitCode and non-null jobId.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshExec_Async_ReturnsImmediateJobShape()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.DiskOverlay.AddDirectory("/etc");
+        remote.DiskOverlay.WriteFile("/etc/motd", "remote motd", fileKind: VfsFileKind.Text);
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_exec_async_shape.ms",
+            """
+            r = ssh.connect("10.0.1.20", "guest", "pw")
+            opts = {}
+            opts["async"] = 1
+            opts["maxBytes"] = 1
+            e = ssh.exec(r.session, "cat /etc/motd", opts)
+            print "ok=" + str(e.ok)
+            print "code=" + e.code
+            if e.stdout == null then
+              print "stdoutNull=1"
+            else
+              print "stdoutNull=0"
+            end if
+            if e.exitCode == null then
+              print "exitCodeNull=1"
+            else
+              print "exitCodeNull=0"
+            end if
+            if e.jobId == null then
+              print "jobIdNull=1"
+            else
+              print "jobIdNull=0"
+            end if
+            d = ssh.disconnect(r.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_exec_async_shape.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "stdoutNull=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "exitCodeNull=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "jobIdNull=0", StringComparison.Ordinal));
+        Assert.True(WaitUntil(() => remote.Sessions.Count == 0, timeoutMs: 1500), "Expected ssh sessions to be cleaned up.");
+    }
+
+    /// <summary>Ensures ssh.exec async command effects are eventually applied in world state.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshExec_Async_EventuallyAppliesSideEffect()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_exec_async_effect.ms",
+            """
+            r = ssh.connect("10.0.1.20", "guest", "pw")
+            opts = {}
+            opts["async"] = 1
+            e = ssh.exec(r.session, "mkdir /loot_async_ssh", opts)
+            print "ok=" + str(e.ok)
+            print "code=" + e.code
+            if e.jobId == null then
+              print "jobIdNull=1"
+            else
+              print "jobIdNull=0"
+            end if
+            d = ssh.disconnect(r.session)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_exec_async_effect.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "jobIdNull=0", StringComparison.Ordinal));
+        Assert.True(
+            WaitUntil(
+                () => remote.DiskOverlay.TryResolveEntry("/loot_async_ssh", out var entry) &&
+                      entry.EntryKind == VfsEntryKind.Dir,
+                timeoutMs: 1500),
+            "Expected async ssh.exec side effect to appear.");
+        Assert.True(WaitUntil(() => remote.Sessions.Count == 0, timeoutMs: 1500), "Expected ssh sessions to be cleaned up.");
+    }
+
     /// <summary>Ensures term.exec executes locally and returns stdout/exitCode result map fields.</summary>
     [Fact]
     public void Execute_Miniscript_TermExec_LocalCommand_ReturnsStdoutAndExitCode()
@@ -1767,6 +1895,11 @@ public sealed class SystemCallTest
             print "code=" + r.code
             print "exitCode=" + str(r.exitCode)
             print "stdout=" + r.stdout
+            if r.jobId == null then
+              print "jobIdNull=1"
+            else
+              print "jobIdNull=0"
+            end if
             """,
             fileKind: VfsFileKind.Text);
 
@@ -1777,6 +1910,7 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=0", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "stdout=local motd", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "jobIdNull=1", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures term.exec validates cmd/opts and rejects unsupported opts keys and non-integer maxBytes.</summary>
@@ -1801,12 +1935,31 @@ public sealed class SystemCallTest
             badMaxFloatOpts = {}
             badMaxFloatOpts["maxBytes"] = 1.5
             badMaxFloat = term.exec("pwd", badMaxFloatOpts)
+            badAsyncOpts = {}
+            badAsyncOpts["async"] = 2
+            badAsync = term.exec("pwd", badAsyncOpts)
             print "missing=" + missing.code
             print "blank=" + blank.code
             print "optsType=" + badOptsType.code
             print "optsKey=" + badOptsKey.code
             print "maxNeg=" + badMaxNeg.code
             print "maxFloat=" + badMaxFloat.code
+            print "asyncBad=" + badAsync.code
+            if badAsync.stdout == null then
+              print "asyncBadStdoutNull=1"
+            else
+              print "asyncBadStdoutNull=0"
+            end if
+            if badAsync.exitCode == null then
+              print "asyncBadExitCodeNull=1"
+            else
+              print "asyncBadExitCodeNull=0"
+            end if
+            if badAsync.jobId == null then
+              print "asyncBadJobIdNull=1"
+            else
+              print "asyncBadJobIdNull=0"
+            end if
             """,
             fileKind: VfsFileKind.Text);
 
@@ -1819,6 +1972,10 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "optsKey=ERR_INVALID_ARGS", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "maxNeg=ERR_INVALID_ARGS", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "maxFloat=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "asyncBad=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "asyncBadStdoutNull=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "asyncBadExitCodeNull=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "asyncBadJobIdNull=1", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures term.exec enforces opts.maxBytes against UTF-8 stdout size.</summary>
@@ -1848,6 +2005,89 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "code=ERR_TOO_LARGE", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=1", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures term.exec async mode returns immediate schedule result and ignores opts.maxBytes.</summary>
+    [Fact]
+    public void Execute_Miniscript_TermExec_Async_ReturnsImmediateJobShape()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/etc");
+        harness.BaseFileSystem.AddFile("/etc/motd", "local motd", fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/term_exec_async_shape.ms",
+            """
+            opts = {}
+            opts["async"] = 1
+            opts["maxBytes"] = 1
+            r = term.exec("cat /etc/motd", opts)
+            print "ok=" + str(r.ok)
+            print "code=" + r.code
+            if r.stdout == null then
+              print "stdoutNull=1"
+            else
+              print "stdoutNull=0"
+            end if
+            if r.exitCode == null then
+              print "exitCodeNull=1"
+            else
+              print "exitCodeNull=0"
+            end if
+            if r.jobId == null then
+              print "jobIdNull=1"
+            else
+              print "jobIdNull=0"
+            end if
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/term_exec_async_shape.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "stdoutNull=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "exitCodeNull=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "jobIdNull=0", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures term.exec async command effects are eventually applied in world state.</summary>
+    [Fact]
+    public void Execute_Miniscript_TermExec_Async_EventuallyAppliesSideEffect()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/term_exec_async_effect.ms",
+            """
+            opts = {}
+            opts["async"] = 1
+            r = term.exec("mkdir /loot_async_term", opts)
+            print "ok=" + str(r.ok)
+            print "code=" + r.code
+            if r.jobId == null then
+              print "jobIdNull=1"
+            else
+              print "jobIdNull=0"
+            end if
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/term_exec_async_effect.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "jobIdNull=0", StringComparison.Ordinal));
+        Assert.True(
+            WaitUntil(
+                () => harness.Server.DiskOverlay.TryResolveEntry("/loot_async_term", out var entry) &&
+                      entry.EntryKind == VfsEntryKind.Dir,
+                timeoutMs: 1500),
+            "Expected async term.exec side effect to appear.");
     }
 
     /// <summary>Ensures term.exec uses existing command permission checks instead of bypassing terminal privileges.</summary>
@@ -6267,6 +6507,22 @@ public sealed class SystemCallTest
         var result = method!.Invoke(world, new object?[] { terminalSessionId }) as SystemCallResult;
         Assert.NotNull(result);
         return result!;
+    }
+
+    private static bool WaitUntil(Func<bool> condition, int timeoutMs = 1000, int pollMs = 10)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition())
+            {
+                return true;
+            }
+
+            Thread.Sleep(pollMs);
+        }
+
+        return condition();
     }
 
     private static void WaitForTerminalProgramStop(WorldRuntime world, string terminalSessionId, int timeoutMs = 3000)

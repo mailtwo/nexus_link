@@ -33,14 +33,18 @@ public partial class WorldRuntime
         new(StringComparer.Ordinal);
     private Dictionary<string, TerminalProgramExecutionState>? terminalProgramExecutionsBySessionId =
         new(StringComparer.Ordinal);
+    private Dictionary<string, AsyncExecJobState>? asyncExecJobsById =
+        new(StringComparer.Ordinal);
     private Dictionary<string, ConnectionRateLimiterState>? connectionRateLimiterStatesByNodeId =
         new(StringComparer.Ordinal);
 
     private int nextTerminalSessionSerial = 1;
     private int nextTerminalRemoteSessionId = 1;
+    private int nextAsyncExecJobSerial = 1;
     private long inspectProbeRateLimitWindowStartMs;
     private int inspectProbeRateLimitCallsInWindow;
     private readonly object terminalProgramExecutionSync = new();
+    private object? asyncExecJobSync = new();
     private object? connectionRateLimiterSync = new();
     private object? inspectProbeRateLimiterSync = new();
 
@@ -76,6 +80,54 @@ public partial class WorldRuntime
         }
 
         return systemCallProcessor.Execute(request);
+    }
+
+    /// <summary>Queues terminal command execution as a background job and returns an issued job id on success.</summary>
+    internal bool TryStartAsyncExecJob(SystemCallRequest request, out string jobId, out SystemCallResult failure)
+    {
+        if (request is null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        jobId = string.Empty;
+        failure = SystemCallResultFactory.Success();
+        if (systemCallProcessor is null)
+        {
+            failure = SystemCallResultFactory.Failure(
+                SystemCallErrorCode.InternalError,
+                "system call processor is not initialized.");
+            return false;
+        }
+
+        var state = default(AsyncExecJobState);
+        var asyncJobSync = GetAsyncExecJobSync();
+        lock (asyncJobSync)
+        {
+            EnsureAsyncExecJobStorage();
+            jobId = AllocateAsyncExecJobIdCore();
+            state = new AsyncExecJobState(jobId, CloneSystemCallRequest(request));
+            asyncExecJobsById![jobId] = state;
+        }
+
+        try
+        {
+            state.WorkerTask = Task.Run(() => RunAsyncExecJob(state));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            lock (asyncJobSync)
+            {
+                asyncExecJobsById?.Remove(jobId);
+            }
+
+            jobId = string.Empty;
+            failure = SystemCallResultFactory.Failure(
+                SystemCallErrorCode.InternalError,
+                "failed to schedule async exec job: " + ex.Message);
+            return false;
+        }
     }
 
     /// <summary>Returns a default terminal execution context for UI bootstrap.</summary>
@@ -670,6 +722,52 @@ public partial class WorldRuntime
             ["lines"] = lines,
             ["savedPath"] = (string)responsePayload["savedPath"],
         };
+    }
+
+    private static SystemCallRequest CloneSystemCallRequest(SystemCallRequest request)
+    {
+        return new SystemCallRequest
+        {
+            NodeId = request.NodeId ?? string.Empty,
+            UserId = request.UserId ?? string.Empty,
+            Cwd = request.Cwd ?? "/",
+            CommandLine = request.CommandLine ?? string.Empty,
+            TerminalSessionId = request.TerminalSessionId ?? string.Empty,
+        };
+    }
+
+    private void RunAsyncExecJob(AsyncExecJobState state)
+    {
+        try
+        {
+            state.Result = ExecuteSystemCall(state.Request);
+        }
+        catch (Exception ex)
+        {
+            state.Result = SystemCallResultFactory.Failure(
+                SystemCallErrorCode.InternalError,
+                "async exec worker failed: " + ex.Message);
+        }
+        finally
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(state.Request.TerminalSessionId))
+                {
+                    CleanupTerminalSessionConnections(state.Request.TerminalSessionId);
+                }
+            }
+            catch
+            {
+                // Ignore cleanup failures to avoid masking worker completion.
+            }
+
+            var asyncJobSync = GetAsyncExecJobSync();
+            lock (asyncJobSync)
+            {
+                state.IsCompleted = true;
+            }
+        }
     }
 
     private void RunTerminalProgramExecution(TerminalProgramExecutionState state)
@@ -2123,6 +2221,7 @@ public partial class WorldRuntime
     {
         EnsureTerminalConnectionStorage();
         ResetTerminalProgramExecutionState();
+        ResetAsyncExecJobState();
         terminalConnectionFramesBySessionId!.Clear();
         nextTerminalSessionSerial = 1;
         nextTerminalRemoteSessionId = 1;
@@ -2154,6 +2253,17 @@ public partial class WorldRuntime
         }
     }
 
+    private void ResetAsyncExecJobState()
+    {
+        var asyncJobSync = GetAsyncExecJobSync();
+        lock (asyncJobSync)
+        {
+            EnsureAsyncExecJobStorage();
+            asyncExecJobsById!.Clear();
+            nextAsyncExecJobSerial = 1;
+        }
+    }
+
     private ConnectionRateLimiterState GetOrCreateConnectionRateLimiterState(string nodeId)
     {
         EnsureConnectionRateLimiterStorage();
@@ -2164,6 +2274,19 @@ public partial class WorldRuntime
         }
 
         return state;
+    }
+
+    private object GetAsyncExecJobSync()
+    {
+        var sync = asyncExecJobSync;
+        if (sync is not null)
+        {
+            return sync;
+        }
+
+        var created = new object();
+        var existing = Interlocked.CompareExchange(ref asyncExecJobSync, created, null);
+        return existing ?? created;
     }
 
     private object GetConnectionRateLimiterSync()
@@ -2198,6 +2321,29 @@ public partial class WorldRuntime
         _ = GetConnectionRateLimiterSync();
     }
 
+    private void EnsureAsyncExecJobStorage()
+    {
+        asyncExecJobsById ??= new Dictionary<string, AsyncExecJobState>(StringComparer.Ordinal);
+        if (nextAsyncExecJobSerial < 1)
+        {
+            nextAsyncExecJobSerial = 1;
+        }
+
+        _ = GetAsyncExecJobSync();
+    }
+
+    private string AllocateAsyncExecJobIdCore()
+    {
+        string jobId;
+        do
+        {
+            jobId = $"job-{nextAsyncExecJobSerial++:D6}";
+        }
+        while (asyncExecJobsById!.ContainsKey(jobId));
+
+        return jobId;
+    }
+
     private void EnsureInspectProbeRateLimiterStorage()
     {
         _ = GetInspectProbeRateLimiterSync();
@@ -2228,6 +2374,25 @@ public partial class WorldRuntime
         }
 
         return stack;
+    }
+
+    private sealed class AsyncExecJobState
+    {
+        internal AsyncExecJobState(string jobId, SystemCallRequest request)
+        {
+            JobId = jobId;
+            Request = request;
+        }
+
+        internal string JobId { get; }
+
+        internal SystemCallRequest Request { get; }
+
+        internal SystemCallResult? Result { get; set; }
+
+        internal Task WorkerTask { get; set; } = Task.CompletedTask;
+
+        internal bool IsCompleted { get; set; }
     }
 
     private sealed class TerminalProgramExecutionState

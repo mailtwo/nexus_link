@@ -83,24 +83,53 @@ internal static class MiniScriptTermIntrinsics
                         "term.exec is unavailable in this execution context."));
             }
 
-            if (!TryParseExecArguments(context, out var commandLine, out var maxBytes, out var parseError))
+            if (!TryParseExecArguments(
+                    context,
+                    out var commandLine,
+                    out var maxBytes,
+                    out var asyncExecution,
+                    out var parseError))
             {
-                return new Intrinsic.Result(CreateExecFailureMap(SystemCallErrorCode.InvalidArgs, parseError));
+                return new Intrinsic.Result(
+                    CreateExecFailureMap(
+                        SystemCallErrorCode.InvalidArgs,
+                        parseError,
+                        asyncExecution: asyncExecution));
             }
 
             var executionContext = state.ExecutionContext;
             var temporaryTerminalSessionId = executionContext.World.AllocateTerminalSessionId();
+            var request = new SystemCallRequest
+            {
+                NodeId = executionContext.NodeId,
+                UserId = executionContext.User.UserId,
+                Cwd = executionContext.Cwd,
+                CommandLine = commandLine,
+                TerminalSessionId = temporaryTerminalSessionId,
+            };
+            if (asyncExecution)
+            {
+                if (!executionContext.World.TryStartAsyncExecJob(request, out var jobId, out var failureResult))
+                {
+                    executionContext.World.CleanupTerminalSessionConnections(temporaryTerminalSessionId);
+                    return new Intrinsic.Result(
+                        CreateExecFailureMap(
+                            failureResult.Code,
+                            ExtractErrorText(failureResult),
+                            asyncExecution: true));
+                }
+
+                return new Intrinsic.Result(
+                    CreateExecSuccessMap(
+                        stdout: string.Empty,
+                        asyncExecution: true,
+                        jobId: jobId));
+            }
+
             SystemCallResult commandResult;
             try
             {
-                commandResult = executionContext.World.ExecuteSystemCall(new SystemCallRequest
-                {
-                    NodeId = executionContext.NodeId,
-                    UserId = executionContext.User.UserId,
-                    Cwd = executionContext.Cwd,
-                    CommandLine = commandLine,
-                    TerminalSessionId = temporaryTerminalSessionId,
-                });
+                commandResult = executionContext.World.ExecuteSystemCall(request);
             }
             finally
             {
@@ -121,8 +150,12 @@ internal static class MiniScriptTermIntrinsics
             }
 
             return new Intrinsic.Result(commandResult.Ok
-                ? CreateExecSuccessMap(stdout)
-                : CreateExecFailureMap(commandResult.Code, ExtractErrorText(commandResult), stdout));
+                ? CreateExecSuccessMap(stdout, asyncExecution: false, jobId: null)
+                : CreateExecFailureMap(
+                    commandResult.Code,
+                    ExtractErrorText(commandResult),
+                    asyncExecution: false,
+                    stdout));
         };
     }
 
@@ -206,10 +239,12 @@ internal static class MiniScriptTermIntrinsics
         TAC.Context context,
         out string commandLine,
         out int? maxBytes,
+        out bool asyncExecution,
         out string error)
     {
         commandLine = string.Empty;
         maxBytes = null;
+        asyncExecution = false;
         error = string.Empty;
 
         if (context.GetLocal("cmd") is not ValString rawCommand)
@@ -237,25 +272,40 @@ internal static class MiniScriptTermIntrinsics
             return false;
         }
 
-        return TryParseExecOpts(optsMap, out maxBytes, out error);
+        return TryParseExecOpts(optsMap, out maxBytes, out asyncExecution, out error);
     }
 
     private static bool TryParseExecOpts(
         ValMap optsMap,
         out int? maxBytes,
+        out bool asyncExecution,
         out string error)
     {
         maxBytes = null;
+        asyncExecution = false;
         error = string.Empty;
 
         foreach (var key in optsMap.Keys)
         {
             var keyText = key?.ToString().Trim() ?? string.Empty;
-            if (!string.Equals(keyText, "maxBytes", StringComparison.Ordinal))
+            if (!string.Equals(keyText, "maxBytes", StringComparison.Ordinal) &&
+                !string.Equals(keyText, "async", StringComparison.Ordinal))
             {
                 error = $"unsupported opts key: {keyText}";
                 return false;
             }
+        }
+
+        if (optsMap.TryGetValue("async", out var rawAsync))
+        {
+            asyncExecution = true;
+            if (!TryParseAsyncExecFlag(rawAsync, out var parsedAsyncExecution))
+            {
+                error = "opts.async must be 0 or 1.";
+                return false;
+            }
+
+            asyncExecution = parsedAsyncExecution;
         }
 
         if (!optsMap.TryGetValue("maxBytes", out var rawMaxBytes))
@@ -276,6 +326,37 @@ internal static class MiniScriptTermIntrinsics
 
         maxBytes = (int)maxBytesNumber.value;
         return true;
+    }
+
+    private static bool TryParseAsyncExecFlag(Value rawAsync, out bool asyncExecution)
+    {
+        asyncExecution = false;
+        if (rawAsync is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var parsed = rawAsync.IntValue();
+            if (parsed == 0)
+            {
+                asyncExecution = false;
+                return true;
+            }
+
+            if (parsed == 1)
+            {
+                asyncExecution = true;
+                return true;
+            }
+
+            return false;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     private static bool TryReadTextArg(TAC.Context context, out string text, out string error)
@@ -334,28 +415,54 @@ internal static class MiniScriptTermIntrinsics
         };
     }
 
-    private static ValMap CreateExecSuccessMap(string stdout)
+    private static ValMap CreateExecSuccessMap(string stdout, bool asyncExecution, string? jobId)
     {
-        return new ValMap
+        var result = new ValMap
         {
             ["ok"] = ValNumber.one,
             ["code"] = new ValString(SystemCallErrorCodeTokenMapper.ToApiToken(SystemCallErrorCode.None)),
             ["err"] = ValNull.instance,
-            ["stdout"] = new ValString(stdout ?? string.Empty),
-            ["exitCode"] = ValNumber.zero,
         };
+
+        if (asyncExecution)
+        {
+            result["stdout"] = (Value)null!;
+            result["exitCode"] = (Value)null!;
+            result["jobId"] = new ValString(jobId ?? string.Empty);
+            return result;
+        }
+
+        result["stdout"] = new ValString(stdout ?? string.Empty);
+        result["exitCode"] = ValNumber.zero;
+        result["jobId"] = (Value)null!;
+        return result;
     }
 
-    private static ValMap CreateExecFailureMap(SystemCallErrorCode code, string err, string stdout = "")
+    private static ValMap CreateExecFailureMap(
+        SystemCallErrorCode code,
+        string err,
+        bool asyncExecution = false,
+        string stdout = "")
     {
-        return new ValMap
+        var result = new ValMap
         {
             ["ok"] = ValNumber.zero,
             ["code"] = new ValString(SystemCallErrorCodeTokenMapper.ToApiToken(code)),
             ["err"] = new ValString(err),
-            ["stdout"] = new ValString(stdout ?? string.Empty),
-            ["exitCode"] = ValNumber.one,
         };
+
+        if (asyncExecution)
+        {
+            result["stdout"] = (Value)null!;
+            result["exitCode"] = (Value)null!;
+            result["jobId"] = (Value)null!;
+            return result;
+        }
+
+        result["stdout"] = new ValString(stdout ?? string.Empty);
+        result["exitCode"] = ValNumber.one;
+        result["jobId"] = (Value)null!;
+        return result;
     }
 
     private static string JoinResultLines(SystemCallResult result)
