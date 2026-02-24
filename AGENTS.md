@@ -17,6 +17,11 @@ This project follows context7 principles:
 - If a request conflicts with the `plans/` documents, ask the developer for confirmation before proceeding.
 - Files in `plans/` are UTF-8 encoded; when reading them in tools/shell, explicitly use UTF-8 encoding.
 
+### Spec Drift Guard
+- If implementation is expected to introduce additions or changes that differ from the current documentation, ask the user for approval before implementing.
+- If the user decides to proceed, explicitly document the differences in the relevant SSOT document and then implement.
+- Do not implement documentation-changing behavior without user confirmation.
+
 ## Documentation routing (SSOT)
 - Before implementing, changing specs, or updating docs, **read `DOCS_INDEX.md` first**.
 - Treat `DOCS_INDEX.md` as the **single source of truth for where each kind of information belongs**.

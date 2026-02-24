@@ -559,7 +559,7 @@ public partial class WorldRuntime
         var payload = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             ["ok"] = result.Ok,
-            ["code"] = result.Code.ToString(),
+            ["code"] = SystemCallErrorCodeTokenMapper.ToApiToken(result.Code),
             ["lines"] = lines,
             ["nextCwd"] = result.NextCwd ?? string.Empty,
             ["nextNodeId"] = string.Empty,
@@ -637,20 +637,38 @@ public partial class WorldRuntime
         };
     }
 
-    private static Godot.Collections.Dictionary BuildEditorSaveResponse(SystemCallResult result, string savedPath)
+    internal static Dictionary<string, object> BuildEditorSaveResponsePayload(SystemCallResult result, string savedPath)
     {
-        var lines = new Godot.Collections.Array<string>();
+        var lines = new List<string>();
         foreach (var line in result.Lines)
         {
             lines.Add(line ?? string.Empty);
         }
 
-        return new Godot.Collections.Dictionary
+        return new Dictionary<string, object>(StringComparer.Ordinal)
         {
             ["ok"] = result.Ok,
-            ["code"] = result.Code.ToString(),
+            ["code"] = SystemCallErrorCodeTokenMapper.ToApiToken(result.Code),
             ["lines"] = lines,
-            ["savedPath"] = savedPath,
+            ["savedPath"] = savedPath ?? string.Empty,
+        };
+    }
+
+    private static Godot.Collections.Dictionary BuildEditorSaveResponse(SystemCallResult result, string savedPath)
+    {
+        var responsePayload = BuildEditorSaveResponsePayload(result, savedPath);
+        var lines = new Godot.Collections.Array<string>();
+        foreach (var line in (IReadOnlyList<string>)responsePayload["lines"])
+        {
+            lines.Add(line);
+        }
+
+        return new Godot.Collections.Dictionary
+        {
+            ["ok"] = (bool)responsePayload["ok"],
+            ["code"] = (string)responsePayload["code"],
+            ["lines"] = lines,
+            ["savedPath"] = (string)responsePayload["savedPath"],
         };
     }
 
@@ -1339,18 +1357,7 @@ public partial class WorldRuntime
 
     internal static string ToInspectProbeErrorCodeToken(SystemCallErrorCode code)
     {
-        return code switch
-        {
-            SystemCallErrorCode.InvalidArgs => "ERR_INVALID_ARGS",
-            SystemCallErrorCode.ToolMissing => "ERR_TOOL_MISSING",
-            SystemCallErrorCode.PermissionDenied => "ERR_PERMISSION_DENIED",
-            SystemCallErrorCode.NotFound => "ERR_NOT_FOUND",
-            SystemCallErrorCode.PortClosed => "ERR_PORT_CLOSED",
-            SystemCallErrorCode.NetDenied => "ERR_NET_DENIED",
-            SystemCallErrorCode.AuthFailed => "ERR_AUTH_FAILED",
-            SystemCallErrorCode.RateLimited => "ERR_RATE_LIMITED",
-            _ => "ERR_INTERNAL_ERROR",
-        };
+        return SystemCallErrorCodeTokenMapper.ToApiToken(code);
     }
 
     internal static string ToInspectProbeHumanMessage(SystemCallErrorCode code)

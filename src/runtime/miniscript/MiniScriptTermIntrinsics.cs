@@ -319,7 +319,7 @@ internal static class MiniScriptTermIntrinsics
         return new ValMap
         {
             ["ok"] = ValNumber.one,
-            ["code"] = new ValString(SystemCallErrorCode.None.ToString()),
+            ["code"] = new ValString(SystemCallErrorCodeTokenMapper.ToApiToken(SystemCallErrorCode.None)),
             ["err"] = ValNull.instance,
         };
     }
@@ -329,7 +329,7 @@ internal static class MiniScriptTermIntrinsics
         return new ValMap
         {
             ["ok"] = ValNumber.zero,
-            ["code"] = new ValString(code.ToString()),
+            ["code"] = new ValString(SystemCallErrorCodeTokenMapper.ToApiToken(code)),
             ["err"] = new ValString(err),
         };
     }
@@ -339,7 +339,7 @@ internal static class MiniScriptTermIntrinsics
         return new ValMap
         {
             ["ok"] = ValNumber.one,
-            ["code"] = new ValString(SystemCallErrorCode.None.ToString()),
+            ["code"] = new ValString(SystemCallErrorCodeTokenMapper.ToApiToken(SystemCallErrorCode.None)),
             ["err"] = ValNull.instance,
             ["stdout"] = new ValString(stdout ?? string.Empty),
             ["exitCode"] = ValNumber.zero,
@@ -351,7 +351,7 @@ internal static class MiniScriptTermIntrinsics
         return new ValMap
         {
             ["ok"] = ValNumber.zero,
-            ["code"] = new ValString(code.ToString()),
+            ["code"] = new ValString(SystemCallErrorCodeTokenMapper.ToApiToken(code)),
             ["err"] = new ValString(err),
             ["stdout"] = new ValString(stdout ?? string.Empty),
             ["exitCode"] = ValNumber.one,

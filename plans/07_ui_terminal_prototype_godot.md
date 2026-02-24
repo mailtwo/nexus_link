@@ -100,6 +100,29 @@ TerminalScene (Control)
 
 > 클릭은 “입력을 대체”가 아니라 “입력을 돕는” 용도(터미널 감성 유지).
 
+### 4.4 명령 응답 `code` 토큰 규약(v0.2)
+- `ExecuteTerminalCommand`/관련 응답 payload의 `code`는 enum text가 아니라 **표준 토큰**을 사용한다.
+- 성공은 항상 `OK`.
+- 실패는 항상 `ERR_*` 형식.
+- 최소 포함 토큰:
+  - `ERR_UNKNOWN_COMMAND`
+  - `ERR_INVALID_ARGS`
+  - `ERR_NOT_FOUND`
+  - `ERR_TOOL_MISSING`
+  - `ERR_PERMISSION_DENIED`
+  - `ERR_NOT_TEXT_FILE`
+  - `ERR_ALREADY_EXISTS`
+  - `ERR_NOT_DIRECTORY`
+  - `ERR_IS_DIRECTORY`
+  - `ERR_PORT_CLOSED`
+  - `ERR_NET_DENIED`
+  - `ERR_AUTH_FAILED`
+  - `ERR_RATE_LIMITED`
+  - `ERR_TOO_LARGE`
+  - `ERR_INTERNAL_ERROR`
+- MiniScript intrinsic의 공통 에러 코드 표면은 `03_game_api_modules.md`를 따른다.  
+  See DOCS_INDEX.md → 03.
+
 ---
 
 ## 5) 에디터 모드(유사 vim / 코드 편집)

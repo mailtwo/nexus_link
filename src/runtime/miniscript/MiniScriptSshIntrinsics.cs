@@ -34,7 +34,6 @@ internal static partial class MiniScriptSshIntrinsics
     private const string ExecutableHardcodePrefix = "exec:";
     private const string InspectExecutableId = "inspect";
     private const string InspectPathDirectory = "/opt/bin";
-    private const string InspectSuccessCodeToken = "OK";
     private const int RouteVersion = 1;
     private const int MaxRouteHops = 8;
 
@@ -1764,7 +1763,7 @@ internal static partial class MiniScriptSshIntrinsics
         var result = new ValMap
         {
             ["ok"] = ValNumber.one,
-            ["code"] = new ValString(SystemCallErrorCode.None.ToString()),
+            ["code"] = new ValString(SystemCallErrorCodeTokenMapper.ToApiToken(SystemCallErrorCode.None)),
             ["err"] = ValNull.instance,
             ["session"] = session,
         };
@@ -1778,7 +1777,7 @@ internal static partial class MiniScriptSshIntrinsics
         var result = new ValMap
         {
             ["ok"] = ValNumber.zero,
-            ["code"] = new ValString(code.ToString()),
+            ["code"] = new ValString(SystemCallErrorCodeTokenMapper.ToApiToken(code)),
             ["err"] = new ValString(err),
         };
 
@@ -1793,7 +1792,7 @@ internal static partial class MiniScriptSshIntrinsics
         return new ValMap
         {
             ["ok"] = ValNumber.one,
-            ["code"] = new ValString(SystemCallErrorCode.None.ToString()),
+            ["code"] = new ValString(SystemCallErrorCodeTokenMapper.ToApiToken(SystemCallErrorCode.None)),
             ["err"] = ValNull.instance,
             ["disconnected"] = disconnected ? ValNumber.one : ValNumber.zero,
             ["summary"] = summary,
@@ -1805,7 +1804,7 @@ internal static partial class MiniScriptSshIntrinsics
         return new ValMap
         {
             ["ok"] = ValNumber.zero,
-            ["code"] = new ValString(code.ToString()),
+            ["code"] = new ValString(SystemCallErrorCodeTokenMapper.ToApiToken(code)),
             ["err"] = new ValString(err),
             ["disconnected"] = ValNumber.zero,
             ["summary"] = CreateDisconnectSummaryMap(0, 0, 0, 0),
@@ -1828,7 +1827,7 @@ internal static partial class MiniScriptSshIntrinsics
         return new ValMap
         {
             ["ok"] = ValNumber.one,
-            ["code"] = new ValString(code.ToString()),
+            ["code"] = new ValString(SystemCallErrorCodeTokenMapper.ToApiToken(code)),
             ["err"] = ValNull.instance,
             ["stdout"] = new ValString(stdout ?? string.Empty),
             ["exitCode"] = ValNumber.zero,
@@ -1840,7 +1839,7 @@ internal static partial class MiniScriptSshIntrinsics
         return new ValMap
         {
             ["ok"] = ValNumber.zero,
-            ["code"] = new ValString(code.ToString()),
+            ["code"] = new ValString(SystemCallErrorCodeTokenMapper.ToApiToken(code)),
             ["err"] = new ValString(err),
             ["stdout"] = new ValString(stdout ?? string.Empty),
             ["exitCode"] = ValNumber.one,
@@ -1905,9 +1904,7 @@ internal static partial class MiniScriptSshIntrinsics
 
     private static string ToInspectCodeToken(SystemCallErrorCode code)
     {
-        return code == SystemCallErrorCode.None
-            ? InspectSuccessCodeToken
-            : WorldRuntime.ToInspectProbeErrorCodeToken(code);
+        return SystemCallErrorCodeTokenMapper.ToApiToken(code);
     }
 
     private static string JoinResultLines(SystemCallResult result)

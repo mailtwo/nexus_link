@@ -972,7 +972,7 @@ internal static partial class MiniScriptSshIntrinsics
         return new ValMap
         {
             ["ok"] = ValNumber.one,
-            ["code"] = new ValString(SystemCallErrorCode.None.ToString()),
+            ["code"] = new ValString(SystemCallErrorCodeTokenMapper.ToApiToken(SystemCallErrorCode.None)),
             ["err"] = ValNull.instance,
         };
     }
@@ -987,7 +987,7 @@ internal static partial class MiniScriptSshIntrinsics
         return new ValMap
         {
             ["ok"] = ValNumber.zero,
-            ["code"] = new ValString(code.ToString()),
+            ["code"] = new ValString(SystemCallErrorCodeTokenMapper.ToApiToken(code)),
             ["err"] = new ValString(err),
         };
     }

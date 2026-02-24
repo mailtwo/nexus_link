@@ -34,6 +34,37 @@ public enum SystemCallErrorCode
     RateLimited,
 }
 
+internal static class SystemCallErrorCodeTokenMapper
+{
+    internal const string SuccessToken = "OK";
+
+    internal static string ToApiToken(SystemCallErrorCode code)
+    {
+        return code switch
+        {
+            SystemCallErrorCode.None => SuccessToken,
+            SystemCallErrorCode.UnknownCommand => "ERR_UNKNOWN_COMMAND",
+            SystemCallErrorCode.InvalidArgs => "ERR_INVALID_ARGS",
+            SystemCallErrorCode.PermissionDenied => "ERR_PERMISSION_DENIED",
+            SystemCallErrorCode.NetDenied => "ERR_NET_DENIED",
+            SystemCallErrorCode.NotFound => "ERR_NOT_FOUND",
+            SystemCallErrorCode.PortClosed => "ERR_PORT_CLOSED",
+            SystemCallErrorCode.NotFile => "ERR_IS_DIRECTORY",
+            SystemCallErrorCode.NotDirectory => "ERR_NOT_DIRECTORY",
+            SystemCallErrorCode.Conflict => "ERR_ALREADY_EXISTS",
+            SystemCallErrorCode.InternalError => "ERR_INTERNAL_ERROR",
+            SystemCallErrorCode.AlreadyExists => "ERR_ALREADY_EXISTS",
+            SystemCallErrorCode.IsDirectory => "ERR_IS_DIRECTORY",
+            SystemCallErrorCode.NotTextFile => "ERR_NOT_TEXT_FILE",
+            SystemCallErrorCode.TooLarge => "ERR_TOO_LARGE",
+            SystemCallErrorCode.ToolMissing => "ERR_TOOL_MISSING",
+            SystemCallErrorCode.AuthFailed => "ERR_AUTH_FAILED",
+            SystemCallErrorCode.RateLimited => "ERR_RATE_LIMITED",
+            _ => "ERR_INTERNAL_ERROR",
+        };
+    }
+}
+
 /// <summary>Request payload for executing one terminal system call.</summary>
 public sealed class SystemCallRequest
 {

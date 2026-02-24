@@ -20,8 +20,8 @@
 모든 intrinsic 함수는 예외를 던지지 않고 아래 형태의 맵을 반환한다.
 
 ```miniscript
-{ ok: 1, data: <Any>, err: null, code: "OK", cost: {...}, trace: {...} }
-{ ok: 0, data: null, err: "message", code: "ERR_*", cost: {...}, trace: {...} }
+{ ok: 1, err: null, code: "OK", cost: {...}, trace: {...}, ...payload }
+{ ok: 0, err: "message", code: "ERR_*", cost: {...}, trace: {...} }
 ```
 
 - `ok`: 성공(1) / 실패(0)
@@ -29,11 +29,13 @@
 - `err`: 사용자 표시용 메시지(로컬라이즈는 추후)
 - `cost`: (권장) 비용/리소스 모델
 - `trace`: (권장) 탐지/소음 모델
+- `payload` 필드: API별 반환값은 최상위 필드로 직접 노출하며 공통 `data` 래퍼를 사용하지 않는다.
 
 > v0에서는 `cost/trace`를 단순화(0 또는 최소 필드만)해도 된다. 단, 필드 형태는 고정해 둔다.
 
 ### 0.2 에러 코드(권장 최소)
 - `OK`
+- `ERR_UNKNOWN_COMMAND` (명령/프로그램 해석 실패)
 - `ERR_INVALID_ARGS` (인자 타입/개수 오류)
 - `ERR_NOT_FOUND` (대상 없음)
 - `ERR_TOOL_MISSING` (필요한 공식 프로그램/툴이 없음)
@@ -47,6 +49,7 @@
 - `ERR_AUTH_FAILED` (인증 실패)
 - `ERR_RATE_LIMITED` (레이트리미터/쿨다운)
 - `ERR_TOO_LARGE` (maxBytes 등 상한 초과)
+- `ERR_INTERNAL_ERROR` (엔진 내부 실패/실행 컨텍스트 불일치)
 
 ### 0.3 비용/탐지 모델(권장)
 - `cost.cpu` : 소비한 “연산 포인트” 또는 “시간 포인트”
@@ -60,7 +63,7 @@
 - `userKey`는 엔진 내부 참조 전용(세션/월드 상태에서만 사용)이며, 플레이어 입력/공개 API 응답에 노출하지 않는다.
 
 ### 0.5 SessionHandler DTO (ssh.connect 반환)
-`ssh.connect` 성공 시 `data.session`은 아래 필드를 포함한다.
+`ssh.connect` 성공 시 최상위 `session`은 아래 필드를 포함한다.
 
 ```text
 Session
@@ -72,7 +75,7 @@ Session
 - remoteIp: string          # 실제 접속된 IP
 ```
 
-체인 연결(`opts.session`)을 사용할 때 `ssh.connect`는 `data.route`도 함께 반환한다.
+체인 연결(`opts.session`)을 사용할 때 `ssh.connect`는 최상위 `route`도 함께 반환한다.
 
 ```text
 SshRoute
@@ -158,8 +161,8 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 인자:
   - `text: string`
 - 반환:
-  - 성공: `{ ok:1, data:{ printed:1 }, err:null, code:"OK", cost:{...}, trace:{...} }`
-  - 실패(인자 오류): `{ ok:0, data:null, err:string, code:"ERR_INVALID_ARGS", cost:{...}, trace:{...} }`
+  - 성공: `{ ok:1, printed:1, err:null, code:"OK", cost:{...}, trace:{...} }`
+  - 실패(인자 오류): `{ ok:0, err:string, code:"ERR_INVALID_ARGS", cost:{...}, trace:{...} }`
 
 ### 1.2 `term.warn(text)` / `term.error(text)`
 - 목적: 경고/에러 로그를 표준 오류로 출력
@@ -173,8 +176,8 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `warn:` 또는 `error:` prefix stderr 라인은 non-fatal로 취급
   - 그 외 stderr 라인만 fatal로 취급
 - 반환:
-  - 성공: `{ ok:1, data:{ printed:1 }, err:null, code:"OK", cost:{...}, trace:{...} }`
-  - 실패(인자 오류): `{ ok:0, data:null, err:string, code:"ERR_INVALID_ARGS", cost:{...}, trace:{...} }`
+  - 성공: `{ ok:1, printed:1, err:null, code:"OK", cost:{...}, trace:{...} }`
+  - 실패(인자 오류): `{ ok:0, err:string, code:"ERR_INVALID_ARGS", cost:{...}, trace:{...} }`
 
 ### 1.3 `term.exec(cmd, opts?)`
 - 목적: 현재 실행 컨텍스트(현재 node/user/cwd)에서 로컬 명령 실행 (`ssh.exec`의 로컬 버전)
@@ -187,10 +190,10 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 권한:
   - 별도 우회 없이 기존 터미널 system call 권한 검사(read/write/execute 등)를 그대로 따른다
 - 반환:
-  - 성공: `{ ok:1, data:{ stdout:string, exitCode:int }, err:null, code:"OK", cost:{...}, trace:{...} }`
-  - 실패: `{ ok:0, data:null, err:string, code:"ERR_*", cost:{...}, trace:{...} }`
+  - 성공: `{ ok:1, stdout:string, exitCode:int, err:null, code:"OK", cost:{...}, trace:{...} }`
+  - 실패: `{ ok:0, err:string, code:"ERR_*", cost:{...}, trace:{...} }`
 - 실패 코드 예시:
-  - `ERR_INVALID_ARGS`, `ERR_PERMISSION_DENIED`, `ERR_TOO_LARGE`, `ERR_NOT_FOUND`
+  - `ERR_INVALID_ARGS`, `ERR_PERMISSION_DENIED`, `ERR_TOO_LARGE`, `ERR_NOT_FOUND`, `ERR_UNKNOWN_COMMAND`, `ERR_INTERNAL_ERROR`
 
 ---
 
@@ -206,7 +209,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 조건:
   - 내부 시간 기준은 고정 스텝 WorldTick(60Hz) 누적이다.
 - 반환:
-  - 성공: `{ ok:1, data:{ slept: seconds }, ... }`
+  - 성공: `{ ok:1, slept: seconds, ... }`
   - 실패: `ERR_INVALID_ARGS`
 
 ---
@@ -234,7 +237,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 권한:
   - session 모드: 해당 session 사용자 `read`
   - route 모드: `lastSession` 사용자 `read`
-- 반환 `data`:
+- 반환(최상위 필드):
   - `entries: List<{ name, entryKind: "File"|"Dir" }>`
 - 실패:
   - `ERR_NOT_FOUND`, `ERR_NOT_DIRECTORY`, `ERR_PERMISSION_DENIED`
@@ -254,7 +257,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `fileKind == Text`만 읽기 허용
   - `fileKind != Text`면 `ERR_NOT_TEXT_FILE`
   - `maxBytes` 초과 시 `ERR_TOO_LARGE`
-- 반환 `data`:
+- 반환(최상위 필드):
   - `{ text: string }`
 - 실패:
   - `ERR_NOT_FOUND`, `ERR_IS_DIRECTORY`, `ERR_NOT_TEXT_FILE`, `ERR_PERMISSION_DENIED`, `ERR_TOO_LARGE`
@@ -279,7 +282,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
     - `createParents=false`면 `ERR_NOT_FOUND`/`ERR_NOT_DIRECTORY`
     - `createParents=true`면 필요한 디렉토리를 생성 후 진행
   - 쓰기는 overlay에 반영한다(기본/base는 직접 수정하지 않음)
-- 반환 `data`:
+- 반환(최상위 필드):
   - `{ written: int /*chars*/, path: string }`
 - 실패:
   - `ERR_INVALID_ARGS`, `ERR_ALREADY_EXISTS`, `ERR_IS_DIRECTORY`, `ERR_NOT_DIRECTORY`, `ERR_PERMISSION_DENIED`
@@ -298,7 +301,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - base 파일 삭제는 tombstone으로 가림 처리
   - overlay 파일 삭제는 overlay 엔트리 제거
   - 디렉토리 삭제는 **비어 있을 때만** 허용(MVP 권장)
-- 반환 `data`:
+- 반환(최상위 필드):
   - `{ deleted: 1 }` 또는 `{ deleted: 0 }`
 - 실패:
   - `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`, `ERR_NOT_DIRECTORY`(rmdir 조건 불일치 시), `ERR_INVALID_ARGS`
@@ -313,7 +316,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 권한:
   - session 모드: 해당 session 사용자 `read`
   - route 모드: `lastSession` 사용자 `read`
-- 반환 `data`(권장 최소):
+- 반환(최상위 필드, 권장 최소):
   - `{ entryKind, fileKind?, size? }`
 - 실패:
   - `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`
@@ -333,7 +336,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 권한:
   - 실행 컨텍스트 계정의 `execute=true`가 필요(권장)
     - route 모드에서는 `route.lastSession` 사용자 기준
-- 반환 `data`:
+- 반환(최상위 필드):
   - `{ interfaces: List<{ netId:string, localIp:string }> }`
 - 실패:
   - `ERR_PERMISSION_DENIED`, `ERR_INVALID_ARGS`
@@ -356,7 +359,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 권한:
   - 실행 컨텍스트 계정의 `execute=true`가 필요(권장)
     - route 모드에서는 `route.lastSession` 사용자 기준
-- 반환 `data`:
+- 반환(최상위 필드):
   - `{ interfaces: List<{ netId:string, localIp:string, neighbors: List<string> }>, ips: List<string> }`
 - 실패:
   - `ERR_PERMISSION_DENIED`, `ERR_INVALID_ARGS`, `ERR_NOT_FOUND`(지정 netId 미존재)
@@ -375,7 +378,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - 대상 서버의 `ports` 중 `portType != none`인 항목을 반환한다.
   - 네트워크 접근 가능 여부는 `exposure` 규칙으로 판정한다(실행 source 컨텍스트 기준).
     - 접근 불가이면: v0에서는 전체 실패(`ERR_NET_DENIED`) 또는 결과 숨김 중 하나를 선택(일관되게 고정).
-- 반환 `data`(권장):
+- 반환(최상위 필드, 권장):
   - `{ ports: List<{ port:int, portType:string, exposure:string }> }`
 - 실패:
   - `ERR_NOT_FOUND`, `ERR_NET_DENIED`
@@ -393,7 +396,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - 포트가 비할당(`portType==none`)이면 `ERR_PORT_CLOSED`
   - `banner` 값은 target `ports[port].banner`를 우선 사용하고, 미정의면 빈 문자열로 처리한다.
   - `banner` 저장 위치/스키마는 `09_server_node_runtime_schema_v0.md` / `10_blueprint_schema_v0.md`의 `PortConfig`를 따른다.
-- 반환 `data`:
+- 반환(최상위 필드):
   - `{ banner: string }` (없으면 빈 문자열 허용)
 - 실패:
   - `ERR_NOT_FOUND`, `ERR_NET_DENIED`, `ERR_PORT_CLOSED`
@@ -424,7 +427,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - 서버의 계정 설정(authMode/daemon)에 따라 성공/실패를 결정한다.
   - 이 레이어에서는 “현실 SSH”가 아니라 **가상 인증 모듈**로 취급한다.
   - `authMode=otp` 계정은 daemon(`stepMs/allowedDriftSteps/otpPairId`) 기반 TOTP 검증만 사용한다(발급 토큰 TTL 모델 미사용).
-- 반환 `data`:
+- 반환(최상위 필드):
   - 기본: `{ session: Session, route: null }`
   - 체인(`opts.session` 사용): `{ session: Session, route: SshRoute }`
 - 실패:
@@ -437,7 +440,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 목적: 세션 해제
 - 인자:
   - `sessionOrRoute: Session|SshRoute`
-- 반환 `data`:
+- 반환(최상위 필드):
   - 공통: `{ disconnected: 1|0 }` (idempotent)
   - route 입력일 때 summary 포함:
     - `summary.requested`: dedupe 후 종료 시도한 hop 수
@@ -462,11 +465,11 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - 터미널 명령 파싱/시스템콜/프로그램 fallback 규칙은 `07_ui_terminal_prototype_godot.md` 및 `14_official_programs.md`를 따른다.  
     See DOCS_INDEX.md → 07, 14.
   - 본 API는 해당 실행 결과(`stdout`, `exitCode`)를 route/session 컨텍스트로 래핑해 반환한다.
-- 반환 `data`(권장):
+- 반환(최상위 필드, 권장):
   - `{ stdout: string, exitCode: int }`
 - 실패:
   - route 구조 검증 실패 시 `ERR_INVALID_ARGS`
-  - `ERR_INVALID_ARGS`, `ERR_PERMISSION_DENIED`, `ERR_NOT_FOUND`(프로그램/경로 없음), `ERR_TOO_LARGE`
+  - `ERR_INVALID_ARGS`, `ERR_PERMISSION_DENIED`, `ERR_NOT_FOUND`(프로그램/경로 없음), `ERR_UNKNOWN_COMMAND`, `ERR_TOO_LARGE`, `ERR_INTERNAL_ERROR`
 
 
 ### 5.4 `ssh.inspect(hostOrIp, userId, port=22, opts?)`
@@ -485,7 +488,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - resolve 실패 또는 실행 파일 종류 불일치(`ExecutableHardcode(exec:inspect)`가 아님) → `ERR_TOOL_MISSING`
   - 실행 권한 부족(`read + execute` 필요) → `ERR_PERMISSION_DENIED`
 - 반환:
-  - `ssh.inspect`는 이번 버전에서 **최상위 직접 필드**를 반환한다(`data` 중첩 사용 안 함).
+  - `ssh.inspect`도 공통 규약대로 **최상위 직접 필드**를 반환한다(`data` 중첩 사용 안 함).
   - 성공:
     - `ok=1`
     - `code="OK"`
@@ -504,6 +507,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `ERR_NET_DENIED`
   - `ERR_AUTH_FAILED`
   - `ERR_RATE_LIMITED`
+  - `ERR_INTERNAL_ERROR`
 
 
 ---
@@ -555,7 +559,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
     - `fromNodeId = remote endpoint nodeId` (`SshRoute` 모드에서는 `last.sessionNodeId`)
     - `fileName = basename(remotePath)` (확장자 포함)
     - `transferMethod = "ftp"`
-- 반환 `data`:
+- 반환(최상위 필드):
   - MVP(동기) 권장: `{ savedTo: localPath, bytes?: int }`
   - 비동기(권장)로 갈 경우: `{ processId: int }` 형태를 추가해도 된다.
 - 실패:

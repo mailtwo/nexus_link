@@ -24,6 +24,9 @@
 2) 미일치 시 프로그램 탐색(PATH 고정)  
 3) 최종 미해결 시 `unknown command`
 
+- 터미널 응답의 `code` 토큰 규약은 `07_ui_terminal_prototype_godot.md`가 SSOT다.  
+  See DOCS_INDEX.md → 07. (`unknown command`는 `ERR_UNKNOWN_COMMAND`에 대응)
+
 프로그램 탐색 규칙(요약):
 - `PATH = ["/opt/bin"]`
 - command에 `/`가 포함되면 `Normalize(cwd, command)`만 시도
@@ -181,6 +184,7 @@ InspectProbe는 아래 alphabet을 최소 지원합니다.
 - `ERR_AUTH_FAILED`: 계정이 없거나, probe 실패(계정 열거 방지 목적)
 - `ERR_RATE_LIMITED`: shared API limit(0.11; 100k 버킷) 초과로 실행 거부  
   - `inspect` 프로그램과 `ssh.inspect` intrinsic 모두 동일하게 적용됩니다(MUST).
+- `ERR_INTERNAL_ERROR`: 예상하지 못한 내부 예외/상태 불일치 fallback
 
 ### 2.2 실패 로그(프로그램 `inspect`)
 `inspect` 프로그램은 실패 시 stderr를 아래 2줄 형식으로 출력합니다.
@@ -195,6 +199,7 @@ InspectProbe는 아래 alphabet을 최소 지원합니다.
 - `ERR_NOT_FOUND` → `host not found`
 - `ERR_INVALID_ARGS` → `invalid args`
 - `ERR_RATE_LIMITED` → `rate limited`
+- `ERR_INTERNAL_ERROR` → `internal error`
 
 프로그램 종료 코드는 다음을 권장합니다.
 - 성공: `0`
@@ -203,7 +208,7 @@ InspectProbe는 아래 alphabet을 최소 지원합니다.
 ### 2.3 실패 반환( `ssh.inspect` )
 `ssh.inspect`는 ResultMap으로 실패를 반환합니다.
 - `ok=0`, `code="ERR_*"`, `err=<string>`
-- `data=null`을 강제하지 않으며, 실패 반환은 위 3개 필드를 기준으로 해석합니다.
+- 실패 반환 해석은 위 3개 필드를 기준으로 하며, 공통 `data` 래퍼를 사용하지 않습니다.
 - ResultMap의 세부 필드 규칙은 API 공통 규약을 따릅니다.
 
 ---

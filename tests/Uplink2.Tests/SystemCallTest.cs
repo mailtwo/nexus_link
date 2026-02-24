@@ -23,6 +23,63 @@ namespace Uplink2.Tests;
 [Trait("Speed", "medium")]
 public sealed class SystemCallTest
 {
+    /// <summary>Ensures API code token mapping covers all SystemCallErrorCode values with canonical outputs.</summary>
+    [Fact]
+    public void SystemCallErrorCodeTokenMapper_MapsAllValuesToCanonicalTokens()
+    {
+        var mapperType = RequireRuntimeType("Uplink2.Runtime.Syscalls.SystemCallErrorCodeTokenMapper");
+        var toApiTokenMethod = mapperType.GetMethod(
+            "ToApiToken",
+            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        Assert.NotNull(toApiTokenMethod);
+
+        var expected = new Dictionary<SystemCallErrorCode, string>
+        {
+            [SystemCallErrorCode.None] = "OK",
+            [SystemCallErrorCode.UnknownCommand] = "ERR_UNKNOWN_COMMAND",
+            [SystemCallErrorCode.InvalidArgs] = "ERR_INVALID_ARGS",
+            [SystemCallErrorCode.PermissionDenied] = "ERR_PERMISSION_DENIED",
+            [SystemCallErrorCode.NetDenied] = "ERR_NET_DENIED",
+            [SystemCallErrorCode.NotFound] = "ERR_NOT_FOUND",
+            [SystemCallErrorCode.PortClosed] = "ERR_PORT_CLOSED",
+            [SystemCallErrorCode.NotFile] = "ERR_IS_DIRECTORY",
+            [SystemCallErrorCode.NotDirectory] = "ERR_NOT_DIRECTORY",
+            [SystemCallErrorCode.Conflict] = "ERR_ALREADY_EXISTS",
+            [SystemCallErrorCode.InternalError] = "ERR_INTERNAL_ERROR",
+            [SystemCallErrorCode.AlreadyExists] = "ERR_ALREADY_EXISTS",
+            [SystemCallErrorCode.IsDirectory] = "ERR_IS_DIRECTORY",
+            [SystemCallErrorCode.NotTextFile] = "ERR_NOT_TEXT_FILE",
+            [SystemCallErrorCode.TooLarge] = "ERR_TOO_LARGE",
+            [SystemCallErrorCode.ToolMissing] = "ERR_TOOL_MISSING",
+            [SystemCallErrorCode.AuthFailed] = "ERR_AUTH_FAILED",
+            [SystemCallErrorCode.RateLimited] = "ERR_RATE_LIMITED",
+        };
+
+        foreach (var pair in expected)
+        {
+            var actual = toApiTokenMethod!.Invoke(null, new object?[] { pair.Key });
+            Assert.Equal(pair.Value, actual as string);
+        }
+    }
+
+    /// <summary>Ensures world terminal/editor response payloads serialize code with canonical API tokens.</summary>
+    [Fact]
+    public void WorldRuntime_ResponsePayloads_UseCanonicalCodeTokens()
+    {
+        var success = SystemCallResult.Success(lines: new[] { "ok" });
+        var failure = SystemCallResult.Failure(SystemCallErrorCode.PermissionDenied, "denied");
+
+        var terminalSuccess = BuildTerminalCommandResponsePayload(success);
+        var terminalFailure = BuildTerminalCommandResponsePayload(failure);
+        Assert.Equal("OK", (string)terminalSuccess["code"]);
+        Assert.Equal("ERR_PERMISSION_DENIED", (string)terminalFailure["code"]);
+
+        var editorSuccess = BuildEditorSaveResponsePayload(success, "/work/file.txt");
+        var editorFailure = BuildEditorSaveResponsePayload(failure, "/work/file.txt");
+        Assert.Equal("OK", (string)editorSuccess["code"]);
+        Assert.Equal("ERR_PERMISSION_DENIED", (string)editorFailure["code"]);
+    }
+
     /// <summary>Ensures unknown system-call names fall back to executable program resolution.</summary>
     [Fact]
     public void Execute_FallsBackToProgram_WhenSystemCallIsNotRegistered()
@@ -862,7 +919,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "kind=sshSession", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "sessionNodeId=node-2", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "userId=guest", StringComparison.Ordinal));
@@ -902,7 +959,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=NotFound", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=ERR_NOT_FOUND", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "sessionNull=1", StringComparison.Ordinal));
         var events = DrainQueuedGameEvents(harness.World);
         Assert.Empty(events);
@@ -940,9 +997,9 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "r1ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "r1code=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r1code=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "r2ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "r2code=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r2code=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
         Assert.Contains(
             result.Lines,
             static line => string.Equals(
@@ -1438,7 +1495,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=ERR_INVALID_ARGS", StringComparison.Ordinal));
         Assert.Empty(hopB.Sessions);
     }
 
@@ -1470,7 +1527,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=0", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "stdout=remote motd", StringComparison.Ordinal));
         Assert.Empty(remote.Sessions);
@@ -1525,7 +1582,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "stdout=motd-c", StringComparison.Ordinal));
         Assert.Empty(hopB.Sessions);
         Assert.Empty(hopC.Sessions);
@@ -1576,12 +1633,12 @@ public sealed class SystemCallTest
         var result = Execute(harness, "miniscript /scripts/ssh_exec_invalid.ms");
 
         Assert.True(result.Ok);
-        Assert.Contains(result.Lines, static line => string.Equals(line, "badType=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "badKind=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "badRoute=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "badCmd=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "badOpts=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "badMax=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badType=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badKind=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badRoute=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badCmd=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badOpts=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "badMax=ERR_INVALID_ARGS", StringComparison.Ordinal));
         Assert.Empty(remote.Sessions);
     }
 
@@ -1614,7 +1671,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=TooLarge", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=ERR_TOO_LARGE", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=1", StringComparison.Ordinal));
         Assert.Empty(remote.Sessions);
     }
@@ -1648,9 +1705,9 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "e1ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "e1code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "e1code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "e2ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "e2code=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "e2code=ERR_INVALID_ARGS", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "e2stdout=error: not connected.", StringComparison.Ordinal));
         Assert.Empty(hopA.Sessions);
         Assert.Empty(hopB.Sessions);
@@ -1687,7 +1744,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=0", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "stdout=inner-ok", StringComparison.Ordinal));
         Assert.Empty(remote.Sessions);
@@ -1717,7 +1774,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=0", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "stdout=local motd", StringComparison.Ordinal));
     }
@@ -1756,12 +1813,12 @@ public sealed class SystemCallTest
         var result = Execute(harness, "miniscript /scripts/term_exec_invalid.ms");
 
         Assert.True(result.Ok);
-        Assert.Contains(result.Lines, static line => string.Equals(line, "missing=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "blank=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "optsType=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "optsKey=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "maxNeg=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "maxFloat=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "missing=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "blank=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "optsType=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "optsKey=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "maxNeg=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "maxFloat=ERR_INVALID_ARGS", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures term.exec enforces opts.maxBytes against UTF-8 stdout size.</summary>
@@ -1789,7 +1846,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=TooLarge", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=ERR_TOO_LARGE", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=1", StringComparison.Ordinal));
     }
 
@@ -1822,7 +1879,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "exitCode=1", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => line.Contains("permission denied", StringComparison.Ordinal));
         Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/loot", out _));
@@ -1858,11 +1915,11 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "warn: w-log", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "error: e-log", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "pOk=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "pCode=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "pCode=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "wOk=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "wCode=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "wCode=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "eOk=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "eCode=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "eCode=OK", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures term.error-only stderr is non-fatal, while true MiniScript runtime errors still fail execution.</summary>
@@ -1894,7 +1951,7 @@ public sealed class SystemCallTest
         Assert.True(termOnly.Ok);
         Assert.Contains(termOnly.Lines, static line => string.Equals(line, "error: x", StringComparison.Ordinal));
         Assert.Contains(termOnly.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(termOnly.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(termOnly.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(termOnly.Lines, static line => string.Equals(line, "done", StringComparison.Ordinal));
 
         Assert.False(runtimeError.Ok);
@@ -1970,7 +2027,7 @@ public sealed class SystemCallTest
         WaitForTerminalProgramStop(harness.World, "ts-ssh-exec-async-mutation");
         var outputLines = SnapshotTerminalEventLines(harness.World);
         Assert.Contains("ok=1", outputLines);
-        Assert.Contains("code=None", outputLines);
+        Assert.Contains("code=OK", outputLines);
         Assert.Contains("exitCode=0", outputLines);
         Assert.True(remote.DiskOverlay.TryResolveEntry("/loot", out var lootEntry));
         Assert.Equal(VfsEntryKind.Dir, lootEntry.EntryKind);
@@ -2232,7 +2289,7 @@ public sealed class SystemCallTest
         WaitForTerminalProgramStop(harness.World, "ts-ssh-async");
         var outputLines = SnapshotTerminalEventLines(harness.World);
         Assert.Contains("ok=1", outputLines);
-        Assert.Contains("code=None", outputLines);
+        Assert.Contains("code=OK", outputLines);
         Assert.Contains("d1=1", outputLines);
         Assert.Contains("d2=0", outputLines);
         Assert.Empty(remote.Sessions);
@@ -2286,9 +2343,9 @@ public sealed class SystemCallTest
         WaitForTerminalProgramStop(harness.World, "ts-ssh-async-rate");
         var outputLines = SnapshotTerminalEventLines(harness.World);
         Assert.Contains("r1ok=0", outputLines);
-        Assert.Contains("r1code=PermissionDenied", outputLines);
+        Assert.Contains("r1code=ERR_PERMISSION_DENIED", outputLines);
         Assert.Contains("r2ok=0", outputLines);
-        Assert.Contains("r2code=PermissionDenied", outputLines);
+        Assert.Contains("r2code=ERR_PERMISSION_DENIED", outputLines);
         Assert.Contains(
             "r2err=connectionRateLimiter daemon blocked this connection attempt.",
             outputLines);
@@ -2333,7 +2390,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "savedTo=/work/downloads/tool.bin", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "bytes=4096", StringComparison.Ordinal));
 
@@ -2391,7 +2448,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "savedTo=/incoming/script.bin", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "bytes=2048", StringComparison.Ordinal));
 
@@ -2468,7 +2525,7 @@ public sealed class SystemCallTest
         var firstWriteDenied = Execute(harness, "miniscript /scripts/ftp_get_route_perm.ms", terminalSessionId: "ts-ms-ftp-get-route");
         Assert.True(firstWriteDenied.Ok);
         Assert.Contains(firstWriteDenied.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(firstWriteDenied.Lines, static line => string.Equals(line, "code=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(firstWriteDenied.Lines, static line => string.Equals(line, "code=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
         Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/r.txt", out _));
 
         harness.Server.Users["guest"].Privilege.Write = true;
@@ -2476,7 +2533,7 @@ public sealed class SystemCallTest
         var lastReadDenied = Execute(harness, "miniscript /scripts/ftp_get_route_perm.ms", terminalSessionId: "ts-ms-ftp-get-route");
         Assert.True(lastReadDenied.Ok);
         Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "code=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "code=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
         Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/r.txt", out _));
     }
 
@@ -2565,14 +2622,14 @@ public sealed class SystemCallTest
         var firstReadDenied = Execute(harness, "miniscript /scripts/ftp_put_route_perm_first.ms", terminalSessionId: "ts-ms-ftp-put-route");
         Assert.True(firstReadDenied.Ok);
         Assert.Contains(firstReadDenied.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(firstReadDenied.Lines, static line => string.Equals(line, "code=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(firstReadDenied.Lines, static line => string.Equals(line, "code=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
         Assert.False(last.DiskOverlay.TryResolveEntry("/incoming/a.txt", out _));
 
         last.Users["guest"].Privilege.Write = false;
         var lastWriteDenied = Execute(harness, "miniscript /scripts/ftp_put_route_perm_last.ms", terminalSessionId: "ts-ms-ftp-put-route");
         Assert.True(lastWriteDenied.Ok);
         Assert.Contains(lastWriteDenied.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(lastWriteDenied.Lines, static line => string.Equals(line, "code=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(lastWriteDenied.Lines, static line => string.Equals(line, "code=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
         Assert.False(last.DiskOverlay.TryResolveEntry("/incoming/a.txt", out _));
     }
 
@@ -2636,7 +2693,7 @@ public sealed class SystemCallTest
         var success = Execute(harness, "miniscript /scripts/ftp_route_port.ms", terminalSessionId: "ts-ms-ftp-route-port");
         Assert.True(success.Ok);
         Assert.Contains(success.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(success.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(success.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/recv/port.txt", out _));
 
         last.Ports.Remove(21);
@@ -2644,7 +2701,7 @@ public sealed class SystemCallTest
         var failOnLast = Execute(harness, "miniscript /scripts/ftp_route_port.ms", terminalSessionId: "ts-ms-ftp-route-port");
         Assert.True(failOnLast.Ok);
         Assert.Contains(failOnLast.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(failOnLast.Lines, static line => string.Equals(line, "code=NotFound", StringComparison.Ordinal));
+        Assert.Contains(failOnLast.Lines, static line => string.Equals(line, "code=ERR_NOT_FOUND", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures ftp.put(route) resolves local source from route.sessions[0].source endpoint(A), not first target(B).</summary>
@@ -2710,7 +2767,7 @@ public sealed class SystemCallTest
         var result = Execute(harness, "miniscript /scripts/ftp_put_route_source.ms", terminalSessionId: "ts-ms-ftp-put-route-source");
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.True(last.DiskOverlay.TryReadFileText("/incoming/a.txt", out var uploadedText));
         Assert.Equal("A", uploadedText);
     }
@@ -2777,7 +2834,7 @@ public sealed class SystemCallTest
         var result = Execute(harness, "miniscript /scripts/ftp_get_route_source.ms", terminalSessionId: "ts-ms-ftp-get-route-source");
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.True(harness.Server.DiskOverlay.TryReadFileText("/recv/r.txt", out var downloadedText));
         Assert.Equal("R", downloadedText);
         Assert.False(first.DiskOverlay.TryResolveEntry("/recv/r.txt", out _));
@@ -2828,9 +2885,9 @@ public sealed class SystemCallTest
         WaitForTerminalProgramStop(harness.World, "ts-ms-ftp-async");
         var outputLines = SnapshotTerminalEventLines(harness.World);
         Assert.Contains("gok=1", outputLines);
-        Assert.Contains("gcode=None", outputLines);
+        Assert.Contains("gcode=OK", outputLines);
         Assert.Contains("pok=1", outputLines);
-        Assert.Contains("pcode=None", outputLines);
+        Assert.Contains("pcode=OK", outputLines);
 
         Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/work/downloads/a.txt", out var downloaded));
         Assert.Equal(VfsEntryKind.File, downloaded.EntryKind);
@@ -2900,9 +2957,9 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "gok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "gcode=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "gcode=ERR_INVALID_ARGS", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "pok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "pcode=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "pcode=ERR_INVALID_ARGS", StringComparison.Ordinal));
         Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/a.txt", out _));
         Assert.False(remote.DiskOverlay.TryResolveEntry("/incoming/u.txt", out _));
     }
@@ -2987,15 +3044,15 @@ public sealed class SystemCallTest
         var result = Execute(harness, "miniscript /scripts/session_route_source_required.ms", terminalSessionId: "ts-ms-source-required");
 
         Assert.True(result.Ok);
-        Assert.Contains(result.Lines, static line => string.Equals(line, "e=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "f=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "n=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "g=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "c=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "er=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "fr=None", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "nr=None", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "gr=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "e=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "f=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "n=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "g=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "c=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "er=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "fr=OK", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "nr=OK", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "gr=ERR_INVALID_ARGS", StringComparison.Ordinal));
         Assert.Empty(first.Sessions);
         Assert.Empty(last.Sessions);
     }
@@ -3033,7 +3090,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "lok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "lcode=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "lcode=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "lcount=1", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "rok=1", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "rtext=HELLO", StringComparison.Ordinal));
@@ -3067,7 +3124,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=NotTextFile", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=ERR_NOT_TEXT_FILE", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures miniscript fs.read respects maxBytes option and returns TooLarge.</summary>
@@ -3095,7 +3152,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=TooLarge", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=ERR_TOO_LARGE", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures miniscript fs.write enforces overwrite and createParents options.</summary>
@@ -3133,11 +3190,11 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "w1ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "w1code=AlreadyExists", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w1code=ERR_ALREADY_EXISTS", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "w2ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "w2code=NotFound", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w2code=ERR_NOT_FOUND", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "w3ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "w3code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w3code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "w3path=/new/nested/out.txt", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "w3written=1", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "r3ok=1", StringComparison.Ordinal));
@@ -3171,9 +3228,9 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "w1ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "w1code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w1code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "w2ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "w2code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "w2code=OK", StringComparison.Ordinal));
         Assert.True(harness.Server.DiskOverlay.TryReadFileText("/docs/new.txt", out var finalContent));
         Assert.Equal("B", finalContent);
 
@@ -3231,12 +3288,12 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "d1ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "d1code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d1code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "d1deleted=1", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "d2ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "d2code=NotFound", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d2code=ERR_NOT_FOUND", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "d3ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "d3code=NotDirectory", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d3code=ERR_NOT_DIRECTORY", StringComparison.Ordinal));
         Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/tmp/x.txt", out _));
         Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/tmp/dir/y.txt", out _));
     }
@@ -3274,11 +3331,11 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "lok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "lcode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "lcode=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "sok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "scode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "scode=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "rok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "rcode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "rcode=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures session-scoped fs.write/delete use session user write privilege.</summary>
@@ -3311,9 +3368,9 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "wok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "wcode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "wcode=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "dok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "dcode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "dcode=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
         Assert.False(remote.DiskOverlay.TryResolveEntry("/drop/new.txt", out _));
         Assert.True(remote.DiskOverlay.TryResolveEntry("/drop/to-delete.txt", out _));
     }
@@ -3377,22 +3434,22 @@ public sealed class SystemCallTest
         var firstReadDeniedButLastAllowed = Execute(harness, "miniscript /scripts/fs_route_read_perm.ms", terminalSessionId: "ts-ms-fs-route-read");
         Assert.True(firstReadDeniedButLastAllowed.Ok);
         Assert.Contains(firstReadDeniedButLastAllowed.Lines, static line => string.Equals(line, "lok=1", StringComparison.Ordinal));
-        Assert.Contains(firstReadDeniedButLastAllowed.Lines, static line => string.Equals(line, "lcode=None", StringComparison.Ordinal));
+        Assert.Contains(firstReadDeniedButLastAllowed.Lines, static line => string.Equals(line, "lcode=OK", StringComparison.Ordinal));
         Assert.Contains(firstReadDeniedButLastAllowed.Lines, static line => string.Equals(line, "sok=1", StringComparison.Ordinal));
-        Assert.Contains(firstReadDeniedButLastAllowed.Lines, static line => string.Equals(line, "scode=None", StringComparison.Ordinal));
+        Assert.Contains(firstReadDeniedButLastAllowed.Lines, static line => string.Equals(line, "scode=OK", StringComparison.Ordinal));
         Assert.Contains(firstReadDeniedButLastAllowed.Lines, static line => string.Equals(line, "rok=1", StringComparison.Ordinal));
-        Assert.Contains(firstReadDeniedButLastAllowed.Lines, static line => string.Equals(line, "rcode=None", StringComparison.Ordinal));
+        Assert.Contains(firstReadDeniedButLastAllowed.Lines, static line => string.Equals(line, "rcode=OK", StringComparison.Ordinal));
 
         first.Users["guest"].Privilege.Read = true;
         last.Users["guest"].Privilege.Read = false;
         var lastReadDenied = Execute(harness, "miniscript /scripts/fs_route_read_perm.ms", terminalSessionId: "ts-ms-fs-route-read");
         Assert.True(lastReadDenied.Ok);
         Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "lok=0", StringComparison.Ordinal));
-        Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "lcode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "lcode=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
         Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "sok=0", StringComparison.Ordinal));
-        Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "scode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "scode=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
         Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "rok=0", StringComparison.Ordinal));
-        Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "rcode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(lastReadDenied.Lines, static line => string.Equals(line, "rcode=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures route-scoped fs.write/delete use route.lastSession and ignore non-last route fields.</summary>
@@ -3451,9 +3508,9 @@ public sealed class SystemCallTest
         var firstWriteDeniedButLastAllowed = Execute(harness, "miniscript /scripts/fs_route_write_perm.ms", terminalSessionId: "ts-ms-fs-route-write");
         Assert.True(firstWriteDeniedButLastAllowed.Ok);
         Assert.Contains(firstWriteDeniedButLastAllowed.Lines, static line => string.Equals(line, "wok=1", StringComparison.Ordinal));
-        Assert.Contains(firstWriteDeniedButLastAllowed.Lines, static line => string.Equals(line, "wcode=None", StringComparison.Ordinal));
+        Assert.Contains(firstWriteDeniedButLastAllowed.Lines, static line => string.Equals(line, "wcode=OK", StringComparison.Ordinal));
         Assert.Contains(firstWriteDeniedButLastAllowed.Lines, static line => string.Equals(line, "dok=1", StringComparison.Ordinal));
-        Assert.Contains(firstWriteDeniedButLastAllowed.Lines, static line => string.Equals(line, "dcode=None", StringComparison.Ordinal));
+        Assert.Contains(firstWriteDeniedButLastAllowed.Lines, static line => string.Equals(line, "dcode=OK", StringComparison.Ordinal));
         Assert.True(last.DiskOverlay.TryResolveEntry("/drop/new.txt", out _));
         Assert.False(last.DiskOverlay.TryResolveEntry("/drop/to-delete.txt", out _));
 
@@ -3462,9 +3519,9 @@ public sealed class SystemCallTest
         var lastWriteDenied = Execute(harness, "miniscript /scripts/fs_route_write_perm.ms", terminalSessionId: "ts-ms-fs-route-write");
         Assert.True(lastWriteDenied.Ok);
         Assert.Contains(lastWriteDenied.Lines, static line => string.Equals(line, "wok=0", StringComparison.Ordinal));
-        Assert.Contains(lastWriteDenied.Lines, static line => string.Equals(line, "wcode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(lastWriteDenied.Lines, static line => string.Equals(line, "wcode=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
         Assert.Contains(lastWriteDenied.Lines, static line => string.Equals(line, "dok=0", StringComparison.Ordinal));
-        Assert.Contains(lastWriteDenied.Lines, static line => string.Equals(line, "dcode=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(lastWriteDenied.Lines, static line => string.Equals(line, "dcode=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures route-scoped fs APIs return InvalidArgs when route.lastSession cannot be resolved.</summary>
@@ -3524,7 +3581,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=ERR_INVALID_ARGS", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures miniscript net.scan returns per-interface neighbors plus flattened unique IPs.</summary>
@@ -3587,7 +3644,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "ifCount=2", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "if0=alpha:10.1.0.10", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "if0Count=2", StringComparison.Ordinal));
@@ -3651,7 +3708,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "ifCount=1", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "if0=alpha:10.1.0.10", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "if0Count=1", StringComparison.Ordinal));
@@ -3693,7 +3750,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=NotFound", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=ERR_NOT_FOUND", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures miniscript net.interfaces returns all local interfaces sorted by netId and IP.</summary>
@@ -3739,7 +3796,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "count=3", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "i0=alpha:10.1.0.10", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "i1=beta:10.2.0.10", StringComparison.Ordinal));
@@ -3809,7 +3866,7 @@ public sealed class SystemCallTest
         var firstDeniedButLastAllowed = Execute(harness, "miniscript /scripts/net_scan_route.ms", terminalSessionId: "ts-ms-net-scan-route");
         Assert.True(firstDeniedButLastAllowed.Ok);
         Assert.Contains(firstDeniedButLastAllowed.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(firstDeniedButLastAllowed.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(firstDeniedButLastAllowed.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(firstDeniedButLastAllowed.Lines, static line => string.Equals(line, "count=2", StringComparison.Ordinal));
 
         first.Users["guest"].Privilege.Execute = true;
@@ -3817,7 +3874,7 @@ public sealed class SystemCallTest
         var lastDenied = Execute(harness, "miniscript /scripts/net_scan_route.ms", terminalSessionId: "ts-ms-net-scan-route");
         Assert.True(lastDenied.Ok);
         Assert.Contains(lastDenied.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(lastDenied.Lines, static line => string.Equals(line, "code=PermissionDenied", StringComparison.Ordinal));
+        Assert.Contains(lastDenied.Lines, static line => string.Equals(line, "code=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures net.ports hides ports denied by exposure policy instead of failing the full call.</summary>
@@ -3855,7 +3912,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "count=2", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "has80=0", StringComparison.Ordinal));
     }
@@ -3890,10 +3947,10 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "b1ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "b1code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "b1code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "b1=OpenSSH_8.2p1 easy-box", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "b2ok=1", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "b2code=None", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "b2code=OK", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "b2len=0", StringComparison.Ordinal));
     }
 
@@ -3927,9 +3984,9 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "aok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "acode=PortClosed", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "acode=ERR_PORT_CLOSED", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "bok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "bcode=PortClosed", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "bcode=ERR_PORT_CLOSED", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures net.banner returns NetDenied when target port exposure blocks source access.</summary>
@@ -3955,7 +4012,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "code=NetDenied", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "code=ERR_NET_DENIED", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures net intrinsics validate malformed arguments and return InvalidArgs.</summary>
@@ -3986,10 +4043,10 @@ public sealed class SystemCallTest
         var result = Execute(harness, "miniscript /scripts/net_invalid_args.ms", terminalSessionId: "ts-ms-net-invalid-args");
 
         Assert.True(result.Ok);
-        Assert.Contains(result.Lines, static line => string.Equals(line, "scode=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "pcode=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "b1code=InvalidArgs", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "b2code=InvalidArgs", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "scode=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "pcode=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "b1code=ERR_INVALID_ARGS", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "b2code=ERR_INVALID_ARGS", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures async miniscript fs.write/delete are validate-only in sandbox mode.</summary>
@@ -4027,9 +4084,9 @@ public sealed class SystemCallTest
         WaitForTerminalProgramStop(harness.World, "ts-ms-fs-async");
         var outputLines = SnapshotTerminalEventLines(harness.World);
         Assert.Contains("wok=1", outputLines);
-        Assert.Contains("wcode=None", outputLines);
+        Assert.Contains("wcode=OK", outputLines);
         Assert.Contains("dok=1", outputLines);
-        Assert.Contains("dcode=None", outputLines);
+        Assert.Contains("dcode=OK", outputLines);
 
         Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/sandbox/new.txt", out _));
         Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/sandbox/keep.txt", out _));
@@ -6871,6 +6928,18 @@ public sealed class SystemCallTest
         return payload!;
     }
 
+    private static Dictionary<string, object> BuildEditorSaveResponsePayload(SystemCallResult result, string savedPath)
+    {
+        var method = typeof(WorldRuntime).GetMethod(
+            "BuildEditorSaveResponsePayload",
+            BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+        Assert.NotNull(method);
+
+        var payload = method!.Invoke(null, new object?[] { result, savedPath }) as Dictionary<string, object>;
+        Assert.NotNull(payload);
+        return payload!;
+    }
+
     private static (SystemCallResult Result, string SavedPath) SaveEditorContentInternal(
         WorldRuntime world,
         string nodeId,
@@ -7013,3 +7082,4 @@ public sealed class SystemCallTest
         string UserId,
         string Cwd);
 }
+
