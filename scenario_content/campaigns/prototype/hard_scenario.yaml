@@ -259,6 +259,8 @@ Scenario:
         specId: hardGuard1Server
         role: terminal
         interfaces:
+          - netId: internet
+            initiallyExposed: true
           - netId: hardSubnet
             initiallyExposed: false
       hardScenario/hardGuard2Server:

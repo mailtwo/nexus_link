@@ -14,6 +14,15 @@ internal static partial class MiniScriptSshIntrinsics
     private const string FtpPutIntrinsicName = "uplink_ftp_put";
     private const int DefaultFtpPort = 21;
 
+    /// <summary>인터프리터에 ftp 모듈 전역 API를 주입합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>ftp.get(sessionOrRoute, remotePath, localPath?, opts?)</c>, <c>ftp.put(sessionOrRoute, localPath, remotePath?, opts?)</c>.
+    /// 각 API는 공통 ResultMap(<c>ok/code/err/cost/trace</c>) 규약을 따르며 payload는 <c>savedTo</c>와 선택적 <c>bytes</c>를 반환합니다.
+    /// FTP는 SSH session/route를 인증 근거로 사용하고 target FTP 포트 노출 규칙을 통과해야 합니다.
+    /// See: <see href="/docfx_api_document/api/ftp.md#module-ftp">Manual</see>.
+    /// </remarks>
+    /// <param name="interpreter">ftp 모듈 전역을 주입할 대상 인터프리터입니다.</param>
+    /// <param name="moduleState">session/route 해석과 실행 컨텍스트를 포함한 모듈 상태입니다.</param>
     private static void InjectFtpModule(Interpreter interpreter, SshModuleState moduleState)
     {
         var ftpModule = new ValMap
@@ -25,6 +34,13 @@ internal static partial class MiniScriptSshIntrinsics
         interpreter.SetGlobalValue("ftp", ftpModule);
     }
 
+    /// <summary><c>ftp.get</c> intrinsic을 등록합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>r = ftp.get(sessionOrRoute, remotePath, localPath?, opts?)</c>.
+    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>savedTo</c>, 선택적 <c>bytes</c>)를 반환합니다.
+    /// 원격 read/로컬 write 권한과 FTP 포트 접근을 검사하며 성공 시 <c>fileAcquire</c> 이벤트를 발생시킵니다.
+    /// See: <see href="/docfx_api_document/api/ftp.md#ftpget">Manual</see>.
+    /// </remarks>
     private static void RegisterFtpGetIntrinsic()
     {
         if (Intrinsic.GetByName(FtpGetIntrinsicName) is not null)
@@ -159,6 +175,13 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
+    /// <summary><c>ftp.put</c> intrinsic을 등록합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>r = ftp.put(sessionOrRoute, localPath, remotePath?, opts?)</c>.
+    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>savedTo</c>, 선택적 <c>bytes</c>)를 반환합니다.
+    /// 로컬 read/원격 write 권한과 FTP 포트 접근을 검사하며 완료 시 <c>fileAcquire</c> 이벤트는 발행하지 않습니다.
+    /// See: <see href="/docfx_api_document/api/ftp.md#ftpput">Manual</see>.
+    /// </remarks>
     private static void RegisterFtpPutIntrinsic()
     {
         if (Intrinsic.GetByName(FtpPutIntrinsicName) is not null)

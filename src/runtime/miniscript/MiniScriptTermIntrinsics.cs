@@ -36,7 +36,15 @@ internal static class MiniScriptTermIntrinsics
         }
     }
 
-    /// <summary>Injects terminal module globals into a compiled interpreter instance.</summary>
+    /// <summary>인터프리터에 term 모듈 전역 API를 주입합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>term.exec(cmd, opts?)</c>, <c>term.print(text)</c>, <c>term.warn(text)</c>, <c>term.error(text)</c>.
+    /// 각 API는 공통 ResultMap(<c>ok/code/err/cost/trace</c>) 규약을 따르며, <c>term.exec</c>는 payload(<c>stdout/exitCode/jobId</c>)를 추가합니다.
+    /// <c>term.exec</c>는 실행 컨텍스트가 필요하며 비동기 스케줄/세션 정리 부작용이 있습니다.
+    /// See: <see href="/docfx_api_document/api/term.md#module-term">Manual</see>.
+    /// </remarks>
+    /// <param name="interpreter">term 모듈 전역을 주입할 대상 인터프리터입니다.</param>
+    /// <param name="executionContext"><c>term.exec</c>에서 시스템 호출을 수행할 실행 컨텍스트입니다.</param>
     internal static void InjectTermModule(Interpreter interpreter, SystemCallExecutionContext? executionContext)
     {
         if (interpreter is null)
@@ -63,6 +71,13 @@ internal static class MiniScriptTermIntrinsics
         interpreter.SetGlobalValue("term", termModule);
     }
 
+    /// <summary><c>term.exec</c> intrinsic을 등록합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>r = term.exec(cmd, opts?)</c>.
+    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>stdout/exitCode/jobId</c>)를 함께 반환합니다.
+    /// <c>opts.async=true</c>일 때는 명령 완료가 아니라 비동기 작업 스케줄 성공/실패를 보고합니다.
+    /// See: <see href="/docfx_api_document/api/term.md#termexec">Manual</see>.
+    /// </remarks>
     private static void RegisterTermExecIntrinsic()
     {
         if (Intrinsic.GetByName(TermExecIntrinsicName) is not null)
@@ -159,6 +174,13 @@ internal static class MiniScriptTermIntrinsics
         };
     }
 
+    /// <summary><c>term.print</c> intrinsic을 등록합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>r = term.print(text)</c>.
+    /// ResultMap(<c>ok/code/err/cost/trace</c>)를 반환하고 성공 시 payload(<c>printed=1</c>)를 포함합니다.
+    /// 호출 시 표준 출력으로 로그 라인을 기록합니다.
+    /// See: <see href="/docfx_api_document/api/term.md#termprint">Manual</see>.
+    /// </remarks>
     private static void RegisterTermPrintIntrinsic()
     {
         if (Intrinsic.GetByName(TermPrintIntrinsicName) is not null)
@@ -180,6 +202,13 @@ internal static class MiniScriptTermIntrinsics
         };
     }
 
+    /// <summary><c>term.warn</c> intrinsic을 등록합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>r = term.warn(text)</c>.
+    /// ResultMap(<c>ok/code/err/cost/trace</c>)를 반환하고 성공 시 payload(<c>printed=1</c>)를 포함합니다.
+    /// 호출 시 <c>warn:</c> 접두사와 함께 stderr 로그를 기록하며 스크립트 실패를 직접 유발하지 않습니다.
+    /// See: <see href="/docfx_api_document/api/term.md#termwarn">Manual</see>.
+    /// </remarks>
     private static void RegisterTermWarnIntrinsic()
     {
         if (Intrinsic.GetByName(TermWarnIntrinsicName) is not null)
@@ -201,6 +230,13 @@ internal static class MiniScriptTermIntrinsics
         };
     }
 
+    /// <summary><c>term.error</c> intrinsic을 등록합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>r = term.error(text)</c>.
+    /// ResultMap(<c>ok/code/err/cost/trace</c>)를 반환하고 성공 시 payload(<c>printed=1</c>)를 포함합니다.
+    /// 호출 시 <c>error:</c> 접두사와 함께 stderr 로그를 기록하며 스크립트 실패 상태는 호출자가 결정합니다.
+    /// See: <see href="/docfx_api_document/api/term.md#termerror">Manual</see>.
+    /// </remarks>
     private static void RegisterTermErrorIntrinsic()
     {
         if (Intrinsic.GetByName(TermErrorIntrinsicName) is not null)

@@ -69,7 +69,16 @@ internal static partial class MiniScriptSshIntrinsics
         }
     }
 
-    /// <summary>Injects SSH module globals into a compiled interpreter instance.</summary>
+    /// <summary>인터프리터에 ssh 모듈과 연계 모듈 전역 API를 주입합니다.</summary>
+    /// <remarks>
+    /// MiniScript(ssh): <c>ssh.connect(hostOrIp, userId, password, port=22, opts?)</c>, <c>ssh.disconnect(sessionOrRoute)</c>, <c>ssh.exec(sessionOrRoute, cmd, opts?)</c>, <c>ssh.inspect(hostOrIp, userId, port=22, opts?)</c>.
+    /// 각 API는 공통 ResultMap(<c>ok/code/err/cost/trace</c>) 규약을 따르며, 본 주입 단계에서 <c>ftp</c>, <c>fs</c>, <c>net</c> 모듈도 함께 연결됩니다.
+    /// 실행 모드에 따라 실제 월드 세션 생성 또는 샌드박스 검증 경로를 사용합니다.
+    /// See: <see href="/docfx_api_document/api/ssh.md#module-ssh">Manual</see>.
+    /// </remarks>
+    /// <param name="interpreter">API 전역을 주입할 대상 인터프리터입니다.</param>
+    /// <param name="executionContext">네트워크/시스템 호출 실행에 사용할 현재 실행 컨텍스트입니다.</param>
+    /// <param name="mode">SSH 실행 모드(실세계 세션 생성 또는 샌드박스 검증)를 지정합니다.</param>
     internal static void InjectSshModule(
         Interpreter interpreter,
         SystemCallExecutionContext? executionContext,
@@ -102,6 +111,13 @@ internal static partial class MiniScriptSshIntrinsics
         InjectNetModule(interpreter, moduleState);
     }
 
+    /// <summary><c>ssh.connect</c> intrinsic을 등록합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>r = ssh.connect(hostOrIp, userId, password, port=22, opts?)</c>.
+    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>session</c>, 체인 연결 시 <c>route</c>)를 반환합니다.
+    /// 노출 규칙/인증/레이트리밋을 검사하며 성공 시 권한 획득 이벤트를 발생시킵니다.
+    /// See: <see href="/docfx_api_document/api/ssh.md#sshconnect">Manual</see>.
+    /// </remarks>
     private static void RegisterSshConnectIntrinsic()
     {
         if (Intrinsic.GetByName(SshConnectIntrinsicName) is not null)
@@ -240,6 +256,13 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
+    /// <summary><c>ssh.disconnect</c> intrinsic을 등록합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>r = ssh.disconnect(sessionOrRoute)</c>.
+    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>disconnected</c>, <c>summary</c>)를 반환합니다.
+    /// route 입력 시 hop을 역순 dedupe 처리하는 best-effort 해제 정책을 따릅니다.
+    /// See: <see href="/docfx_api_document/api/ssh.md#sshdisconnect">Manual</see>.
+    /// </remarks>
     private static void RegisterSshDisconnectIntrinsic()
     {
         if (Intrinsic.GetByName(SshDisconnectIntrinsicName) is not null)
@@ -344,6 +367,13 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
+    /// <summary><c>ssh.exec</c> intrinsic을 등록합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>r = ssh.exec(sessionOrRoute, cmd, opts?)</c>.
+    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>stdout/exitCode/jobId</c>)를 반환합니다.
+    /// <c>opts.async=true</c>일 때는 원격 명령 완료가 아니라 비동기 스케줄 결과를 보고합니다.
+    /// See: <see href="/docfx_api_document/api/ssh.md#sshexec">Manual</see>.
+    /// </remarks>
     private static void RegisterSshExecIntrinsic()
     {
         if (Intrinsic.GetByName(SshExecIntrinsicName) is not null)
@@ -454,6 +484,13 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
+    /// <summary><c>ssh.inspect</c> intrinsic을 등록합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>r = ssh.inspect(hostOrIp, userId, port=22, opts?)</c>.
+    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>hostOrIp/port/userId/banner/passwdInfo</c>)를 반환합니다.
+    /// 실행 전 <c>inspect</c> 공식 프로그램 preflight를 검사하며 실패 시 도구/권한 오류를 반환합니다.
+    /// See: <see href="/docfx_api_document/api/ssh.md#sshinspect">Manual</see>.
+    /// </remarks>
     private static void RegisterSshInspectIntrinsic()
     {
         if (Intrinsic.GetByName(SshInspectIntrinsicName) is not null)

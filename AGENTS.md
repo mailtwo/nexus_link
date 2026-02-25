@@ -36,6 +36,8 @@ This project follows context7 principles:
 - Default to one-line summary docstrings unless extra detail is truly necessary.
 - Use `<inheritdoc/>` when implementing or overriding already-documented members.
 - Prefer grouped docs for related fields over repetitive per-variable docstrings.
+- Exception: for Player API intrinsics under `src/runtime/miniscript`, apply extended XML docstrings to `Inject*Module` and `Register*Intrinsic` methods.
+- The extended XML docstring format is defined only in `plans/03_game_api_modules.md` (SSOT). Do not duplicate that format in this file; See `DOCS_INDEX.md` → 03.
 
 ### C# Source Layout Policy
 - Put all C# game-logic code under `src/`.

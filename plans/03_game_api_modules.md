@@ -152,6 +152,21 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 추후 확장되는 API group(예: `http/web/db/crypto/proc` 등)도 **별도 제외 선언이 없으면** 동일하게 shared 100k 제한에 포함한다.
 - 제외 API group 목록은 향후 늘어날 수 있으나, 본 문서(v0.2) 기준 공식 제외 목록은 `term`, `time`만으로 본다.
 
+### 0.12 API 문서 파생/생성 규약
+- 본 문서(`03_game_api_modules.md`)는 intrinsic API 규약의 SSOT다. ResultMap 규약, 에러 코드, 시그니처/인자/반환/부작용 정의는 이 문서에서만 정의한다.
+- DocFX 기반 API 설명서와 코드 XML docstring은 본 문서를 기반으로 생성/유지되는 **파생 문서**다. 파생 문서에서 새로운 규약을 정의하지 않는다.
+- 문서 생성 흐름은 다음 순서를 고정한다.
+  - `plans/03` 규약 변경
+  - 코드 반영
+  - XML docstring 반영
+  - DocFX 산출물 생성
+- 파생 문서에서 규약 변경 필요가 발견되면 먼저 본 문서를 수정한 뒤 파생 문서를 재생성한다(역정의 금지).
+- API intrinsic XML docstring 작성 원칙:
+  - `summary`: 함수 목적 1줄
+  - `remarks`: MiniScript signature, ResultMap 핵심 키(`ok/code/err/cost/trace`), 주요 전제/부작용
+  - `<see href="...">` 링크는 1개만 사용
+- 링크 규칙은 `/docfx_api_document/api/<module>.md#<anchor>`를 표준으로 사용한다.
+
 ---
 
 ## 1) term (터미널 출력/로컬 명령 실행)

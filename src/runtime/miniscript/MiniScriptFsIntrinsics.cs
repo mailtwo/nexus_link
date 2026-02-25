@@ -16,6 +16,15 @@ internal static partial class MiniScriptSshIntrinsics
     private const string FsDeleteIntrinsicName = "uplink_fs_delete";
     private const string FsStatIntrinsicName = "uplink_fs_stat";
 
+    /// <summary>인터프리터에 fs 모듈 전역 API를 주입합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>fs.list([sessionOrRoute], path)</c>, <c>fs.read([sessionOrRoute], path, opts?)</c>, <c>fs.write([sessionOrRoute], path, text, opts?)</c>, <c>fs.delete([sessionOrRoute], path)</c>, <c>fs.stat([sessionOrRoute], path)</c>.
+    /// 각 API는 공통 ResultMap(<c>ok/code/err/cost/trace</c>) 규약을 따르며 payload는 함수별 최상위 필드로 반환됩니다.
+    /// session/route 입력 시 endpoint는 항상 <c>route.lastSession</c> 또는 지정 session 기준으로 해석됩니다.
+    /// See: <see href="/docfx_api_document/api/fs.md#module-fs">Manual</see>.
+    /// </remarks>
+    /// <param name="interpreter">fs 모듈 전역을 주입할 대상 인터프리터입니다.</param>
+    /// <param name="moduleState">session/route 해석과 실행 컨텍스트를 포함한 모듈 상태입니다.</param>
     private static void InjectFsModule(Interpreter interpreter, SshModuleState moduleState)
     {
         var fsModule = new ValMap
@@ -30,6 +39,13 @@ internal static partial class MiniScriptSshIntrinsics
         interpreter.SetGlobalValue("fs", fsModule);
     }
 
+    /// <summary><c>fs.list</c> intrinsic을 등록합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>r = fs.list([sessionOrRoute], path)</c>.
+    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>entries</c>)를 반환합니다.
+    /// 디렉터리 read 권한을 검사하고 결과는 <c>{ name, entryKind }</c> 목록으로 제공됩니다.
+    /// See: <see href="/docfx_api_document/api/fs.md#fslist">Manual</see>.
+    /// </remarks>
     private static void RegisterFsListIntrinsic()
     {
         if (Intrinsic.GetByName(FsListIntrinsicName) is not null)
@@ -105,6 +121,13 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
+    /// <summary><c>fs.read</c> intrinsic을 등록합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>r = fs.read([sessionOrRoute], path, opts?)</c>.
+    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>text</c>)를 반환합니다.
+    /// 텍스트 파일/최대 바이트 상한 규칙을 검사하며 위반 시 <c>ERR_NOT_TEXT_FILE</c> 또는 <c>ERR_TOO_LARGE</c>를 반환합니다.
+    /// See: <see href="/docfx_api_document/api/fs.md#fsread">Manual</see>.
+    /// </remarks>
     private static void RegisterFsReadIntrinsic()
     {
         if (Intrinsic.GetByName(FsReadIntrinsicName) is not null)
@@ -180,6 +203,13 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
+    /// <summary><c>fs.write</c> intrinsic을 등록합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>r = fs.write([sessionOrRoute], path, text, opts?)</c>.
+    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>written/path</c>)를 반환합니다.
+    /// overwrite/createParents 규칙을 적용하며 성공 시 파일 획득 이벤트(<c>transferMethod="fs.write"</c>)를 발생시킬 수 있습니다.
+    /// See: <see href="/docfx_api_document/api/fs.md#fswrite">Manual</see>.
+    /// </remarks>
     private static void RegisterFsWriteIntrinsic()
     {
         if (Intrinsic.GetByName(FsWriteIntrinsicName) is not null)
@@ -285,6 +315,13 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
+    /// <summary><c>fs.delete</c> intrinsic을 등록합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>r = fs.delete([sessionOrRoute], path)</c>.
+    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>deleted</c>)를 반환합니다.
+    /// 루트 삭제 금지, 비어 있지 않은 디렉터리 삭제 제한, 권한 검사 규칙을 적용합니다.
+    /// See: <see href="/docfx_api_document/api/fs.md#fsdelete">Manual</see>.
+    /// </remarks>
     private static void RegisterFsDeleteIntrinsic()
     {
         if (Intrinsic.GetByName(FsDeleteIntrinsicName) is not null)
@@ -367,6 +404,13 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
+    /// <summary><c>fs.stat</c> intrinsic을 등록합니다.</summary>
+    /// <remarks>
+    /// MiniScript: <c>r = fs.stat([sessionOrRoute], path)</c>.
+    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>entryKind/fileKind/size</c>)를 반환합니다.
+    /// 파일/디렉터리 구분에 따라 메타 필드 노출이 달라지며 read 권한이 필요합니다.
+    /// See: <see href="/docfx_api_document/api/fs.md#fsstat">Manual</see>.
+    /// </remarks>
     private static void RegisterFsStatIntrinsic()
     {
         if (Intrinsic.GetByName(FsStatIntrinsicName) is not null)
