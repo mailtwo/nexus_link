@@ -18,6 +18,10 @@
 
 Players gather clues across a virtual network/servers/filesystem, then **automate and modify tools in MiniScript** to design their own attack routes.
 
+## API Docs
+
+- https://mailtwo.github.io/nexus_link/
+
 ## Game Concept
 
 - **Terminal-first UX**: The game starts from a Linux-style terminal. As the game progresses, the workstation's capabilities gradually expand.
