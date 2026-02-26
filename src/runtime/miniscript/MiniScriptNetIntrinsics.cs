@@ -2,30 +2,52 @@ using Miniscript;
 using System;
 using System.Collections.Generic;
 using Uplink2.Runtime.Syscalls;
+using static Uplink2.Runtime.MiniScript.MiniScriptFsIntrinsics;
+using static Uplink2.Runtime.MiniScript.MiniScriptSshIntrinsics;
 
 #nullable enable
 
 namespace Uplink2.Runtime.MiniScript;
 
-internal static partial class MiniScriptSshIntrinsics
+internal static class MiniScriptNetIntrinsics
 {
     private const string NetInterfacesIntrinsicName = "uplink_net_interfaces";
     private const string NetScanIntrinsicName = "uplink_net_scan";
     private const string NetPortsIntrinsicName = "uplink_net_ports";
     private const string NetBannerIntrinsicName = "uplink_net_banner";
     private const string InternetNetId = "internet";
+    private static readonly object registrationSync = new();
+    private static bool isRegistered;
+
+    internal static void EnsureRegistered()
+    {
+        lock (registrationSync)
+        {
+            if (isRegistered)
+            {
+                return;
+            }
+
+            NetInterfaces();
+            NetScan();
+            NetPorts();
+            NetBanner();
+            isRegistered = true;
+        }
+    }
 
     /// <summary>인터프리터에 net 모듈 전역 API를 주입합니다.</summary>
     /// <remarks>
     /// MiniScript: <c>net.interfaces([sessionOrRoute])</c>, <c>net.scan([sessionOrRoute], netId=null)</c>, <c>net.ports([sessionOrRoute], hostOrIp, opts?)</c>, <c>net.banner([sessionOrRoute], hostOrIp, port)</c>.
     /// 각 API는 공통 ResultMap(<c>ok/code/err/cost/trace</c>) 규약을 따르며 네트워크 노출(exposure) 규칙을 endpoint 컨텍스트 기준으로 평가합니다.
     /// net 모듈 API는 대상 endpoint 사용자 execute/read 권한 조건을 함수별로 검사합니다.
-    /// See: <see href="/docfx_api_document/api/net.md#module-net">Manual</see>.
+    /// See: <see href="/api/net.html#module-net">Manual</see>.
     /// </remarks>
     /// <param name="interpreter">net 모듈 전역을 주입할 대상 인터프리터입니다.</param>
     /// <param name="moduleState">session/route 해석과 실행 컨텍스트를 포함한 모듈 상태입니다.</param>
-    private static void InjectNetModule(Interpreter interpreter, SshModuleState moduleState)
+    internal static void InjectNetModule(Interpreter interpreter, MiniScriptSshIntrinsics.SshModuleState moduleState)
     {
+        EnsureRegistered();
         var netModule = new ValMap
         {
             userData = moduleState,
@@ -37,14 +59,27 @@ internal static partial class MiniScriptSshIntrinsics
         interpreter.SetGlobalValue("net", netModule);
     }
 
-    /// <summary><c>net.interfaces</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>net.interfaces</c>는 기준 endpoint의 네트워크 인터페이스 목록(<c>netId/localIp</c>)을 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = net.interfaces([sessionOrRoute])</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>interfaces</c>)를 반환합니다.
-    /// endpoint execute 권한을 검사한 뒤 <c>{ netId, localIp }</c> 목록을 제공합니다.
-    /// See: <see href="/docfx_api_document/api/net.md#netinterfaces">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = net.interfaces([sessionOrRoute])</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>sessionOrRoute</c>(선택): <c>sshSession</c> 또는 <c>sshRoute</c>를 주면 해당 endpoint 기준으로 조회합니다. 생략하면 현재 실행 컨텍스트 endpoint를 사용합니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null, interfaces:[{ netId, localIp }, ...] }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_*", err:string }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description>대상 endpoint 사용자의 <c>execute</c> 권한이 필요합니다.</description></item>
+    /// <item><description><c>sessionOrRoute</c> 인자가 맵이지만 세션/라우트 형태가 아니면 <c>ERR_INVALID_ARGS</c>를 반환합니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/net.html#netinterfaces">Manual</see>.</para>
     /// </remarks>
-    private static void RegisterNetInterfacesIntrinsic()
+    private static void NetInterfaces()
     {
         if (Intrinsic.GetByName(NetInterfacesIntrinsicName) is not null)
         {
@@ -92,14 +127,29 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
-    /// <summary><c>net.scan</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>net.scan</c>은 네트워크 이웃과 탐지된 IP를 스캔해 인터페이스별 가시성 정보를 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = net.scan([sessionOrRoute], netId=null)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>interfaces/ips</c>)를 반환합니다.
-    /// endpoint execute 권한을 검사하며 인터페이스별 neighbor와 전체 IP 합집합을 함께 제공합니다.
-    /// See: <see href="/docfx_api_document/api/net.md#netscan">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = net.scan([sessionOrRoute], netId=null)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>sessionOrRoute</c>(선택): <c>sshSession</c> 또는 <c>sshRoute</c> endpoint를 스캔 기준으로 사용합니다.</description></item>
+    /// <item><description><c>netId</c>(선택): 생략/null이면 모든 스캔 가능한 인터페이스를 대상으로 하며, 문자열이면 해당 netId만 스캔합니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null, interfaces:[{ netId, localIp, neighbors }, ...], ips:[...] }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_*", err:string }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>net.scan("lan")</c> 형태는 지원하지 않으며 <c>ERR_INVALID_ARGS</c>를 반환합니다.</description></item>
+    /// <item><description>스캔 대상은 <c>internet</c>이 아닌 인터페이스 중 <c>localIp</c>가 있는 항목만 포함됩니다.</description></item>
+    /// <item><description>대상 endpoint 사용자의 <c>execute</c> 권한이 필요합니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/net.html#netscan">Manual</see>.</para>
     /// </remarks>
-    private static void RegisterNetScanIntrinsic()
+    private static void NetScan()
     {
         if (Intrinsic.GetByName(NetScanIntrinsicName) is not null)
         {
@@ -169,14 +219,30 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
-    /// <summary><c>net.ports</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>net.ports</c>는 대상 호스트에서 노출 규칙을 통과한 서비스 포트 목록을 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = net.ports([sessionOrRoute], hostOrIp, opts?)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>ports</c>)를 반환합니다.
-    /// 대상 서버의 서비스 포트 중 노출 규칙을 통과한 항목만 <c>{ port, portType, exposure }</c>으로 제공합니다.
-    /// See: <see href="/docfx_api_document/api/net.md#netports">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = net.ports([sessionOrRoute], hostOrIp, opts?)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>sessionOrRoute</c>(선택): source endpoint를 지정하는 <c>sshSession</c> 또는 <c>sshRoute</c>입니다.</description></item>
+    /// <item><description><c>hostOrIp</c>: 조회 대상 호스트/IP입니다.</description></item>
+    /// <item><description><c>opts</c>(선택): 현재 구현에서는 키를 지원하지 않습니다(빈 맵 또는 생략만 허용).</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null, ports:[{ port, portType, exposure }, ...] }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_*", err:string }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description>노출 규칙(exposure)을 통과하지 못한 포트는 에러로 실패시키지 않고 결과 목록에서 제외합니다.</description></item>
+    /// <item><description>서비스가 없는 포트(<c>portType == none</c>)도 결과에서 제외합니다.</description></item>
+    /// <item><description><c>opts</c>에 어떤 키라도 포함되면 <c>ERR_INVALID_ARGS</c>를 반환합니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/net.html#netports">Manual</see>.</para>
     /// </remarks>
-    private static void RegisterNetPortsIntrinsic()
+    private static void NetPorts()
     {
         if (Intrinsic.GetByName(NetPortsIntrinsicName) is not null)
         {
@@ -250,14 +316,30 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
-    /// <summary><c>net.banner</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>net.banner</c>는 대상 포트의 서비스 배너를 조회해 식별 가능한 응답 정보를 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = net.banner([sessionOrRoute], hostOrIp, port)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>banner</c>)를 반환합니다.
-    /// 포트 존재/노출 규칙을 검사하며 비할당 포트는 <c>ERR_PORT_CLOSED</c>를 반환합니다.
-    /// See: <see href="/docfx_api_document/api/net.md#netbanner">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = net.banner([sessionOrRoute], hostOrIp, port)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>sessionOrRoute</c>(선택): source endpoint를 지정하는 <c>sshSession</c> 또는 <c>sshRoute</c>입니다.</description></item>
+    /// <item><description><c>hostOrIp</c>: 조회 대상 호스트/IP입니다.</description></item>
+    /// <item><description><c>port</c>: 조회할 포트 번호입니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null, banner:string }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_*", err:string }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description>포트가 없거나 <c>portType == none</c>이면 <c>ERR_PORT_CLOSED</c>를 반환합니다.</description></item>
+    /// <item><description>노출 규칙(exposure) 위반 시 <c>ERR_NET_DENIED</c>를 반환합니다.</description></item>
+    /// <item><description><c>banner</c> 값은 현재 구현에서 포트 설정의 <c>ServiceId</c>를 trim한 문자열을 사용합니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/net.html#netbanner">Manual</see>.</para>
     /// </remarks>
-    private static void RegisterNetBannerIntrinsic()
+    private static void NetBanner()
     {
         if (Intrinsic.GetByName(NetBannerIntrinsicName) is not null)
         {
@@ -822,3 +904,4 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 }
+

@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.Text;
 using Uplink2.Runtime.Syscalls;
 using Uplink2.Vfs;
+using static Uplink2.Runtime.MiniScript.MiniScriptFtpIntrinsics;
+using FtpEndpoint = Uplink2.Runtime.MiniScript.MiniScriptFtpIntrinsics.FtpEndpoint;
 
 #nullable enable
 
@@ -17,8 +19,8 @@ internal static partial class MiniScriptSshIntrinsics
     private const string SshExecIntrinsicName = "uplink_ssh_exec";
     private const string SshInspectIntrinsicName = "uplink_ssh_inspect";
     private const string KindKey = "kind";
-    private const string SessionKind = "sshSession";
-    private const string RouteKind = "sshRoute";
+    internal const string SessionKind = "sshSession";
+    internal const string RouteKind = "sshRoute";
     private const string RouteKey = "route";
     private const string RouteVersionKey = "version";
     private const string RouteSessionsKey = "sessions";
@@ -50,21 +52,13 @@ internal static partial class MiniScriptSshIntrinsics
                 return;
             }
 
-            RegisterSshConnectIntrinsic();
-            RegisterSshDisconnectIntrinsic();
-            RegisterSshExecIntrinsic();
-            RegisterSshInspectIntrinsic();
-            RegisterFtpGetIntrinsic();
-            RegisterFtpPutIntrinsic();
-            RegisterFsListIntrinsic();
-            RegisterFsReadIntrinsic();
-            RegisterFsWriteIntrinsic();
-            RegisterFsDeleteIntrinsic();
-            RegisterFsStatIntrinsic();
-            RegisterNetInterfacesIntrinsic();
-            RegisterNetScanIntrinsic();
-            RegisterNetPortsIntrinsic();
-            RegisterNetBannerIntrinsic();
+            SshConnect();
+            SshDisconnect();
+            SshExec();
+            SshInspect();
+            MiniScriptFtpIntrinsics.EnsureRegistered();
+            MiniScriptFsIntrinsics.EnsureRegistered();
+            MiniScriptNetIntrinsics.EnsureRegistered();
             isRegistered = true;
         }
     }
@@ -74,7 +68,7 @@ internal static partial class MiniScriptSshIntrinsics
     /// MiniScript(ssh): <c>ssh.connect(hostOrIp, userId, password, port=22, opts?)</c>, <c>ssh.disconnect(sessionOrRoute)</c>, <c>ssh.exec(sessionOrRoute, cmd, opts?)</c>, <c>ssh.inspect(hostOrIp, userId, port=22, opts?)</c>.
     /// 각 API는 공통 ResultMap(<c>ok/code/err/cost/trace</c>) 규약을 따르며, 본 주입 단계에서 <c>ftp</c>, <c>fs</c>, <c>net</c> 모듈도 함께 연결됩니다.
     /// 실행 모드에 따라 실제 월드 세션 생성 또는 샌드박스 검증 경로를 사용합니다.
-    /// See: <see href="/docfx_api_document/api/ssh.md#module-ssh">Manual</see>.
+    /// See: <see href="/api/ssh.html#module-ssh">Manual</see>.
     /// </remarks>
     /// <param name="interpreter">API 전역을 주입할 대상 인터프리터입니다.</param>
     /// <param name="executionContext">네트워크/시스템 호출 실행에 사용할 현재 실행 컨텍스트입니다.</param>
@@ -106,19 +100,38 @@ internal static partial class MiniScriptSshIntrinsics
         sshModule["exec"] = Intrinsic.GetByName(SshExecIntrinsicName).GetFunc();
         sshModule["inspect"] = Intrinsic.GetByName(SshInspectIntrinsicName).GetFunc();
         interpreter.SetGlobalValue("ssh", sshModule);
-        InjectFtpModule(interpreter, moduleState);
-        InjectFsModule(interpreter, moduleState);
-        InjectNetModule(interpreter, moduleState);
+        MiniScriptFtpIntrinsics.InjectFtpModule(interpreter, moduleState);
+        MiniScriptFsIntrinsics.InjectFsModule(interpreter, moduleState);
+        MiniScriptNetIntrinsics.InjectNetModule(interpreter, moduleState);
     }
 
-    /// <summary><c>ssh.connect</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>ssh.connect</c>는 대상 서버에 SSH 로그인 세션을 만들고 후속 호출에 사용할 세션/라우트 정보를 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = ssh.connect(hostOrIp, userId, password, port=22, opts?)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>session</c>, 체인 연결 시 <c>route</c>)를 반환합니다.
-    /// 노출 규칙/인증/레이트리밋을 검사하며 성공 시 권한 획득 이벤트를 발생시킵니다.
-    /// See: <see href="/docfx_api_document/api/ssh.md#sshconnect">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = ssh.connect(hostOrIp, userId, password, port=22, opts?)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>hostOrIp</c>: 접속 대상 호스트/IP입니다.</description></item>
+    /// <item><description><c>userId</c>: 로그인에 사용할 사용자 ID입니다.</description></item>
+    /// <item><description><c>password</c>: 로그인 비밀번호입니다.</description></item>
+    /// <item><description><c>port</c>: SSH 포트입니다. 기본값은 <c>22</c>입니다.</description></item>
+    /// <item><description><c>opts.session</c>(선택): <c>sshSession</c> 또는 <c>sshRoute</c>를 전달하면 기존 세션 체인 끝에서 다음 hop을 엽니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null, session:sshSession, route:sshRoute|null }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_*", err:string, session:null, route:null }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>ssh.connect(host,user,pw,{session:x})</c>와 <c>ssh.connect(host,user,pw,22,{session:x})</c> 호출을 모두 지원합니다.</description></item>
+    /// <item><description>지원하지 않는 <c>opts</c> 키를 전달하면 <c>ERR_INVALID_ARGS</c>를 반환합니다.</description></item>
+    /// <item><description><c>opts.session</c> 체인 사용 시 최대 hop 수는 <c>8</c>입니다.</description></item>
+    /// <item><description>성공 시 로그인 계정 권한(<c>read/write/execute</c>)에 대한 <c>privilegeAcquire</c> 이벤트를 발생시킵니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/ssh.html#sshconnect">Manual</see>.</para>
     /// </remarks>
-    private static void RegisterSshConnectIntrinsic()
+    private static void SshConnect()
     {
         if (Intrinsic.GetByName(SshConnectIntrinsicName) is not null)
         {
@@ -256,14 +269,28 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
-    /// <summary><c>ssh.disconnect</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>ssh.disconnect</c>는 세션 또는 라우트의 SSH 연결을 정리하고 해제 결과 요약을 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = ssh.disconnect(sessionOrRoute)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>disconnected</c>, <c>summary</c>)를 반환합니다.
-    /// route 입력 시 hop을 역순 dedupe 처리하는 best-effort 해제 정책을 따릅니다.
-    /// See: <see href="/docfx_api_document/api/ssh.md#sshdisconnect">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = ssh.disconnect(sessionOrRoute)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>sessionOrRoute</c>: 종료할 <c>sshSession</c> 또는 <c>sshRoute</c>입니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null, disconnected:0|1, summary:{ requested, closed, alreadyClosed, invalid } }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_*", err:string, disconnected:0, summary:{ requested:0, closed:0, alreadyClosed:0, invalid:0 } }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>sshRoute</c> 입력 시 세션 목록을 끝 hop부터 역순으로 처리합니다.</description></item>
+    /// <item><description>동일 세션(<c>sessionNodeId:sessionId</c>)은 dedupe 후 1회만 종료 시도합니다.</description></item>
+    /// <item><description>route 구조가 유효하면 일부 hop 종료 실패가 있어도 best-effort로 <c>ok=1</c>과 <c>summary</c>를 반환합니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/ssh.html#sshdisconnect">Manual</see>.</para>
     /// </remarks>
-    private static void RegisterSshDisconnectIntrinsic()
+    private static void SshDisconnect()
     {
         if (Intrinsic.GetByName(SshDisconnectIntrinsicName) is not null)
         {
@@ -367,14 +394,33 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
-    /// <summary><c>ssh.exec</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>ssh.exec</c>는 세션/라우트를 통해 원격 명령을 실행하고 출력 및 종료 정보를 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = ssh.exec(sessionOrRoute, cmd, opts?)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>stdout/exitCode/jobId</c>)를 반환합니다.
-    /// <c>opts.async=true</c>일 때는 원격 명령 완료가 아니라 비동기 스케줄 결과를 보고합니다.
-    /// See: <see href="/docfx_api_document/api/ssh.md#sshexec">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = ssh.exec(sessionOrRoute, cmd, opts?)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>sessionOrRoute</c>: 실행 대상 컨텍스트를 지정하는 <c>sshSession</c> 또는 <c>sshRoute</c>입니다. route는 <c>lastSession</c>에서 실행됩니다.</description></item>
+    /// <item><description><c>cmd</c>: 실행할 단일 커맨드 라인입니다.</description></item>
+    /// <item><description><c>opts.maxBytes</c>(선택): 동기 실행 stdout의 UTF-8 바이트 상한입니다.</description></item>
+    /// <item><description><c>opts.async</c>(선택): <c>0</c> 또는 <c>1</c>만 허용합니다. <c>1</c>이면 비동기 작업 스케줄만 수행합니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>동기 성공: <c>{ ok:1, code:"OK", err:null, stdout:string, exitCode:0, jobId:null }</c></description></item>
+    /// <item><description>동기 실패: <c>{ ok:0, code:"ERR_*", err:string, stdout:string, exitCode:1, jobId:null }</c></description></item>
+    /// <item><description>비동기 스케줄 성공: <c>{ ok:1, code:"OK", err:null, stdout:null, exitCode:null, jobId:string }</c></description></item>
+    /// <item><description>비동기 스케줄 실패: <c>{ ok:0, code:"ERR_*", err:string, stdout:null, exitCode:null, jobId:null }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description>지원 키는 <c>maxBytes</c>, <c>async</c>뿐이며 그 외 <c>opts</c> 키는 <c>ERR_INVALID_ARGS</c>입니다.</description></item>
+    /// <item><description><c>opts.async=1</c>인 경우 반환 <c>ok/code</c>는 명령 완료가 아니라 스케줄 성공/실패를 의미합니다.</description></item>
+    /// <item><description><c>opts.async=1</c>일 때 <c>maxBytes</c>는 입력은 허용되지만 적용되지 않습니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/ssh.html#sshexec">Manual</see>.</para>
     /// </remarks>
-    private static void RegisterSshExecIntrinsic()
+    private static void SshExec()
     {
         if (Intrinsic.GetByName(SshExecIntrinsicName) is not null)
         {
@@ -484,14 +530,31 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
-    /// <summary><c>ssh.inspect</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>ssh.inspect</c>는 대상 계정의 점검 정보를 조회해 배너와 인증 관련 진단 결과를 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = ssh.inspect(hostOrIp, userId, port=22, opts?)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>hostOrIp/port/userId/banner/passwdInfo</c>)를 반환합니다.
-    /// 실행 전 <c>inspect</c> 공식 프로그램 preflight를 검사하며 실패 시 도구/권한 오류를 반환합니다.
-    /// See: <see href="/docfx_api_document/api/ssh.md#sshinspect">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = ssh.inspect(hostOrIp, userId, port=22, opts?)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>hostOrIp</c>: 점검 대상 호스트/IP입니다.</description></item>
+    /// <item><description><c>userId</c>: 점검 대상 계정 ID입니다.</description></item>
+    /// <item><description><c>port</c>: SSH 포트입니다. 기본값은 <c>22</c>입니다.</description></item>
+    /// <item><description><c>opts</c>(선택): 현재 구현에서는 키를 지원하지 않으며, 키 전달 시 <c>ERR_INVALID_ARGS</c>를 반환합니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null, hostOrIp:string, port:int, userId:string, passwdInfo:map, banner:string|null }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_*", err:string }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description>실행 전 preflight로 <c>inspect</c> 도구를 확인합니다: <c>{cwd}/inspect</c> 또는 <c>/opt/bin/inspect</c>.</description></item>
+    /// <item><description>도구는 직접 실행 가능 파일이며 <c>ExecutableHardcode</c> payload가 <c>exec:inspect</c>여야 합니다.</description></item>
+    /// <item><description>호출 사용자에게 <c>read</c>와 <c>execute</c> 권한이 모두 필요합니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/ssh.html#sshinspect">Manual</see>.</para>
     /// </remarks>
-    private static void RegisterSshInspectIntrinsic()
+    private static void SshInspect()
     {
         if (Intrinsic.GetByName(SshInspectIntrinsicName) is not null)
         {
@@ -550,7 +613,7 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
-    private static bool TryGetExecutionState(TAC.Context context, out SshModuleState state)
+    internal static bool TryGetExecutionState(TAC.Context context, out SshModuleState state)
     {
         state = null!;
         if (context.self is not ValMap selfMap ||
@@ -961,7 +1024,7 @@ internal static partial class MiniScriptSshIntrinsics
         }
     }
 
-    private static bool TryReadPort(Value rawPort, out int port, out string error)
+    internal static bool TryReadPort(Value rawPort, out int port, out string error)
     {
         port = 22;
         error = string.Empty;
@@ -1131,7 +1194,7 @@ internal static partial class MiniScriptSshIntrinsics
         return true;
     }
 
-    private static bool TryResolveCanonicalSessionMap(
+    internal static bool TryResolveCanonicalSessionMap(
         SshModuleState state,
         SystemCallExecutionContext executionContext,
         ValMap inputSessionMap,
@@ -1322,7 +1385,7 @@ internal static partial class MiniScriptSshIntrinsics
         return true;
     }
 
-    private static bool TryReadRouteSessionMaps(
+    internal static bool TryReadRouteSessionMaps(
         ValMap routeMap,
         out List<ValMap> sessionMaps,
         out string error)
@@ -1619,7 +1682,7 @@ internal static partial class MiniScriptSshIntrinsics
         return true;
     }
 
-    private static bool TryReadKind(
+    internal static bool TryReadKind(
         ValMap map,
         out string kind,
         out string error,
@@ -1644,7 +1707,7 @@ internal static partial class MiniScriptSshIntrinsics
         return true;
     }
 
-    private static bool TryReadSessionIdentity(
+    internal static bool TryReadSessionIdentity(
         ValMap sessionMap,
         out string sessionNodeId,
         out int sessionId,
@@ -1745,7 +1808,7 @@ internal static partial class MiniScriptSshIntrinsics
         return true;
     }
 
-    private static bool TryReadSessionIdentity(
+    internal static bool TryReadSessionIdentity(
         ValMap sessionMap,
         out string sessionNodeId,
         out int sessionId,
@@ -2062,7 +2125,7 @@ internal static partial class MiniScriptSshIntrinsics
         return string.Join("\n", result.Lines);
     }
 
-    private static string ExtractErrorText(SystemCallResult result)
+    internal static string ExtractErrorText(SystemCallResult result)
     {
         if (result.Lines.Count == 0)
         {
@@ -2079,12 +2142,12 @@ internal static partial class MiniScriptSshIntrinsics
         return first.Trim();
     }
 
-    private readonly record struct SessionSourceMetadata(
+    internal readonly record struct SessionSourceMetadata(
         string SourceNodeId,
         string SourceUserId,
         string SourceCwd);
 
-    private sealed class SshModuleState
+    internal sealed class SshModuleState
     {
         private readonly Dictionary<int, SandboxSessionSnapshot> sandboxSessionsById = new();
         private int nextSandboxSessionId = 1;
@@ -2157,7 +2220,7 @@ internal static partial class MiniScriptSshIntrinsics
         }
     }
 
-    private readonly record struct SandboxSessionSnapshot(
+    internal readonly record struct SandboxSessionSnapshot(
         string SessionNodeId,
         int SessionId,
         string UserKey,
@@ -2169,4 +2232,5 @@ internal static partial class MiniScriptSshIntrinsics
         string SourceUserId,
         string SourceCwd);
 }
+
 

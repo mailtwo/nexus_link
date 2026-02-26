@@ -1,32 +1,56 @@
-using Miniscript;
+﻿using Miniscript;
 using System;
 using System.Collections.Generic;
 using Uplink2.Runtime.Syscalls;
 using Uplink2.Vfs;
+using static Uplink2.Runtime.MiniScript.MiniScriptFtpIntrinsics;
+using static Uplink2.Runtime.MiniScript.MiniScriptSshIntrinsics;
+using FtpEndpoint = Uplink2.Runtime.MiniScript.MiniScriptFtpIntrinsics.FtpEndpoint;
 
 #nullable enable
 
 namespace Uplink2.Runtime.MiniScript;
 
-internal static partial class MiniScriptSshIntrinsics
+internal static class MiniScriptFsIntrinsics
 {
     private const string FsListIntrinsicName = "uplink_fs_list";
     private const string FsReadIntrinsicName = "uplink_fs_read";
     private const string FsWriteIntrinsicName = "uplink_fs_write";
     private const string FsDeleteIntrinsicName = "uplink_fs_delete";
     private const string FsStatIntrinsicName = "uplink_fs_stat";
+    private const string RouteLastSessionKey = "lastSession";
 
-    /// <summary>인터프리터에 fs 모듈 전역 API를 주입합니다.</summary>
+    private static readonly object registrationSync = new();
+    private static bool isRegistered;
+
+    internal static void EnsureRegistered()
+    {
+        lock (registrationSync)
+        {
+            if (isRegistered)
+            {
+                return;
+            }
+
+            RegisterFsListIntrinsic();
+            RegisterFsReadIntrinsic();
+            RegisterFsWriteIntrinsic();
+            RegisterFsDeleteIntrinsic();
+            RegisterFsStatIntrinsic();
+            isRegistered = true;
+        }
+    }
+
+    /// <summary>Injects the global <c>fs</c> module into a MiniScript interpreter.</summary>
     /// <remarks>
     /// MiniScript: <c>fs.list([sessionOrRoute], path)</c>, <c>fs.read([sessionOrRoute], path, opts?)</c>, <c>fs.write([sessionOrRoute], path, text, opts?)</c>, <c>fs.delete([sessionOrRoute], path)</c>, <c>fs.stat([sessionOrRoute], path)</c>.
-    /// 각 API는 공통 ResultMap(<c>ok/code/err/cost/trace</c>) 규약을 따르며 payload는 함수별 최상위 필드로 반환됩니다.
-    /// session/route 입력 시 endpoint는 항상 <c>route.lastSession</c> 또는 지정 session 기준으로 해석됩니다.
-    /// See: <see href="/docfx_api_document/api/fs.md#module-fs">Manual</see>.
+    /// See: <see href="/api/fs.html#module-fs">Manual</see>.
     /// </remarks>
-    /// <param name="interpreter">fs 모듈 전역을 주입할 대상 인터프리터입니다.</param>
-    /// <param name="moduleState">session/route 해석과 실행 컨텍스트를 포함한 모듈 상태입니다.</param>
-    private static void InjectFsModule(Interpreter interpreter, SshModuleState moduleState)
+    /// <param name="interpreter">Target interpreter that receives the global <c>fs</c> module.</param>
+    /// <param name="moduleState">Module state that carries execution context/session resolution state.</param>
+    internal static void InjectFsModule(Interpreter interpreter, MiniScriptSshIntrinsics.SshModuleState moduleState)
     {
+        EnsureRegistered();
         var fsModule = new ValMap
         {
             userData = moduleState,
@@ -39,12 +63,27 @@ internal static partial class MiniScriptSshIntrinsics
         interpreter.SetGlobalValue("fs", fsModule);
     }
 
-    /// <summary><c>fs.list</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>fs.list</c>는 경로의 디렉터리 엔트리 목록을 조회합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = fs.list([sessionOrRoute], path)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>entries</c>)를 반환합니다.
-    /// 디렉터리 read 권한을 검사하고 결과는 <c>{ name, entryKind }</c> 목록으로 제공됩니다.
-    /// See: <see href="/docfx_api_document/api/fs.md#fslist">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = fs.list([sessionOrRoute], path)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>sessionOrRoute</c>(선택): <c>sshSession</c> 또는 <c>sshRoute</c>를 전달하면 해당 endpoint 기준으로 수행합니다. 생략 시 현재 실행 컨텍스트 endpoint를 사용합니다.</description></item>
+    /// <item><description><c>path</c>: 조회할 디렉터리 경로입니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null, entries:[{ name, entryKind }, ...] }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_*", err:string }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>entries</c>의 <c>entryKind</c>는 <c>File</c> 또는 <c>Dir</c>입니다.</description></item>
+    /// <item><description>read 권한이 필요하며, 디렉터리가 아니면 <c>ERR_NOT_DIRECTORY</c>를 반환합니다.</description></item>
+    /// <item><description>실패 코드는 구현에 따라 <c>ERR_NOT_FOUND</c>, <c>ERR_NOT_DIRECTORY</c>, <c>ERR_PERMISSION_DENIED</c>, <c>ERR_INVALID_ARGS</c>를 사용할 수 있습니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/fs.html#fslist">Manual</see>.</para>
     /// </remarks>
     private static void RegisterFsListIntrinsic()
     {
@@ -121,12 +160,29 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
-    /// <summary><c>fs.read</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>fs.read</c>는 텍스트 파일 내용을 읽어 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = fs.read([sessionOrRoute], path, opts?)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>text</c>)를 반환합니다.
-    /// 텍스트 파일/최대 바이트 상한 규칙을 검사하며 위반 시 <c>ERR_NOT_TEXT_FILE</c> 또는 <c>ERR_TOO_LARGE</c>를 반환합니다.
-    /// See: <see href="/docfx_api_document/api/fs.md#fsread">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = fs.read([sessionOrRoute], path, opts?)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>sessionOrRoute</c>(선택): <c>sshSession</c> 또는 <c>sshRoute</c> endpoint를 기준으로 읽기 작업을 수행합니다. 생략 시 현재 실행 컨텍스트 endpoint를 사용합니다.</description></item>
+    /// <item><description><c>path</c>: 읽을 파일 경로입니다.</description></item>
+    /// <item><description><c>opts.maxBytes</c>(선택): UTF-8 기준 최대 바이트 상한입니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null, text:string }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_*", err:string }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>opts</c>는 현재 <c>maxBytes</c> 키만 지원하며, 다른 키는 <c>ERR_INVALID_ARGS</c>입니다.</description></item>
+    /// <item><description><c>fileKind == Text</c> 파일만 읽을 수 있으며, 텍스트가 아니면 <c>ERR_NOT_TEXT_FILE</c>를 반환합니다.</description></item>
+    /// <item><description><c>maxBytes</c>를 초과하면 <c>ERR_TOO_LARGE</c>로 실패합니다.</description></item>
+    /// <item><description>실패 코드는 구현에 따라 <c>ERR_NOT_FOUND</c>, <c>ERR_IS_DIRECTORY</c>, <c>ERR_PERMISSION_DENIED</c>, <c>ERR_INVALID_ARGS</c> 등을 사용할 수 있습니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/fs.html#fsread">Manual</see>.</para>
     /// </remarks>
     private static void RegisterFsReadIntrinsic()
     {
@@ -203,12 +259,31 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
-    /// <summary><c>fs.write</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>fs.write</c>는 텍스트 파일을 생성/갱신하고 기록 결과를 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = fs.write([sessionOrRoute], path, text, opts?)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>written/path</c>)를 반환합니다.
-    /// overwrite/createParents 규칙을 적용하며 성공 시 파일 획득 이벤트(<c>transferMethod="fs.write"</c>)를 발생시킬 수 있습니다.
-    /// See: <see href="/docfx_api_document/api/fs.md#fswrite">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = fs.write([sessionOrRoute], path, text, opts?)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>sessionOrRoute</c>(선택): <c>sshSession</c> 또는 <c>sshRoute</c> endpoint를 기준으로 쓰기 작업을 수행합니다. 생략 시 현재 실행 컨텍스트 endpoint를 사용합니다.</description></item>
+    /// <item><description><c>path</c>: 쓸 대상 파일 경로입니다.</description></item>
+    /// <item><description><c>text</c>: 저장할 텍스트 본문입니다.</description></item>
+    /// <item><description><c>opts.overwrite</c>(선택): 기존 파일이 있을 때 덮어쓰기 허용 여부입니다.</description></item>
+    /// <item><description><c>opts.createParents</c>(선택): 부모 디렉터리 자동 생성 여부입니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null, written:int, path:string }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_*", err:string }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>opts</c>는 현재 <c>overwrite</c>, <c>createParents</c>만 지원합니다.</description></item>
+    /// <item><description>대상이 디렉터리면 <c>ERR_IS_DIRECTORY</c>, 기존 파일이 있고 <c>overwrite=false</c>면 <c>ERR_ALREADY_EXISTS</c>를 반환합니다.</description></item>
+    /// <item><description>성공 시 실행 모드에 따라 <c>fileAcquire</c> 이벤트를 <c>transferMethod="fs.write"</c>로 발행할 수 있습니다.</description></item>
+    /// <item><description>실패 코드는 구현에 따라 <c>ERR_NOT_FOUND</c>, <c>ERR_NOT_DIRECTORY</c>, <c>ERR_PERMISSION_DENIED</c>, <c>ERR_INVALID_ARGS</c> 등을 사용할 수 있습니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/fs.html#fswrite">Manual</see>.</para>
     /// </remarks>
     private static void RegisterFsWriteIntrinsic()
     {
@@ -315,12 +390,27 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
-    /// <summary><c>fs.delete</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>fs.delete</c>는 파일 또는 빈 디렉터리를 삭제합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = fs.delete([sessionOrRoute], path)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>deleted</c>)를 반환합니다.
-    /// 루트 삭제 금지, 비어 있지 않은 디렉터리 삭제 제한, 권한 검사 규칙을 적용합니다.
-    /// See: <see href="/docfx_api_document/api/fs.md#fsdelete">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = fs.delete([sessionOrRoute], path)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>sessionOrRoute</c>(선택): <c>sshSession</c> 또는 <c>sshRoute</c> endpoint를 기준으로 삭제를 수행합니다. 생략 시 현재 실행 컨텍스트 endpoint를 사용합니다.</description></item>
+    /// <item><description><c>path</c>: 삭제할 대상 경로입니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null, deleted:1 }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_*", err:string }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description>루트 경로 <c>/</c>는 삭제할 수 없으며 <c>ERR_INVALID_ARGS</c>를 반환합니다.</description></item>
+    /// <item><description>비어 있지 않은 디렉터리는 삭제되지 않으며 현재 구현에서 <c>ERR_NOT_DIRECTORY</c>를 반환합니다.</description></item>
+    /// <item><description>write 권한이 필요합니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/fs.html#fsdelete">Manual</see>.</para>
     /// </remarks>
     private static void RegisterFsDeleteIntrinsic()
     {
@@ -404,12 +494,27 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
-    /// <summary><c>fs.stat</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>fs.stat</c>는 경로의 엔트리 메타데이터를 조회합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = fs.stat([sessionOrRoute], path)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>entryKind/fileKind/size</c>)를 반환합니다.
-    /// 파일/디렉터리 구분에 따라 메타 필드 노출이 달라지며 read 권한이 필요합니다.
-    /// See: <see href="/docfx_api_document/api/fs.md#fsstat">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = fs.stat([sessionOrRoute], path)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>sessionOrRoute</c>(선택): <c>sshSession</c> 또는 <c>sshRoute</c> endpoint를 기준으로 메타를 조회합니다. 생략 시 현재 실행 컨텍스트 endpoint를 사용합니다.</description></item>
+    /// <item><description><c>path</c>: 메타를 조회할 경로입니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>파일 성공: <c>{ ok:1, code:"OK", err:null, entryKind:"File", fileKind:string, size:number }</c></description></item>
+    /// <item><description>디렉터리 성공: <c>{ ok:1, code:"OK", err:null, entryKind:"Dir", fileKind:null, size:null }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_*", err:string }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description>디렉터리 엔트리에서는 <c>fileKind</c>, <c>size</c>가 <c>null</c>입니다.</description></item>
+    /// <item><description>read 권한이 필요하며 실패 코드는 구현에 따라 <c>ERR_NOT_FOUND</c>, <c>ERR_PERMISSION_DENIED</c>, <c>ERR_INVALID_ARGS</c> 등을 사용할 수 있습니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/fs.html#fsstat">Manual</see>.</para>
     /// </remarks>
     private static void RegisterFsStatIntrinsic()
     {
@@ -684,7 +789,7 @@ internal static partial class MiniScriptSshIntrinsics
         return TryParseFsWriteOpts(optsMap, out overwrite, out createParents, out error);
     }
 
-    private static bool TryParseFsSessionOrRouteArgument(
+    internal static bool TryParseFsSessionOrRouteArgument(
         Value rawArg,
         out ValMap? sessionOrRouteMap,
         out bool hasSessionOrRoute,
@@ -887,8 +992,8 @@ internal static partial class MiniScriptSshIntrinsics
         return true;
     }
 
-    private static bool TryResolveFsEndpoint(
-        SshModuleState state,
+    internal static bool TryResolveFsEndpoint(
+        MiniScriptSshIntrinsics.SshModuleState state,
         SystemCallExecutionContext executionContext,
         ValMap? sessionOrRouteMap,
         out FtpEndpoint endpoint,
@@ -1036,3 +1141,4 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 }
+

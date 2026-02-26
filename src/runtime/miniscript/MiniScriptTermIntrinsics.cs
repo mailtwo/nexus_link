@@ -28,10 +28,10 @@ internal static class MiniScriptTermIntrinsics
                 return;
             }
 
-            RegisterTermExecIntrinsic();
-            RegisterTermPrintIntrinsic();
-            RegisterTermWarnIntrinsic();
-            RegisterTermErrorIntrinsic();
+            TermExec();
+            TermPrint();
+            TermWarn();
+            TermError();
             isRegistered = true;
         }
     }
@@ -41,7 +41,7 @@ internal static class MiniScriptTermIntrinsics
     /// MiniScript: <c>term.exec(cmd, opts?)</c>, <c>term.print(text)</c>, <c>term.warn(text)</c>, <c>term.error(text)</c>.
     /// 각 API는 공통 ResultMap(<c>ok/code/err/cost/trace</c>) 규약을 따르며, <c>term.exec</c>는 payload(<c>stdout/exitCode/jobId</c>)를 추가합니다.
     /// <c>term.exec</c>는 실행 컨텍스트가 필요하며 비동기 스케줄/세션 정리 부작용이 있습니다.
-    /// See: <see href="/docfx_api_document/api/term.md#module-term">Manual</see>.
+    /// See: <see href="/api/term.html#module-term">Manual</see>.
     /// </remarks>
     /// <param name="interpreter">term 모듈 전역을 주입할 대상 인터프리터입니다.</param>
     /// <param name="executionContext"><c>term.exec</c>에서 시스템 호출을 수행할 실행 컨텍스트입니다.</param>
@@ -71,14 +71,32 @@ internal static class MiniScriptTermIntrinsics
         interpreter.SetGlobalValue("term", termModule);
     }
 
-    /// <summary><c>term.exec</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>term.exec</c>는 현재 실행 컨텍스트에서 명령을 실행하고 출력/종료코드(또는 async 작업 정보)를 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = term.exec(cmd, opts?)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>stdout/exitCode/jobId</c>)를 함께 반환합니다.
-    /// <c>opts.async=true</c>일 때는 명령 완료가 아니라 비동기 작업 스케줄 성공/실패를 보고합니다.
-    /// See: <see href="/docfx_api_document/api/term.md#termexec">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = term.exec(cmd, opts?)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>cmd</c>: 실행할 커맨드 라인 문자열입니다.</description></item>
+    /// <item><description><c>opts.maxBytes</c>(선택): 동기 실행 stdout의 UTF-8 바이트 상한입니다.</description></item>
+    /// <item><description><c>opts.async</c>(선택): <c>0</c> 또는 <c>1</c>만 허용하며, <c>1</c>이면 비동기 스케줄 모드로 동작합니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>동기 성공: <c>{ ok:1, code:"OK", err:null, stdout:string, exitCode:0, jobId:null }</c></description></item>
+    /// <item><description>동기 실패: <c>{ ok:0, code:"ERR_*", err:string, stdout:string, exitCode:1, jobId:null }</c></description></item>
+    /// <item><description>비동기 스케줄 성공: <c>{ ok:1, code:"OK", err:null, stdout:null, exitCode:null, jobId:string }</c></description></item>
+    /// <item><description>비동기 스케줄 실패: <c>{ ok:0, code:"ERR_*", err:string, stdout:null, exitCode:null, jobId:null }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description>지원 키는 <c>maxBytes</c>, <c>async</c>뿐이며 그 외 <c>opts</c> 키는 <c>ERR_INVALID_ARGS</c>입니다.</description></item>
+    /// <item><description><c>opts.async=1</c>인 경우 반환값은 명령 실행 완료가 아니라 작업 스케줄 성공/실패를 나타냅니다.</description></item>
+    /// <item><description><c>opts.async=1</c>일 때 <c>maxBytes</c>는 입력 가능하지만 적용되지 않습니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/term.html#termexec">Manual</see>.</para>
     /// </remarks>
-    private static void RegisterTermExecIntrinsic()
+    private static void TermExec()
     {
         if (Intrinsic.GetByName(TermExecIntrinsicName) is not null)
         {
@@ -174,14 +192,27 @@ internal static class MiniScriptTermIntrinsics
         };
     }
 
-    /// <summary><c>term.print</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>term.print</c>는 텍스트를 표준 출력으로 기록하고 성공 ResultMap을 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = term.print(text)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)를 반환하고 성공 시 payload(<c>printed=1</c>)를 포함합니다.
-    /// 호출 시 표준 출력으로 로그 라인을 기록합니다.
-    /// See: <see href="/docfx_api_document/api/term.md#termprint">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = term.print(text)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>text</c>: 표준 출력으로 기록할 문자열입니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_INVALID_ARGS", err:string }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description>현재 구현은 추가 payload(<c>printed</c> 등)를 반환하지 않습니다.</description></item>
+    /// <item><description>출력은 VM 표준 출력 콜백(또는 인터프리터 표준 출력)으로 기록됩니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/term.html#termprint">Manual</see>.</para>
     /// </remarks>
-    private static void RegisterTermPrintIntrinsic()
+    private static void TermPrint()
     {
         if (Intrinsic.GetByName(TermPrintIntrinsicName) is not null)
         {
@@ -202,14 +233,28 @@ internal static class MiniScriptTermIntrinsics
         };
     }
 
-    /// <summary><c>term.warn</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>term.warn</c>는 경고 텍스트를 stderr로 기록하고 성공 ResultMap을 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = term.warn(text)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)를 반환하고 성공 시 payload(<c>printed=1</c>)를 포함합니다.
-    /// 호출 시 <c>warn:</c> 접두사와 함께 stderr 로그를 기록하며 스크립트 실패를 직접 유발하지 않습니다.
-    /// See: <see href="/docfx_api_document/api/term.md#termwarn">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = term.warn(text)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>text</c>: 경고 메시지 본문 문자열입니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_INVALID_ARGS", err:string }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description>출력 메시지는 <c>warn: &lt;text&gt;</c> 형식으로 stderr에 기록됩니다.</description></item>
+    /// <item><description>현재 구현은 추가 payload(<c>printed</c> 등)를 반환하지 않습니다.</description></item>
+    /// <item><description>이 호출 자체가 스크립트 실패 상태를 직접 강제하지는 않습니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/term.html#termwarn">Manual</see>.</para>
     /// </remarks>
-    private static void RegisterTermWarnIntrinsic()
+    private static void TermWarn()
     {
         if (Intrinsic.GetByName(TermWarnIntrinsicName) is not null)
         {
@@ -230,14 +275,28 @@ internal static class MiniScriptTermIntrinsics
         };
     }
 
-    /// <summary><c>term.error</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>term.error</c>는 오류 텍스트를 stderr로 기록하고 성공 ResultMap을 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = term.error(text)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)를 반환하고 성공 시 payload(<c>printed=1</c>)를 포함합니다.
-    /// 호출 시 <c>error:</c> 접두사와 함께 stderr 로그를 기록하며 스크립트 실패 상태는 호출자가 결정합니다.
-    /// See: <see href="/docfx_api_document/api/term.md#termerror">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = term.error(text)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>text</c>: 오류 메시지 본문 문자열입니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_INVALID_ARGS", err:string }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description>출력 메시지는 <c>error: &lt;text&gt;</c> 형식으로 stderr에 기록됩니다.</description></item>
+    /// <item><description>현재 구현은 추가 payload(<c>printed</c> 등)를 반환하지 않습니다.</description></item>
+    /// <item><description>스크립트 실패 처리 여부는 호출자가 반환값(<c>ok/code</c>)을 보고 결정해야 합니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/term.html#termerror">Manual</see>.</para>
     /// </remarks>
-    private static void RegisterTermErrorIntrinsic()
+    private static void TermError()
     {
         if (Intrinsic.GetByName(TermErrorIntrinsicName) is not null)
         {
@@ -538,3 +597,4 @@ internal static class MiniScriptTermIntrinsics
         internal SystemCallExecutionContext? ExecutionContext { get; }
     }
 }
+

@@ -4,13 +4,15 @@
     {
       "src": [
         {
-          "src": "../src",
+          "src": "..",
           "files": [
-            "**/*.csproj"
+            "Uplink2.csproj"
           ]
         }
       ],
-      "dest": "api"
+      "dest": "api",
+      "filter": "filterConfig.yml",
+      "includePrivateMembers": true
     }
   ],
   "build": {
@@ -20,7 +22,17 @@
           "**/*.{md,yml}"
         ],
         "exclude": [
-          "_site/**"
+          "_site/**",
+          "api/Miniscript*.yml",
+          "docs/api_name_overrides.md",
+          "filterConfig.yml"
+        ]
+      }
+    ],
+    "overwrite": [
+      {
+        "files": [
+          "docs/api_name_overrides.md"
         ]
       }
     ],
@@ -34,7 +46,8 @@
     "output": "_site",
     "template": [
       "default",
-      "modern"
+      "modern",
+      "templates/uplink"
     ],
     "globalMetadata": {
       "_appName": "",

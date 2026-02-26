@@ -3,28 +3,47 @@ using System;
 using System.Collections.Generic;
 using Uplink2.Runtime.Syscalls;
 using Uplink2.Vfs;
+using static Uplink2.Runtime.MiniScript.MiniScriptSshIntrinsics;
 
 #nullable enable
 
 namespace Uplink2.Runtime.MiniScript;
 
-internal static partial class MiniScriptSshIntrinsics
+internal static class MiniScriptFtpIntrinsics
 {
     private const string FtpGetIntrinsicName = "uplink_ftp_get";
     private const string FtpPutIntrinsicName = "uplink_ftp_put";
     private const int DefaultFtpPort = 21;
+    private static readonly object registrationSync = new();
+    private static bool isRegistered;
+
+    internal static void EnsureRegistered()
+    {
+        lock (registrationSync)
+        {
+            if (isRegistered)
+            {
+                return;
+            }
+
+            FtpGet();
+            FtpPut();
+            isRegistered = true;
+        }
+    }
 
     /// <summary>인터프리터에 ftp 모듈 전역 API를 주입합니다.</summary>
     /// <remarks>
     /// MiniScript: <c>ftp.get(sessionOrRoute, remotePath, localPath?, opts?)</c>, <c>ftp.put(sessionOrRoute, localPath, remotePath?, opts?)</c>.
     /// 각 API는 공통 ResultMap(<c>ok/code/err/cost/trace</c>) 규약을 따르며 payload는 <c>savedTo</c>와 선택적 <c>bytes</c>를 반환합니다.
     /// FTP는 SSH session/route를 인증 근거로 사용하고 target FTP 포트 노출 규칙을 통과해야 합니다.
-    /// See: <see href="/docfx_api_document/api/ftp.md#module-ftp">Manual</see>.
+    /// See: <see href="/api/ftp.html#module-ftp">Manual</see>.
     /// </remarks>
     /// <param name="interpreter">ftp 모듈 전역을 주입할 대상 인터프리터입니다.</param>
     /// <param name="moduleState">session/route 해석과 실행 컨텍스트를 포함한 모듈 상태입니다.</param>
-    private static void InjectFtpModule(Interpreter interpreter, SshModuleState moduleState)
+    internal static void InjectFtpModule(Interpreter interpreter, MiniScriptSshIntrinsics.SshModuleState moduleState)
     {
+        EnsureRegistered();
         var ftpModule = new ValMap
         {
             userData = moduleState,
@@ -34,14 +53,32 @@ internal static partial class MiniScriptSshIntrinsics
         interpreter.SetGlobalValue("ftp", ftpModule);
     }
 
-    /// <summary><c>ftp.get</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>ftp.get</c>는 원격 파일을 로컬 경로로 가져오고 저장 위치/크기 결과를 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = ftp.get(sessionOrRoute, remotePath, localPath?, opts?)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>savedTo</c>, 선택적 <c>bytes</c>)를 반환합니다.
-    /// 원격 read/로컬 write 권한과 FTP 포트 접근을 검사하며 성공 시 <c>fileAcquire</c> 이벤트를 발생시킵니다.
-    /// See: <see href="/docfx_api_document/api/ftp.md#ftpget">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = ftp.get(sessionOrRoute, remotePath, localPath?, opts?)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>sessionOrRoute</c>: 전송 endpoint를 지정하는 <c>sshSession</c> 또는 <c>sshRoute</c>입니다.</description></item>
+    /// <item><description><c>remotePath</c>: 원격 endpoint에서 읽을 파일 경로입니다.</description></item>
+    /// <item><description><c>localPath</c>(선택): 로컬 endpoint에 저장할 경로입니다. 생략 시 원본 파일명으로 저장됩니다.</description></item>
+    /// <item><description><c>opts.port</c>(선택): FTP 포트입니다. 기본값은 <c>21</c>입니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null, savedTo:string, bytes:int|null }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_*", err:string }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description>지원하는 옵션 키는 <c>port</c> 하나뿐입니다. 다른 키는 <c>ERR_INVALID_ARGS</c>를 반환합니다.</description></item>
+    /// <item><description><c>sshSession</c> 모드에서는 실행 컨텍스트를 source, session endpoint를 target으로 사용합니다.</description></item>
+    /// <item><description><c>sshRoute</c> 모드에서는 <c>firstSession -&gt; lastSession</c> 링크를 사용해 <c>last -&gt; first</c> 방향으로 다운로드합니다.</description></item>
+    /// <item><description>성공 시 <c>fileAcquire</c> 이벤트(<c>transferMethod="ftp"</c>)를 1회 발생시킵니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/ftp.html#ftpget">Manual</see>.</para>
     /// </remarks>
-    private static void RegisterFtpGetIntrinsic()
+    private static void FtpGet()
     {
         if (Intrinsic.GetByName(FtpGetIntrinsicName) is not null)
         {
@@ -175,14 +212,32 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
-    /// <summary><c>ftp.put</c> intrinsic을 등록합니다.</summary>
+    /// <summary><c>ftp.put</c>는 로컬 파일을 원격 경로로 업로드하고 저장 위치/크기 결과를 반환합니다.</summary>
     /// <remarks>
-    /// MiniScript: <c>r = ftp.put(sessionOrRoute, localPath, remotePath?, opts?)</c>.
-    /// ResultMap(<c>ok/code/err/cost/trace</c>)에 payload(<c>savedTo</c>, 선택적 <c>bytes</c>)를 반환합니다.
-    /// 로컬 read/원격 write 권한과 FTP 포트 접근을 검사하며 완료 시 <c>fileAcquire</c> 이벤트는 발행하지 않습니다.
-    /// See: <see href="/docfx_api_document/api/ftp.md#ftpput">Manual</see>.
+    /// <para><b>MiniScript</b></para>
+    /// <para><c>r = ftp.put(sessionOrRoute, localPath, remotePath?, opts?)</c></para>
+    /// <para><b>Parameters</b></para>
+    /// <list type="bullet">
+    /// <item><description><c>sessionOrRoute</c>: 전송 endpoint를 지정하는 <c>sshSession</c> 또는 <c>sshRoute</c>입니다.</description></item>
+    /// <item><description><c>localPath</c>: 로컬 endpoint에서 읽을 파일 경로입니다.</description></item>
+    /// <item><description><c>remotePath</c>(선택): 원격 endpoint에 저장할 경로입니다. 생략 시 원본 파일명으로 저장됩니다.</description></item>
+    /// <item><description><c>opts.port</c>(선택): FTP 포트입니다. 기본값은 <c>21</c>입니다.</description></item>
+    /// </list>
+    /// <para><b>Returns</b></para>
+    /// <list type="bullet">
+    /// <item><description>성공: <c>{ ok:1, code:"OK", err:null, savedTo:string, bytes:int|null }</c></description></item>
+    /// <item><description>실패: <c>{ ok:0, code:"ERR_*", err:string }</c></description></item>
+    /// </list>
+    /// <para><b>Note</b></para>
+    /// <list type="bullet">
+    /// <item><description>지원하는 옵션 키는 <c>port</c> 하나뿐입니다. 다른 키는 <c>ERR_INVALID_ARGS</c>를 반환합니다.</description></item>
+    /// <item><description><c>sshSession</c> 모드에서는 실행 컨텍스트를 source, session endpoint를 target으로 사용합니다.</description></item>
+    /// <item><description><c>sshRoute</c> 모드에서는 <c>firstSession -&gt; lastSession</c> 링크를 사용해 <c>first -&gt; last</c> 방향으로 업로드합니다.</description></item>
+    /// <item><description>업로드 성공 시 <c>fileAcquire</c> 이벤트는 발행하지 않습니다.</description></item>
+    /// </list>
+    /// <para><b>See</b>: <see href="/api/ftp.html#ftpput">Manual</see>.</para>
     /// </remarks>
-    private static void RegisterFtpPutIntrinsic()
+    private static void FtpPut()
     {
         if (Intrinsic.GetByName(FtpPutIntrinsicName) is not null)
         {
@@ -411,7 +466,7 @@ internal static partial class MiniScriptSshIntrinsics
     }
 
     private static bool TryResolveFtpEndpoints(
-        SshModuleState state,
+        MiniScriptSshIntrinsics.SshModuleState state,
         SystemCallExecutionContext executionContext,
         ValMap sessionOrRouteMap,
         out FtpEndpoint firstEndpoint,
@@ -503,7 +558,7 @@ internal static partial class MiniScriptSshIntrinsics
         return true;
     }
 
-    private static bool TryResolveExecutionContextFtpEndpoint(
+    internal static bool TryResolveExecutionContextFtpEndpoint(
         SystemCallExecutionContext executionContext,
         out FtpEndpoint endpoint,
         out string error)
@@ -531,7 +586,7 @@ internal static partial class MiniScriptSshIntrinsics
         return true;
     }
 
-    private static bool TryResolveSessionSourceFtpEndpoint(
+    internal static bool TryResolveSessionSourceFtpEndpoint(
         SystemCallExecutionContext executionContext,
         ValMap sessionMap,
         out FtpEndpoint endpoint,
@@ -557,9 +612,9 @@ internal static partial class MiniScriptSshIntrinsics
             out error);
     }
 
-    private static bool TryResolveSessionSourceFtpEndpoint(
+    internal static bool TryResolveSessionSourceFtpEndpoint(
         SystemCallExecutionContext executionContext,
-        SessionSourceMetadata sourceMetadata,
+        MiniScriptSshIntrinsics.SessionSourceMetadata sourceMetadata,
         out FtpEndpoint endpoint,
         out string error)
     {
@@ -605,8 +660,8 @@ internal static partial class MiniScriptSshIntrinsics
         return true;
     }
 
-    private static bool TryResolveSessionFtpEndpoint(
-        SshModuleState state,
+    internal static bool TryResolveSessionFtpEndpoint(
+        MiniScriptSshIntrinsics.SshModuleState state,
         SystemCallExecutionContext executionContext,
         ValMap sessionMap,
         out FtpEndpoint endpoint,
@@ -683,7 +738,7 @@ internal static partial class MiniScriptSshIntrinsics
         return true;
     }
 
-    private static bool TryGetFtpEndpointUser(
+    internal static bool TryGetFtpEndpointUser(
         FtpEndpoint endpoint,
         out UserConfig user,
         out string error)
@@ -819,7 +874,7 @@ internal static partial class MiniScriptSshIntrinsics
             : parentPath + "/" + childName;
     }
 
-    private static string GetParentPath(string normalizedPath)
+    internal static string GetParentPath(string normalizedPath)
     {
         if (normalizedPath == "/")
         {
@@ -852,7 +907,7 @@ internal static partial class MiniScriptSshIntrinsics
         return trimmed[(index + 1)..];
     }
 
-    private static int? ToOptionalInt(long value)
+    internal static int? ToOptionalInt(long value)
     {
         return value is < int.MinValue or > int.MaxValue
             ? null
@@ -882,9 +937,10 @@ internal static partial class MiniScriptSshIntrinsics
         };
     }
 
-    private readonly record struct FtpEndpoint(
+    internal readonly record struct FtpEndpoint(
         ServerNodeRuntime Server,
         string NodeId,
         string UserKey,
         string Cwd);
 }
+

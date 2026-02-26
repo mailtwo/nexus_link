@@ -1,4 +1,30 @@
-- name: Docs
-  href: docs/
+- name: Manual
+  items:
+  - name: SSH Module (ssh.*) - Manual
+    href: api/ssh.md
+  - name: FTP Module (ftp.*) - Manual
+    href: api/ftp.md
+  - name: NET Module (net.*) - Manual
+    href: api/net.md
+  - name: TERM Module (term.*) - Manual
+    href: api/term.md
+  - name: FS Module (fs.*) - Manual
+    href: api/fs.md
+  - name: Introduction
+    href: docs/introduction.md
+  - name: Getting Started
+    href: docs/getting-started.md
 - name: API
-  href: api/
+  items:
+  - name: SSH API (Managed Reference)
+    href: api/ssh-api.md
+  - name: FTP API (Managed Reference)
+    href: api/ftp-api.md
+  - name: NET API (Managed Reference)
+    href: api/net-api.md
+  - name: TERM API (Managed Reference)
+    href: api/term-api.md
+  - name: FS API (Managed Reference)
+    href: api/fs-api.md
+  - name: Managed Reference Index
+    href: api/

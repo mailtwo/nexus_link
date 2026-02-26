@@ -1,0 +1,48 @@
+/* Improve conceptual/manual code block readability to match API-like boxes. */
+body[data-yaml-mime=""] article pre > code[class^="lang-"],
+body[data-yaml-mime=""] article pre > code[class*=" lang-"] {
+  display: block;
+  overflow-x: auto;
+  padding: 1em;
+  background-color: #f5f5f5;
+  border: 1px solid #e5e5e5;
+  border-radius: 0.25rem;
+}
+
+[data-bs-theme="dark"] body[data-yaml-mime=""] article pre > code[class^="lang-"],
+[data-bs-theme="dark"] body[data-yaml-mime=""] article pre > code[class*=" lang-"] {
+  color: #dcdcdc;
+  background-color: #1e1e1e;
+  border-color: #3b3b3b;
+}
+
+/* Manual heading hierarchy: keep helper sections compact. */
+body[data-yaml-mime=""] article h2 {
+  font-size: 1.95rem;
+  margin-top: 1.75rem;
+  margin-bottom: 0.7rem;
+}
+
+body[data-yaml-mime=""] article h3 {
+  font-size: 1.4rem;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+/* API function blocks in manuals: visually separated and emphasized. */
+body[data-yaml-mime=""] article h2[id^="ssh"],
+body[data-yaml-mime=""] article h2[id^="ftp"],
+body[data-yaml-mime=""] article h2[id^="net"],
+body[data-yaml-mime=""] article h2[id^="term"] {
+  font-size: 2.35rem;
+  margin-top: 3.25rem;
+  padding-top: 1.35rem;
+  border-top: 1px solid #d8d8d8;
+}
+
+[data-bs-theme="dark"] body[data-yaml-mime=""] article h2[id^="ssh"],
+[data-bs-theme="dark"] body[data-yaml-mime=""] article h2[id^="ftp"],
+[data-bs-theme="dark"] body[data-yaml-mime=""] article h2[id^="net"],
+[data-bs-theme="dark"] body[data-yaml-mime=""] article h2[id^="term"] {
+  border-top-color: #3b3b3b;
+}
