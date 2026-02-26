@@ -363,6 +363,7 @@ internal static class MiniScriptImportIntrinsics
         ImportResolvedModule resolvedModule)
     {
         var parentInterpreter = callerContext.interpreter;
+        var callerVm = callerContext.vm ?? parentInterpreter?.vm;
         var standardOutput = parentInterpreter?.standardOutput ?? callerContext.vm?.standardOutput;
         var errorOutput = parentInterpreter?.errorOutput ?? standardOutput;
         var childInterpreter = new Interpreter(string.Empty, standardOutput, errorOutput)
@@ -381,6 +382,7 @@ internal static class MiniScriptImportIntrinsics
                     $"failed to initialize interpreter for module '{resolvedModule.CanonicalPath}'.");
             }
 
+            SeedChildTypeMapsFromCaller(callerVm, childInterpreter.vm);
             MiniScriptCryptoIntrinsics.InjectCryptoModule(childInterpreter);
             MiniScriptSshIntrinsics.InjectSshModule(childInterpreter, state.ExecutionContext, state.SshMode);
             MiniScriptTermIntrinsics.InjectTermModule(childInterpreter, state.ExecutionContext);
@@ -409,12 +411,80 @@ internal static class MiniScriptImportIntrinsics
                 childInterpreter.vm.Step();
             }
 
+            MergeChildTypeMapsToCaller(callerVm, childInterpreter.vm);
             return childInterpreter.GetGlobalValue(ImportResultStorageName);
         }
         finally
         {
             state.PopScriptPath();
         }
+    }
+
+    private static void SeedChildTypeMapsFromCaller(TAC.Machine? callerVm, TAC.Machine childVm)
+    {
+        if (callerVm?.listType is not null)
+        {
+            childVm.listType = CloneTypeMapShallow(callerVm.listType);
+        }
+
+        if (callerVm?.mapType is not null)
+        {
+            childVm.mapType = CloneTypeMapShallow(callerVm.mapType);
+        }
+
+        if (callerVm?.stringType is not null)
+        {
+            childVm.stringType = CloneTypeMapShallow(callerVm.stringType);
+        }
+    }
+
+    private static void MergeChildTypeMapsToCaller(TAC.Machine? callerVm, TAC.Machine childVm)
+    {
+        if (callerVm is null)
+        {
+            return;
+        }
+
+        callerVm.listType = MergeTypeMapEntries(callerVm.listType, childVm.listType);
+        callerVm.mapType = MergeTypeMapEntries(callerVm.mapType, childVm.mapType);
+        callerVm.stringType = MergeTypeMapEntries(callerVm.stringType, childVm.stringType);
+    }
+
+    private static ValMap CloneTypeMapShallow(ValMap source)
+    {
+        var clone = new ValMap
+        {
+            assignOverride = source.assignOverride,
+            evalOverride = source.evalOverride,
+            userData = source.userData,
+        };
+
+        foreach (var pair in source.map)
+        {
+            clone.map[pair.Key] = pair.Value;
+        }
+
+        return clone;
+    }
+
+    private static ValMap MergeTypeMapEntries(ValMap? target, ValMap? source)
+    {
+        if (source is null)
+        {
+            return target ?? new ValMap();
+        }
+
+        if (target is null)
+        {
+            return CloneTypeMapShallow(source);
+        }
+
+        foreach (var pair in source.map)
+        {
+            target.map[pair.Key] = pair.Value;
+        }
+
+        return target;
     }
 
     private static void EnsureLibraryContract(string sourceText, string canonicalPath)

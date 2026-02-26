@@ -774,33 +774,21 @@ public partial class WorldRuntime
     {
         try
         {
-            var options = new MiniScriptExecutionOptions
+            if (state.Launch.LaunchKind == TerminalProgramLaunchKind.Ping)
             {
-                CancellationToken = state.CancellationTokenSource.Token,
-                StandardOutputLineSink = line => TryQueueTerminalProgramOutputLine(state, line),
-                StandardErrorLineSink = line => TryQueueTerminalProgramOutputLine(state, NormalizeMiniScriptErrorLine(line)),
-                SshMode = MiniScriptSshExecutionMode.SandboxValidated,
-                CaptureOutputLines = false,
-                ScriptArguments = state.Launch.ScriptArguments,
-                CurrentScriptPath = state.Launch.ScriptPath,
-            };
-
-            var execution = MiniScriptExecutionRunner.ExecuteScriptWithOptions(
-                state.Launch.ScriptSource,
-                state.Launch.Context,
-                options);
-
-            if (!execution.WasCancelled)
+                RunPingTerminalProgramExecution(state);
+            }
+            else
             {
-                foreach (var line in execution.Result.Lines)
-                {
-                    TryQueueTerminalProgramOutputLine(state, line);
-                }
+                RunMiniScriptTerminalProgramExecution(state);
             }
         }
         catch (Exception ex)
         {
-            TryQueueTerminalProgramOutputLine(state, "error: miniscript execution failed: " + ex.Message);
+            var message = state.Launch.LaunchKind == TerminalProgramLaunchKind.Ping
+                ? "error: ping execution failed: " + ex.Message
+                : "error: miniscript execution failed: " + ex.Message;
+            TryQueueTerminalProgramOutputLine(state, message);
         }
         finally
         {
@@ -818,6 +806,50 @@ public partial class WorldRuntime
 
             state.CancellationTokenSource.Dispose();
         }
+    }
+
+    private void RunMiniScriptTerminalProgramExecution(TerminalProgramExecutionState state)
+    {
+        var options = new MiniScriptExecutionOptions
+        {
+            CancellationToken = state.CancellationTokenSource.Token,
+            StandardOutputLineSink = line => TryQueueTerminalProgramOutputLine(state, line),
+            StandardErrorLineSink = line => TryQueueTerminalProgramOutputLine(state, NormalizeMiniScriptErrorLine(line)),
+            SshMode = MiniScriptSshExecutionMode.SandboxValidated,
+            CaptureOutputLines = false,
+            ScriptArguments = state.Launch.ScriptArguments,
+            CurrentScriptPath = state.Launch.ScriptPath,
+        };
+
+        var execution = MiniScriptExecutionRunner.ExecuteScriptWithOptions(
+            state.Launch.ScriptSource,
+            state.Launch.Context,
+            options);
+
+        if (execution.WasCancelled)
+        {
+            return;
+        }
+
+        foreach (var line in execution.Result.Lines)
+        {
+            TryQueueTerminalProgramOutputLine(state, line);
+        }
+    }
+
+    private void RunPingTerminalProgramExecution(TerminalProgramExecutionState state)
+    {
+        if (string.IsNullOrWhiteSpace(state.Launch.PingHostOrIp) || state.Launch.PingCount <= 0)
+        {
+            throw new InvalidOperationException("ping launch payload is invalid.");
+        }
+
+        _ = PingCommandHandler.ExecutePrepared(
+            state.Launch.Context,
+            state.Launch.PingHostOrIp,
+            state.Launch.PingCount,
+            state.CancellationTokenSource.Token,
+            line => TryQueueTerminalProgramOutputLine(state, line));
     }
 
     private void TryQueueTerminalProgramOutputLine(TerminalProgramExecutionState state, string line)

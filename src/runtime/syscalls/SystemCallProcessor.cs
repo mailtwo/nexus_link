@@ -104,6 +104,17 @@ internal sealed class SystemCallProcessor
 
         if (registry.TryGetHandler(command, out _))
         {
+            if (string.Equals(command, "ping", StringComparison.Ordinal))
+            {
+                return TryPreparePingLaunch(
+                    context!,
+                    command,
+                    request.CommandLine ?? string.Empty,
+                    arguments,
+                    out launch,
+                    out immediateResult);
+            }
+
             if (!string.Equals(command, "DEBUG_miniscript", StringComparison.Ordinal))
             {
                 return false;
@@ -302,6 +313,36 @@ internal sealed class SystemCallProcessor
             command,
             commandLine,
             arguments.ToArray());
+        immediateResult = SystemCallResultFactory.Success();
+        return true;
+    }
+
+    private static bool TryPreparePingLaunch(
+        SystemCallExecutionContext context,
+        string command,
+        string commandLine,
+        IReadOnlyList<string> arguments,
+        out MiniScriptProgramLaunch? launch,
+        out SystemCallResult? immediateResult)
+    {
+        launch = null;
+        if (!PingCommandHandler.TryPrepareExecution(arguments, out var hostOrIp, out var count, out var failure))
+        {
+            immediateResult = failure ?? SystemCallResultFactory.Usage(PingCommandHandler.UsageText);
+            return true;
+        }
+
+        launch = new MiniScriptProgramLaunch(
+            context,
+            string.Empty,
+            command,
+            string.Empty,
+            command,
+            commandLine,
+            Array.Empty<string>(),
+            TerminalProgramLaunchKind.Ping,
+            hostOrIp,
+            count);
         immediateResult = SystemCallResultFactory.Success();
         return true;
     }

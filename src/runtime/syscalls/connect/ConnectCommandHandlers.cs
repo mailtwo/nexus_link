@@ -177,7 +177,7 @@ internal sealed class DisconnectCommandHandler : ISystemCallHandler
 
 internal sealed class PingCommandHandler : ISystemCallHandler
 {
-    private const string UsageText = "ping [(-c) <count>] <host|ip>";
+    internal const string UsageText = "ping [(-c) <count>] <host|ip>";
     private const int DefaultCount = 5;
     private const int MinCount = 1;
     private const int MaxCount = 10;
@@ -189,45 +189,103 @@ internal sealed class PingCommandHandler : ISystemCallHandler
 
     public SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
     {
-        if (!TryParseArguments(arguments, out var parsed, out var parseFailure))
+        if (!TryPrepareExecution(arguments, out var hostOrIp, out var count, out var parseFailure))
         {
             return parseFailure!;
         }
 
-        if (parsed.Count == 1)
+        return ExecutePrepared(context, hostOrIp, count, CancellationToken.None).Result;
+    }
+
+    internal static bool TryPrepareExecution(
+        IReadOnlyList<string> arguments,
+        out string hostOrIp,
+        out int count,
+        out SystemCallResult? failure)
+    {
+        if (!TryParseArguments(arguments, out var parsed, out failure))
         {
-            var singleProbe = EvaluateProbe(context, parsed.HostOrIp);
+            hostOrIp = string.Empty;
+            count = 0;
+            return false;
+        }
+
+        hostOrIp = parsed.HostOrIp;
+        count = parsed.Count;
+        return true;
+    }
+
+    internal static PingExecutionResult ExecutePrepared(
+        SystemCallExecutionContext context,
+        string hostOrIp,
+        int count,
+        CancellationToken cancellationToken,
+        Action<string>? lineSink = null)
+    {
+        var captureLines = lineSink is null;
+        var lines = captureLines ? new List<string>(count + 2) : null;
+
+        void Emit(string line)
+        {
+            if (captureLines)
+            {
+                lines!.Add(line);
+            }
+
+            lineSink?.Invoke(line);
+        }
+
+        if (count == 1)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return new PingExecutionResult(BuildSuccessResult(captureLines, lines), true);
+            }
+
+            var singleProbe = EvaluateProbe(context, hostOrIp);
             var line = singleProbe.IsSuccess
                 ? "success"
                 : $"fail({singleProbe.ErrorMessage})";
-            return SystemCallResultFactory.Success(lines: new[] { line });
+            Emit(line);
+            return new PingExecutionResult(BuildSuccessResult(captureLines, lines), false);
         }
 
-        var lines = new List<string>(parsed.Count + 2);
         var received = 0;
-        for (var sequence = 1; sequence <= parsed.Count; sequence++)
+        for (var sequence = 1; sequence <= count; sequence++)
         {
-            var probe = EvaluateProbe(context, parsed.HostOrIp);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return new PingExecutionResult(BuildSuccessResult(captureLines, lines), true);
+            }
+
+            var probe = EvaluateProbe(context, hostOrIp);
             if (probe.IsSuccess)
             {
                 received++;
-                lines.Add($"{PingBytes} bytes from {probe.ReplyAddress}: icmp_seq={sequence} ttl={InitialTtl}");
+                Emit($"{PingBytes} bytes from {probe.ReplyAddress}: icmp_seq={sequence} ttl={InitialTtl}");
             }
             else
             {
-                lines.Add($"Request timeout for icmp_seq={sequence} ({probe.ErrorMessage})");
+                Emit($"Request timeout for icmp_seq={sequence} ({probe.ErrorMessage})");
             }
 
-            if (sequence < parsed.Count)
+            if (sequence < count && cancellationToken.WaitHandle.WaitOne(ProbeIntervalMs))
             {
-                Thread.Sleep(ProbeIntervalMs);
+                return new PingExecutionResult(BuildSuccessResult(captureLines, lines), true);
             }
         }
 
-        var packetLoss = (parsed.Count - received) * 100 / parsed.Count;
-        lines.Add($"--- {parsed.HostOrIp} ping statistics ---");
-        lines.Add($"{parsed.Count} packets transmitted, {received} received, {packetLoss}% packet loss");
-        return SystemCallResultFactory.Success(lines: lines);
+        var packetLoss = (count - received) * 100 / count;
+        Emit($"--- {hostOrIp} ping statistics ---");
+        Emit($"{count} packets transmitted, {received} received, {packetLoss}% packet loss");
+        return new PingExecutionResult(BuildSuccessResult(captureLines, lines), false);
+    }
+
+    private static SystemCallResult BuildSuccessResult(bool captureLines, List<string>? lines)
+    {
+        return captureLines
+            ? SystemCallResultFactory.Success(lines: lines!)
+            : SystemCallResultFactory.Success();
     }
 
     private static PingProbeResult EvaluateProbe(SystemCallExecutionContext context, string hostOrIp)
@@ -360,6 +418,7 @@ internal sealed class PingCommandHandler : ISystemCallHandler
     }
 
     private readonly record struct ParsedPingArguments(string HostOrIp, int Count);
+    internal readonly record struct PingExecutionResult(SystemCallResult Result, bool WasCancelled);
 
     private readonly record struct PingProbeResult(bool IsSuccess, string ReplyAddress, string ErrorMessage)
     {

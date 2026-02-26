@@ -559,6 +559,179 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "same=2", StringComparison.Ordinal));
     }
 
+    /// <summary>Ensures successful import syncs list/map/string type maps so caller can use patched methods.</summary>
+    [Fact]
+    public void Execute_Miniscript_Import_TypeMapSync_ListMapString_AvailableInCaller()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddDirectory("/scripts/lib");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lib/typePatch.ms",
+            """
+            // @name typePatch
+            list.toTag = function(prefix)
+                return prefix + str(self.len)
+            end function
+            map.pick = function(key)
+                return self[key]
+            end function
+            string.wrap = function(left, right)
+                return left + self + right
+            end function
+            return { "ok": 1 }
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/main.ms",
+            """
+            import("lib/typePatch")
+            print "list=" + [10, 20].toTag("L")
+            m = {"k":"v"}
+            print "map=" + m.pick("k")
+            print "string=" + "ab".wrap("<", ">")
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/main.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "list=L2", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "map=v", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "string=<ab>", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures type-map patches imported inside nested module import propagate to root caller.</summary>
+    [Fact]
+    public void Execute_Miniscript_Import_TypeMapSync_NestedImport_PropagatesToRoot()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddDirectory("/scripts/lib");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lib/typePatch.ms",
+            """
+            // @name typePatch
+            string.nestedEcho = function(suffix)
+                return self + suffix
+            end function
+            return { "ok": 1 }
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lib/wrapper.ms",
+            """
+            // @name wrapper
+            import("typePatch")
+            return { "ok": 1 }
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/main.ms",
+            """
+            import("lib/wrapper")
+            print "nested=" + "x".nestedEcho("!")
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/main.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "nested=x!", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures sequential imports accumulate type-map methods without losing previous additions.</summary>
+    [Fact]
+    public void Execute_Miniscript_Import_TypeMapSync_MultipleImports_Accumulates()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddDirectory("/scripts/lib");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lib/patchA.ms",
+            """
+            // @name patchA
+            list.plusA = function(v)
+                return v + 10
+            end function
+            return { "ok": 1 }
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lib/patchB.ms",
+            """
+            // @name patchB
+            list.plusB = function(v)
+                return v + 20
+            end function
+            return { "ok": 1 }
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/main.ms",
+            """
+            import("lib/patchA")
+            import("lib/patchB")
+            x = [0]
+            print "a=" + str(x.plusA(1))
+            print "b=" + str(x.plusB(1))
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/main.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "a=11", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "b=21", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures conflicting type-map method names are resolved by last successful import.</summary>
+    [Fact]
+    public void Execute_Miniscript_Import_TypeMapSync_Conflict_LastImportWins()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddDirectory("/scripts/lib");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lib/patchA.ms",
+            """
+            // @name patchA
+            list.pickOne = function(suffix)
+                return "A" + suffix
+            end function
+            return { "ok": 1 }
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lib/patchB.ms",
+            """
+            // @name patchB
+            list.pickOne = function(suffix)
+                return "B" + suffix
+            end function
+            return { "ok": 1 }
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/main.ms",
+            """
+            import("lib/patchA")
+            import("lib/patchB")
+            x = [0]
+            print "pick=" + x.pickOne("!")
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/main.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "pick=B!", StringComparison.Ordinal));
+    }
+
     /// <summary>Ensures import cache key prefixes canonical path with execution server id.</summary>
     [Fact]
     public void ImportRuntimeState_BuildCacheKey_UsesServerIdPrefix()
@@ -3530,6 +3703,123 @@ public sealed class SystemCallTest
 
         Assert.False(response.Handled);
         Assert.False(response.Started);
+    }
+
+    /// <summary>Ensures ping is handled as an async terminal program and enters running state.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_Ping_HandledAndStarted()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "ping -c 2 10.0.1.20",
+            "ts-ping-async-start");
+        Assert.True(start.Handled);
+        Assert.True(start.Started);
+        Assert.True(harness.World.IsTerminalProgramRunning("ts-ping-async-start"));
+
+        WaitForTerminalProgramStop(harness.World, "ts-ping-async-start");
+        Assert.False(harness.World.IsTerminalProgramRunning("ts-ping-async-start"));
+    }
+
+    /// <summary>Ensures async ping streams probe lines before completion and still prints final statistics.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_Ping_StreamsProbeLines()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        var streamedLines = new List<string>();
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "ping -c 2 10.0.1.20",
+            "ts-ping-async-stream");
+        Assert.True(start.Handled);
+        Assert.True(start.Started);
+
+        Assert.True(
+            WaitUntil(() =>
+            {
+                streamedLines.AddRange(SnapshotTerminalEventLines(harness.World));
+                return streamedLines.Any(static line => line.Contains("icmp_seq=1", StringComparison.Ordinal));
+            }, timeoutMs: 1500),
+            "Expected first probe line to be streamed before command completion.");
+
+        Assert.True(harness.World.IsTerminalProgramRunning("ts-ping-async-stream"));
+        WaitForTerminalProgramStop(harness.World, "ts-ping-async-stream");
+        streamedLines.AddRange(SnapshotTerminalEventLines(harness.World));
+
+        Assert.Contains(streamedLines, static line => line.Contains("icmp_seq=1", StringComparison.Ordinal));
+        Assert.Contains(streamedLines, static line => line.Contains("icmp_seq=2", StringComparison.Ordinal));
+        Assert.Contains(streamedLines, static line => line.Contains("packets transmitted", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures async ping can be interrupted via Ctrl+C bridge and ends promptly without summary output.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_Ping_CanBeInterruptedByCtrlC()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "ping -c 10 10.0.1.20",
+            "ts-ping-async-interrupt");
+        Assert.True(start.Handled);
+        Assert.True(start.Started);
+        Assert.True(harness.World.IsTerminalProgramRunning("ts-ping-async-interrupt"));
+
+        var interrupt = InterruptTerminalProgramExecutionCore(harness.World, "ts-ping-async-interrupt");
+        Assert.Contains(interrupt.Lines, static line => string.Equals(line, "program killed by Ctrl+C", StringComparison.Ordinal));
+
+        WaitForTerminalProgramStop(harness.World, "ts-ping-async-interrupt");
+        Assert.False(harness.World.IsTerminalProgramRunning("ts-ping-async-interrupt"));
+
+        var outputLines = SnapshotTerminalEventLines(harness.World);
+        Assert.DoesNotContain(outputLines, static line => line.Contains("packets transmitted", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures async ping follows the shared per-session single-running-program gate.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_Ping_BlocksSecondProgramInSameSession()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var first = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "ping -c 10 10.0.1.20",
+            "ts-ping-async-dup");
+        Assert.True(first.Handled);
+        Assert.True(first.Started);
+
+        var second = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "ping -c 1 10.0.1.20",
+            "ts-ping-async-dup");
+        Assert.True(second.Handled);
+        Assert.False(second.Started);
+        Assert.Contains(second.Response.Lines, static line => line.Contains("program already running", StringComparison.Ordinal));
+
+        _ = InterruptTerminalProgramExecutionCore(harness.World, "ts-ping-async-dup");
+        WaitForTerminalProgramStop(harness.World, "ts-ping-async-dup");
     }
 
     /// <summary>Ensures async miniscript launch exposes argv/argc with trailing command arguments.</summary>
@@ -7834,11 +8124,15 @@ public sealed class SystemCallTest
     private static string[] SnapshotTerminalEventLines(WorldRuntime world)
     {
         var queue = GetPrivateField(world, "terminalEventLines");
+        var sync = GetPrivateField(world, "terminalEventLinesSync");
         var lines = new List<string>();
-        foreach (var queued in (System.Collections.IEnumerable)queue)
+        lock (sync)
         {
-            var text = (string?)GetPropertyValue(queued, "Text") ?? string.Empty;
-            lines.Add(text);
+            foreach (var queued in (System.Collections.IEnumerable)queue)
+            {
+                var text = (string?)GetPropertyValue(queued, "Text") ?? string.Empty;
+                lines.Add(text);
+            }
         }
 
         return lines.ToArray();
@@ -8676,9 +8970,9 @@ public sealed class SystemCallPingTimedTest
         Assert.True(result.Ok);
         Assert.Equal(SystemCallErrorCode.None, result.Code);
         Assert.Equal(4, result.Lines.Count);
-        Assert.Contains(result.Lines[0], "64 bytes from", StringComparison.Ordinal);
-        Assert.Contains(result.Lines[0], "icmp_seq=1", StringComparison.Ordinal);
-        Assert.Contains(result.Lines[1], "icmp_seq=2", StringComparison.Ordinal);
+        Assert.Contains("64 bytes from", result.Lines[0], StringComparison.Ordinal);
+        Assert.Contains("icmp_seq=1", result.Lines[0], StringComparison.Ordinal);
+        Assert.Contains("icmp_seq=2", result.Lines[1], StringComparison.Ordinal);
         Assert.Equal("--- 10.0.1.20 ping statistics ---", result.Lines[2]);
         Assert.Equal("2 packets transmitted, 2 received, 0% packet loss", result.Lines[3]);
     }
@@ -8710,9 +9004,9 @@ public sealed class SystemCallPingTimedTest
         Assert.True(result!.Ok);
         Assert.Equal(SystemCallErrorCode.None, result.Code);
         Assert.Equal(4, result.Lines.Count);
-        Assert.Contains(result.Lines[0], "icmp_seq=1", StringComparison.Ordinal);
-        Assert.Contains(result.Lines[1], "Request timeout for icmp_seq=2", StringComparison.Ordinal);
-        Assert.Contains(result.Lines[1], "server offline: node-2", StringComparison.Ordinal);
+        Assert.Contains("icmp_seq=1", result.Lines[0], StringComparison.Ordinal);
+        Assert.Contains("Request timeout for icmp_seq=2", result.Lines[1], StringComparison.Ordinal);
+        Assert.Contains("server offline: node-2", result.Lines[1], StringComparison.Ordinal);
         Assert.Equal("--- 10.0.1.20 ping statistics ---", result.Lines[2]);
         Assert.Equal("2 packets transmitted, 1 received, 50% packet loss", result.Lines[3]);
     }

@@ -175,6 +175,8 @@ TerminalScene (Control)
 
 ### 6.3 네트워크(가상)
 - `ping [(-c) <count>] <host|ip>`: 실제 ICMP 대신 접근성 기반으로 probe를 시뮬레이션한다.
+  - 터미널 프로그램 async 실행 파이프라인으로 동작하며, probe 라인은 실행 중 실시간 스트리밍된다.
+  - 실행 중에는 miniscript와 동일한 공통 정책을 적용한다: 입력 제출 차단, placeholder `Program is running. Press Ctrl+C to stop.` 표시, `Ctrl+C` 중단 허용.
   - `-c` 생략 시 기본 `5`회 probe를 보낸다(`ping <host|ip>`는 `ping -c 5 <host|ip>`와 동일).
   - `count` 허용 범위는 `1..10`이다.
   - `-c 1`은 단일 probe 결과를 한 줄로 출력한다: `success` 또는 `fail(<reason>)`.

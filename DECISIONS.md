@@ -110,3 +110,16 @@ plans/ 문서의 설계 결정이 추가되거나 변경될 때 기록한다.
   독립 intrinsic 이름인 `import`로 표기한다.
 - **이유**: `import`는 `ssh/fs/net`처럼 모듈 map이 아니라 MiniScript 전역 intrinsic 함수이므로,
   모듈 표기를 쓰면 API 성격이 왜곡된다.
+
+### [03] import 타입맵 동기화 정책
+- **결정**: `import` 성공 실행 후 child VM의 `listType/mapType/stringType` 변경을 caller VM으로 동기화한다.
+  충돌은 **나중 import 우선(덮어쓰기)** 으로 처리하고, 실패한 import 결과는 반영하지 않는다.
+- **이유**: `listUtil/mapUtil/stringUtil`처럼 타입 메서드를 패치하는 라이브러리의 변경이
+  호출자 스크립트에서 즉시 보이도록 보장하면서, 실패 경로의 부분 반영으로 인한 상태 오염을 방지하기 위함.
+
+### [07] ping async 실행 정책
+- **결정**: `ping`은 터미널 프로그램 async 실행 경로로 편입해 실시간 probe 출력을 스트리밍하고,
+  실행 중에는 miniscript와 동일하게 입력 제출을 차단하며 `Ctrl+C`로 즉시 중단할 수 있게 한다.
+  기존 동기 `ExecuteTerminalCommand("ping ...")` 경로는 호환성을 위해 유지한다.
+- **이유**: 동기 `ping` 실행으로 인한 프리즈를 제거하고, 긴 실행 커맨드의 UX를 miniscript와 동일한
+  단일 규칙으로 통일하기 위함이다.

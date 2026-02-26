@@ -242,7 +242,13 @@ internal sealed class SystemCallExecutionContext
     internal string TerminalSessionId { get; }
 }
 
-/// <summary>Prepared MiniScript launch payload for asynchronous terminal execution.</summary>
+internal enum TerminalProgramLaunchKind
+{
+    MiniScript = 0,
+    Ping = 1,
+}
+
+/// <summary>Prepared terminal-program launch payload for asynchronous execution.</summary>
 internal readonly record struct MiniScriptProgramLaunch(
     SystemCallExecutionContext Context,
     string ScriptSource,
@@ -250,7 +256,10 @@ internal readonly record struct MiniScriptProgramLaunch(
     string ScriptPath,
     string Command,
     string CommandLine,
-    IReadOnlyList<string> ScriptArguments);
+    IReadOnlyList<string> ScriptArguments,
+    TerminalProgramLaunchKind LaunchKind = TerminalProgramLaunchKind.MiniScript,
+    string PingHostOrIp = "",
+    int PingCount = 0);
 
 /// <summary>Context transition payload returned by system calls that switch terminal target.</summary>
 internal sealed class TerminalContextTransition

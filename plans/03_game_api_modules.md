@@ -776,6 +776,11 @@ docstring 컨벤션:
   - `Parser.CreateImport()` 경로로 모듈을 실행한다.
   - 모듈 내 `return`이 있으면 해당 값을 모듈 값으로 채택한다.
   - 그렇지 않으면 기본 `locals` map을 모듈 값으로 채택한다.
+- 타입맵 동기화(v1):
+  - 대상은 `listType`, `mapType`, `stringType` 3종으로 제한한다.
+  - child 모듈 실행 전, caller VM 타입맵을 child VM으로 shallow clone 시드한다.
+  - child 실행이 성공한 경우에만 child -> caller merge를 수행한다(실패 시 반영 금지).
+  - 동일 메서드 key 충돌 시 **나중 import 우선**으로 caller 값을 덮어쓴다.
 
 ---
 
