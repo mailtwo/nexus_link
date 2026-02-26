@@ -8,12 +8,15 @@ extends Control
 @export var terminal_font_size: int = 18
 @export var event_poll_interval_seconds: float = 0.10
 @export var max_command_history_entries: int = 200
+@export var enable_scroll_debug_log: bool = false
 
 const EDITOR_HELP_TEXT := "Ctrl+S: save | Esc: exit"
 const EDITOR_STATUS_TIMEOUT_SECONDS: float = 3.0
 const EDITOR_UNSAVED_EXIT_WARNING_TEXT := "warning: unsaved changes. press Esc again to exit without saving."
 const EDITOR_STATUS_WARNING_COLOR := Color(0.95, 0.35, 0.35, 1.0)
 const MOTD_ANCHOR_MAX_ACTIVATION_RETRIES := 8
+const MOTD_ANCHOR_OVERFLOW_TOLERANCE_PX := 1.0
+const SCROLL_LAYOUT_SETTLE_DELAY_SECONDS := 0.01
 const OUTPUT_SCROLL_MODE_NORMAL_BOTTOM := "normal_bottom"
 const OUTPUT_SCROLL_MODE_MOTD_ANCHOR_ACTIVATE := "motd_anchor_activate"
 const OUTPUT_SCROLL_MODE_MOTD_ANCHOR_CONTINUE := "motd_anchor_continue"
@@ -49,6 +52,7 @@ var motd_anchor_measurement_probe_height: float = -1.0
 var is_programmatic_scroll_change: bool = false
 var has_pending_scroll_settle: bool = false
 var has_pending_anchor_overflow_check: bool = false
+var has_pending_anchor_release_realign: bool = false
 var command_history: Array[String] = []
 var history_nav_index: int = -1
 var history_nav_draft: String = ""
@@ -63,10 +67,16 @@ var completion_last_applied_text: String = ""
 var completion_last_applied_caret: int = -1
 var input_placeholder_default_text: String = INPUT_PLACEHOLDER_DEFAULT_FALLBACK
 var editor_default_syntax_highlighter: SyntaxHighlighter = null
+var scroll_debug_event_seq: int = 0
+var ls_command_sequence: int = 0
+var terminal_command_sequence: int = 0
+var active_command_sequence: int = 0
+var active_ls_sequence: int = 0
 
 @onready var background: ColorRect = $Background
 @onready var terminal_vbox: VBoxContainer = $VBox
 @onready var output_scroll: ScrollContainer = $VBox/OutputScroll
+@onready var output_content: VBoxContainer = $VBox/OutputScroll/OutputContent
 @onready var output_label: RichTextLabel = $VBox/OutputScroll/OutputContent/Output
 @onready var bottom_spacer: Control = $VBox/OutputScroll/OutputContent/BottomSpacer
 @onready var prompt_label: Label = $VBox/InputRow/Prompt
@@ -74,6 +84,59 @@ var editor_default_syntax_highlighter: SyntaxHighlighter = null
 @onready var editor_overlay: Control = $EditorOverlay
 @onready var editor: CodeEdit = $EditorOverlay/EditorLayout/Editor
 @onready var editor_status_label: Label = $EditorOverlay/EditorLayout/EditorStatus
+
+
+func _is_ls_command(command_text: String) -> bool:
+	return command_text == "ls" or command_text.begins_with("ls ")
+
+
+func _log_scroll_debug(event_name: String, detail: String = "") -> void:
+	if not enable_scroll_debug_log:
+		return
+
+	scroll_debug_event_seq += 1
+	var frame := Engine.get_process_frames()
+	var ticks := Time.get_ticks_msec()
+
+	var scroll_value := -1.0
+	var scroll_max := -1.0
+	var scroll_page := -1.0
+	var content_height := -1.0
+	var spacer_height := -1.0
+	if output_scroll != null:
+		var v_scroll := output_scroll.get_v_scroll_bar()
+		if v_scroll != null:
+			scroll_value = v_scroll.value
+			scroll_max = v_scroll.max_value
+			scroll_page = v_scroll.page
+	if output_label != null:
+		content_height = _get_output_content_height()
+	if bottom_spacer != null:
+		spacer_height = bottom_spacer.custom_minimum_size.y
+
+	var message := "[SCROLLDBG #%d frame=%d ms=%d] %s | value=%.2f max=%.2f page=%.2f content=%.2f spacer=%.2f anchor(active=%s blank=%.2f base=%.2f) cmd(active=%d ls=%d) flags(programmatic=%s pending_settle=%s pending_overflow=%s lines=%d" % [
+		scroll_debug_event_seq,
+		frame,
+		ticks,
+		event_name,
+		scroll_value,
+		scroll_max,
+		scroll_page,
+		content_height,
+		spacer_height,
+		str(is_motd_anchor_active),
+		motd_anchor_blank_px,
+		motd_anchor_base_content_px,
+		active_command_sequence,
+		active_ls_sequence,
+		str(is_programmatic_scroll_change),
+		str(has_pending_scroll_settle),
+		str(has_pending_anchor_overflow_check),
+		text_buffer.size(),
+	]
+	if not detail.is_empty():
+		message += " | " + detail
+	print(message)
 
 
 func _ready() -> void:
@@ -147,6 +210,18 @@ func _on_input_submitted(command_text: String) -> void:
 
 	_reset_completion_session()
 	var trimmed: String = command_text.strip_edges()
+	var is_ls := _is_ls_command(trimmed)
+	if not trimmed.is_empty():
+		terminal_command_sequence += 1
+		active_command_sequence = terminal_command_sequence
+		if is_ls:
+			ls_command_sequence += 1
+			active_ls_sequence = ls_command_sequence
+		else:
+			active_ls_sequence = 0
+	_log_scroll_debug(
+		"input_submitted",
+		"command='%s' cmd_seq=%d ls_seq=%d" % [trimmed, active_command_sequence, active_ls_sequence])
 	if trimmed.is_empty():
 		_reset_history_navigation()
 		input_line.clear()
@@ -726,15 +801,17 @@ func _append_output(line: String, mode: String = "") -> void:
 
 
 func _clear_terminal_output() -> void:
+	_log_scroll_debug("_clear_terminal_output:before")
 	text_buffer.clear()
 	output_label.text = ""
 	motd_anchor_requires_fresh_measurement = false
 	motd_anchor_measurement_probe_height = -1.0
-	_dismiss_motd_anchor()
+	_dismiss_motd_anchor("clear_terminal_output")
 	_set_bottom_spacer_height(0.0)
 	has_pending_scroll_settle = false
 	has_pending_anchor_overflow_check = false
 	_clear_programmatic_scroll_change()
+	_log_scroll_debug("_clear_terminal_output:after")
 
 
 func _append_output_batch(lines: Array[String], mode: String = "", forced_content_before: float = -1.0) -> void:
@@ -744,6 +821,9 @@ func _append_output_batch(lines: Array[String], mode: String = "", forced_conten
 	var resolved_mode := mode
 	if resolved_mode.is_empty():
 		resolved_mode = _resolve_default_output_mode()
+	_log_scroll_debug(
+		"_append_output_batch:start",
+		"lines=%d mode='%s' resolved='%s' forced_before=%.2f" % [lines.size(), mode, resolved_mode, forced_content_before])
 
 	var content_before := forced_content_before
 	if content_before < 0.0:
@@ -753,10 +833,19 @@ func _append_output_batch(lines: Array[String], mode: String = "", forced_conten
 	if text_buffer.size() > max_scrollback_lines:
 		text_buffer = text_buffer.slice(text_buffer.size() - max_scrollback_lines, text_buffer.size())
 	output_label.text = "\n".join(text_buffer)
+	_log_scroll_debug(
+		"_append_output_batch:post_text",
+		"lines=%d content_before=%.2f content_after=%.2f resolved='%s'" % [
+			lines.size(),
+			content_before,
+			_get_output_content_height(),
+			resolved_mode,
+		])
 	call_deferred("_post_append_output", resolved_mode, content_before)
 
 
 func _post_append_output(mode: String, content_before: float) -> void:
+	_log_scroll_debug("_post_append_output", "mode='%s' content_before=%.2f" % [mode, content_before])
 	if mode == OUTPUT_SCROLL_MODE_MOTD_ANCHOR_ACTIVATE:
 		_activate_motd_anchor(content_before)
 		return
@@ -767,17 +856,28 @@ func _post_append_output(mode: String, content_before: float) -> void:
 func _apply_default_scroll_policy_after_append() -> void:
 	if is_motd_anchor_active:
 		var grown_px := maxf(0.0, _get_output_content_height() - motd_anchor_base_content_px)
-		if grown_px > motd_anchor_blank_px:
-			_dismiss_motd_anchor()
+		_log_scroll_debug(
+			"_apply_default_scroll_policy_after_append:anchor",
+			"grown=%.2f blank=%.2f overflow=%s" % [
+				grown_px,
+				motd_anchor_blank_px,
+				str(_has_motd_anchor_overflow(grown_px)),
+			])
+		if _has_motd_anchor_overflow(grown_px):
+			_dismiss_motd_anchor("default_policy_overflow")
 			_scroll_to_bottom()
 		else:
-			_schedule_anchor_overflow_check()
+			_schedule_anchor_overflow_check(0)
 		return
 
+	_log_scroll_debug("_apply_default_scroll_policy_after_append:no_anchor")
 	_scroll_to_bottom()
 
 
 func _activate_motd_anchor(content_before: float, retry_count: int = 0) -> void:
+	_log_scroll_debug(
+		"_activate_motd_anchor:start",
+		"content_before=%.2f retry=%d fresh=%s" % [content_before, retry_count, str(motd_anchor_requires_fresh_measurement)])
 	var content_after := _get_output_content_height()
 	if motd_anchor_requires_fresh_measurement:
 		# After clear->append, RichTextLabel layout can settle over multiple frames.
@@ -809,7 +909,7 @@ func _activate_motd_anchor(content_before: float, retry_count: int = 0) -> void:
 		# Fallback for headless/zero-size layouts: skip anchor and keep normal bottom scroll.
 		motd_anchor_requires_fresh_measurement = false
 		motd_anchor_measurement_probe_height = -1.0
-		_dismiss_motd_anchor()
+		_dismiss_motd_anchor("activate_viewport_fallback")
 		_scroll_to_bottom()
 		return
 
@@ -827,10 +927,21 @@ func _activate_motd_anchor(content_before: float, retry_count: int = 0) -> void:
 	motd_anchor_blank_px = blank_px
 	motd_anchor_base_content_px = content_after
 	has_pending_anchor_overflow_check = false
+	_log_scroll_debug(
+		"_activate_motd_anchor:applied",
+		"content_after=%.2f motd_height=%.2f viewport=%.2f blank=%.2f retry=%d" % [
+			content_after,
+			motd_height_px,
+			viewport_height_px,
+			blank_px,
+			retry_count,
+		])
 	_scroll_to_bottom()
 
 
-func _dismiss_motd_anchor() -> void:
+func _dismiss_motd_anchor(reason: String = "") -> void:
+	_log_scroll_debug("_dismiss_motd_anchor", "reason='%s'" % reason)
+	var had_anchor := is_motd_anchor_active or motd_anchor_blank_px > 0.0
 	is_programmatic_scroll_change = true
 	_set_bottom_spacer_height(0.0)
 	call_deferred("_clear_programmatic_scroll_change")
@@ -838,6 +949,9 @@ func _dismiss_motd_anchor() -> void:
 	motd_anchor_blank_px = 0.0
 	motd_anchor_base_content_px = 0.0
 	has_pending_anchor_overflow_check = false
+	if had_anchor:
+		_request_scroll_layout_refresh_after_anchor_release()
+		_schedule_anchor_release_realign(0)
 
 
 func _set_bottom_spacer_height(height_px: float) -> void:
@@ -845,25 +959,101 @@ func _set_bottom_spacer_height(height_px: float) -> void:
 	bottom_spacer.custom_minimum_size = Vector2(spacer_size.x, maxf(0.0, height_px))
 
 
-func _schedule_anchor_overflow_check() -> void:
+func _request_scroll_layout_refresh_after_anchor_release() -> void:
+	output_label.update_minimum_size()
+	bottom_spacer.update_minimum_size()
+	output_content.update_minimum_size()
+	output_content.queue_sort()
+	output_scroll.update_minimum_size()
+	output_scroll.queue_sort()
+
+
+func _schedule_anchor_release_realign(retry_count: int = 0) -> void:
+	if has_pending_anchor_release_realign:
+		_log_scroll_debug(
+			"_schedule_anchor_release_realign:skip",
+			"retry=%d already_pending=true" % retry_count)
+		return
+	has_pending_anchor_release_realign = true
+	_log_scroll_debug(
+		"_schedule_anchor_release_realign:armed",
+		"retry=%d delay=%.3f" % [retry_count, SCROLL_LAYOUT_SETTLE_DELAY_SECONDS])
+	var realign_timer := get_tree().create_timer(SCROLL_LAYOUT_SETTLE_DELAY_SECONDS)
+	realign_timer.timeout.connect(func() -> void:
+		_on_anchor_release_realign_timeout(retry_count))
+
+
+func _on_anchor_release_realign_timeout(retry_count: int) -> void:
+	has_pending_anchor_release_realign = false
+	if is_motd_anchor_active:
+		_log_scroll_debug(
+			"_on_anchor_release_realign_timeout:skip",
+			"retry=%d anchor_active=true" % retry_count)
+		return
+
+	_request_scroll_layout_refresh_after_anchor_release()
+	_set_scroll_to_max()
+	var has_extent_mismatch := _has_scroll_extent_mismatch()
+	_log_scroll_debug(
+		"_on_anchor_release_realign_timeout:check",
+		"retry=%d mismatch=%s" % [retry_count, str(has_extent_mismatch)])
+
+	if has_extent_mismatch and retry_count < MOTD_ANCHOR_MAX_ACTIVATION_RETRIES:
+		_schedule_anchor_release_realign(retry_count + 1)
+
+
+func _has_scroll_extent_mismatch(tolerance_px: float = 8.0) -> bool:
+	var v_scroll := output_scroll.get_v_scroll_bar()
+	if v_scroll == null:
+		return false
+
+	var expected_max := _get_output_content_height() + bottom_spacer.custom_minimum_size.y + 4.0
+	return absf(v_scroll.max_value - expected_max) > tolerance_px
+
+
+func _schedule_anchor_overflow_check(retry_count: int = 0) -> void:
 	if has_pending_anchor_overflow_check:
+		_log_scroll_debug(
+			"_schedule_anchor_overflow_check:skip",
+			"retry=%d already_pending=true" % retry_count)
 		return
 	has_pending_anchor_overflow_check = true
-	var overflow_timer := get_tree().create_timer(0.0)
-	overflow_timer.timeout.connect(_on_anchor_overflow_check_timeout)
+	_log_scroll_debug(
+		"_schedule_anchor_overflow_check:armed",
+		"retry=%d delay=%.3f" % [retry_count, SCROLL_LAYOUT_SETTLE_DELAY_SECONDS])
+	var overflow_timer := get_tree().create_timer(SCROLL_LAYOUT_SETTLE_DELAY_SECONDS)
+	overflow_timer.timeout.connect(func() -> void:
+		_on_anchor_overflow_check_timeout(retry_count))
 
 
-func _on_anchor_overflow_check_timeout() -> void:
+func _on_anchor_overflow_check_timeout(retry_count: int) -> void:
 	has_pending_anchor_overflow_check = false
 	if not is_motd_anchor_active:
+		_log_scroll_debug(
+			"_on_anchor_overflow_check_timeout:skip",
+			"retry=%d anchor_active=false" % retry_count)
 		return
 
 	var grown_px := maxf(0.0, _get_output_content_height() - motd_anchor_base_content_px)
-	if grown_px <= motd_anchor_blank_px:
+	_log_scroll_debug(
+		"_on_anchor_overflow_check_timeout:check",
+		"retry=%d grown=%.2f blank=%.2f overflow=%s" % [
+			retry_count,
+			grown_px,
+			motd_anchor_blank_px,
+			str(_has_motd_anchor_overflow(grown_px)),
+		])
+	if _has_motd_anchor_overflow(grown_px):
+		_dismiss_motd_anchor("overflow_check_timeout")
+		_scroll_to_bottom()
 		return
 
-	_dismiss_motd_anchor()
-	_scroll_to_bottom()
+	if retry_count < MOTD_ANCHOR_MAX_ACTIVATION_RETRIES:
+		_schedule_anchor_overflow_check(retry_count + 1)
+
+
+func _has_motd_anchor_overflow(grown_px: float) -> bool:
+	return grown_px >= (motd_anchor_blank_px - MOTD_ANCHOR_OVERFLOW_TOLERANCE_PX)
 
 
 func _resolve_default_output_mode() -> String:
@@ -877,17 +1067,23 @@ func _get_output_content_height() -> float:
 
 
 func _scroll_to_bottom() -> void:
+	_log_scroll_debug("_scroll_to_bottom:start")
 	if not _set_scroll_to_max():
+		_log_scroll_debug("_scroll_to_bottom:abort", "set_scroll_to_max=false")
 		return
 
 	is_programmatic_scroll_change = true
 	call_deferred("_set_scroll_to_max")
 
 	if has_pending_scroll_settle:
+		_log_scroll_debug("_scroll_to_bottom:skip_settle", "already_pending=true")
 		return
 
 	has_pending_scroll_settle = true
-	var settle_timer := get_tree().create_timer(0.0)
+	_log_scroll_debug(
+		"_scroll_to_bottom:arm_settle",
+		"delay=%.3f" % SCROLL_LAYOUT_SETTLE_DELAY_SECONDS)
+	var settle_timer := get_tree().create_timer(SCROLL_LAYOUT_SETTLE_DELAY_SECONDS)
 	settle_timer.timeout.connect(_on_scroll_settle_timeout)
 
 
@@ -897,13 +1093,18 @@ func _set_scroll_to_max() -> bool:
 		return false
 
 	output_scroll.scroll_vertical = int(v_scroll.max_value)
+	_log_scroll_debug(
+		"_set_scroll_to_max",
+		"applied_value=%d raw_max=%.2f" % [output_scroll.scroll_vertical, v_scroll.max_value])
 	return true
 
 
 func _on_scroll_settle_timeout() -> void:
+	_log_scroll_debug("_on_scroll_settle_timeout:start")
 	has_pending_scroll_settle = false
 	_set_scroll_to_max()
 	call_deferred("_clear_programmatic_scroll_change")
+	_log_scroll_debug("_on_scroll_settle_timeout:end")
 
 
 func _clear_programmatic_scroll_change() -> void:
@@ -911,13 +1112,19 @@ func _clear_programmatic_scroll_change() -> void:
 
 
 func _on_output_scroll_value_changed(_value: float) -> void:
+	_log_scroll_debug(
+		"_on_output_scroll_value_changed:start",
+		"value=%.2f" % _value)
 	if is_programmatic_scroll_change:
+		_log_scroll_debug("_on_output_scroll_value_changed:skip", "programmatic=true")
 		return
 	if not is_motd_anchor_active:
+		_log_scroll_debug("_on_output_scroll_value_changed:skip", "anchor_active=false")
 		return
 
 	var was_at_bottom := _is_output_scroll_at_bottom()
-	_dismiss_motd_anchor()
+	_log_scroll_debug("_on_output_scroll_value_changed:anchor", "was_at_bottom=%s" % str(was_at_bottom))
+	_dismiss_motd_anchor("scroll_value_changed")
 	if was_at_bottom:
 		_scroll_to_bottom()
 
@@ -1208,6 +1415,14 @@ func _apply_systemcall_response(response: Dictionary) -> void:
 	var previous_node_id := current_node_id
 	var next_node_id: String = str(response.get("nextNodeId", ""))
 	var lines := _variant_lines_to_string_array(response.get("lines", []))
+	_log_scroll_debug(
+		"_apply_systemcall_response:start",
+		"lines=%d clear=%s activate_motd=%s code='%s'" % [
+			lines.size(),
+			str(should_clear_terminal),
+			str(force_motd_anchor),
+			str(response.get("code", "")),
+		])
 	var is_connect_motd := lines.size() > 0 and not next_node_id.is_empty() and next_node_id != previous_node_id
 	var should_activate_motd_anchor := force_motd_anchor or is_connect_motd
 	if should_activate_motd_anchor:
@@ -1253,6 +1468,13 @@ func _apply_systemcall_response(response: Dictionary) -> void:
 			editor_path_exists)
 
 	_sync_program_running_state_from_runtime()
+	_log_scroll_debug(
+		"_apply_systemcall_response:end",
+		"open_editor=%s next_node='%s' next_cwd='%s'" % [
+			str(should_open_editor),
+			current_node_id,
+			current_cwd,
+		])
 
 
 func _request_program_interrupt() -> void:
