@@ -1,9 +1,6 @@
 # Nexus Link
 
 > **Terminal-based coding & hacking simulation game prototype** (Godot 4.6 .NET / Windows)
->
-> This project is not about "recreating real hacking" — it's a game where players
-> **build and refine tools (programs)** to solve missions within a safe, virtual world ruleset.
 
 ## Screenshots
 
