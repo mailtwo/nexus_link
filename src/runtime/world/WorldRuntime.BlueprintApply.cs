@@ -271,20 +271,14 @@ public partial class WorldRuntime
             return contentId;
         }
 
-        var absolutePath = ProjectSettings.GlobalizePath(contentId);
-        if (!File.Exists(absolutePath))
-        {
-            throw new FileNotFoundException($"Blueprint content file not found: {contentId}", absolutePath);
-        }
-
         if (fileKind == BlueprintFileKind.Text ||
             fileKind == BlueprintFileKind.ExecutableScript ||
             fileKind == BlueprintFileKind.ExecutableHardcode)
         {
-            return File.ReadAllText(absolutePath, Encoding.UTF8);
+            return ReadAllTextFromPath(contentId);
         }
 
-        var bytes = File.ReadAllBytes(absolutePath);
+        var bytes = ReadAllBytesFromPath(contentId);
         return Convert.ToBase64String(bytes);
     }
 

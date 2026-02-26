@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using YamlDotNet.Serialization;
+using Godot;
 
 #nullable enable
 
@@ -34,13 +35,12 @@ public sealed partial class BlueprintYamlReader
             throw new ArgumentException("Directory path cannot be empty.", nameof(directoryPath));
         }
 
-        if (!Directory.Exists(directoryPath))
+        if (!DirectoryExists(directoryPath))
         {
             throw new DirectoryNotFoundException($"Directory not found: {directoryPath}");
         }
 
-        var filePaths = Directory
-            .GetFiles(directoryPath, searchPattern, searchOption)
+        var filePaths = GetFiles(directoryPath, searchPattern, searchOption)
             .OrderBy(path => path, StringComparer.Ordinal)
             .ToArray();
 
@@ -67,7 +67,7 @@ public sealed partial class BlueprintYamlReader
 
         foreach (var filePath in filePaths)
         {
-            if (!File.Exists(filePath))
+            if (!FileExists(filePath))
             {
                 errors.Add($"{filePath}: file not found.");
                 continue;
@@ -89,7 +89,7 @@ public sealed partial class BlueprintYamlReader
         object? rawDocument;
         try
         {
-            using var reader = File.OpenText(filePath);
+            using var reader = new StringReader(ReadAllText(filePath));
             rawDocument = deserializer.Deserialize(reader);
         }
         catch (Exception ex)
@@ -113,5 +113,133 @@ public sealed partial class BlueprintYamlReader
         ParseServerSpecs(rootMap, filePath, catalog, errors);
         ParseScenarios(rootMap, filePath, catalog, errors, warningSink);
         ParseCampaigns(rootMap, filePath, catalog, errors);
+    }
+
+    private static bool IsGodotVirtualPath(string path)
+    {
+        return path.StartsWith("res://", StringComparison.Ordinal) ||
+               path.StartsWith("user://", StringComparison.Ordinal);
+    }
+
+    private static bool DirectoryExists(string directoryPath)
+    {
+        if (!IsGodotVirtualPath(directoryPath))
+        {
+            return Directory.Exists(directoryPath);
+        }
+
+        using var dir = DirAccess.Open(directoryPath);
+        return dir is not null;
+    }
+
+    private static IEnumerable<string> GetFiles(
+        string directoryPath,
+        string searchPattern,
+        SearchOption searchOption)
+    {
+        if (!IsGodotVirtualPath(directoryPath))
+        {
+            return Directory.GetFiles(directoryPath, searchPattern, searchOption);
+        }
+
+        return EnumerateGodotVirtualFiles(
+            directoryPath,
+            searchPattern,
+            recursive: searchOption == SearchOption.AllDirectories);
+    }
+
+    private static IEnumerable<string> EnumerateGodotVirtualFiles(
+        string rootPath,
+        string searchPattern,
+        bool recursive)
+    {
+        var files = new List<string>();
+        var pendingDirectories = new Stack<string>();
+        pendingDirectories.Push(rootPath.TrimEnd('/'));
+
+        while (pendingDirectories.Count > 0)
+        {
+            var currentDirectory = pendingDirectories.Pop();
+            using var dir = DirAccess.Open(currentDirectory);
+            if (dir is null)
+            {
+                continue;
+            }
+
+            dir.ListDirBegin();
+            while (true)
+            {
+                var entryName = dir.GetNext();
+                if (string.IsNullOrEmpty(entryName))
+                {
+                    break;
+                }
+
+                if (entryName is "." or "..")
+                {
+                    continue;
+                }
+
+                var entryPath = currentDirectory + "/" + entryName;
+                if (dir.CurrentIsDir())
+                {
+                    if (recursive)
+                    {
+                        pendingDirectories.Push(entryPath);
+                    }
+
+                    continue;
+                }
+
+                if (MatchesSearchPattern(entryName, searchPattern))
+                {
+                    files.Add(entryPath);
+                }
+            }
+
+            dir.ListDirEnd();
+        }
+
+        return files;
+    }
+
+    private static bool FileExists(string filePath)
+    {
+        return IsGodotVirtualPath(filePath)
+            ? Godot.FileAccess.FileExists(filePath)
+            : File.Exists(filePath);
+    }
+
+    private static string ReadAllText(string filePath)
+    {
+        if (!IsGodotVirtualPath(filePath))
+        {
+            return File.ReadAllText(filePath);
+        }
+
+        using var file = Godot.FileAccess.Open(filePath, Godot.FileAccess.ModeFlags.Read);
+        if (file is null)
+        {
+            throw new IOException($"Failed to open YAML file '{filePath}' with Godot FileAccess.");
+        }
+
+        return file.GetAsText();
+    }
+
+    private static bool MatchesSearchPattern(string fileName, string searchPattern)
+    {
+        if (string.IsNullOrWhiteSpace(searchPattern) ||
+            string.Equals(searchPattern, "*", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (searchPattern.StartsWith("*.", StringComparison.Ordinal))
+        {
+            var extension = searchPattern[1..];
+            return fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return string.Equals(fileName, searchPattern, StringComparison.OrdinalIgnoreCase);
     }
 }

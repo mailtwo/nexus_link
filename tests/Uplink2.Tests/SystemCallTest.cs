@@ -7751,13 +7751,8 @@ public sealed class SystemCallTest
         var loadCalls = ExtractCalledMethods((MethodInfo)loadDefaultMotdContent!);
         Assert.Contains(
             loadCalls,
-            static called => string.Equals(called.DeclaringType?.FullName, "Godot.ProjectSettings", StringComparison.Ordinal) &&
-                             string.Equals(called.Name, "GlobalizePath", StringComparison.Ordinal));
-        Assert.Contains(
-            loadCalls,
-            static called => called.DeclaringType == typeof(File) &&
-                             string.Equals(called.Name, nameof(File.ReadAllText), StringComparison.Ordinal) &&
-                             called.GetParameters().Length == 2);
+            static called => called.DeclaringType == typeof(WorldRuntime) &&
+                             string.Equals(called.Name, "ReadAllTextFromPath", StringComparison.Ordinal));
 
         var loadLiterals = ExtractStringLiterals((MethodInfo)loadDefaultMotdContent);
         Assert.Contains("res://scenario_content/resources/text/default_motd.txt", loadLiterals);

@@ -410,16 +410,15 @@ public partial class WorldRuntime
                     $"guardContent path must be project-root relative. scenarioId='{scenario.ScenarioId}', eventId='{eventId}', path='{relativePath}'.");
             }
 
-            var projectRoot = ProjectSettings.GlobalizePath("res://");
-            var absolutePath = Path.GetFullPath(Path.Combine(projectRoot, relativePath));
-            if (!File.Exists(absolutePath))
+            var resourcePath = NormalizeProjectRelativeResourcePath(relativePath);
+            if (!Godot.FileAccess.FileExists(resourcePath))
             {
                 throw new FileNotFoundException(
                     $"guardContent path file was not found. scenarioId='{scenario.ScenarioId}', eventId='{eventId}', path='{relativePath}'.",
-                    absolutePath);
+                    resourcePath);
             }
 
-            var sourceBody = File.ReadAllText(absolutePath, Encoding.UTF8);
+            var sourceBody = ReadAllTextFromPath(resourcePath);
             return (GuardSourceKind.Path, relativePath, sourceBody);
         }
 

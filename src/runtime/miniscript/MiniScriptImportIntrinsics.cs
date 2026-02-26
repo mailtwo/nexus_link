@@ -345,7 +345,7 @@ internal static class MiniScriptImportIntrinsics
         string sourceText;
         try
         {
-            sourceText = File.ReadAllText(entry.AbsolutePath, Encoding.UTF8);
+            sourceText = ReadAllTextFromAnyPath(entry.AbsolutePath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
@@ -623,12 +623,89 @@ internal static class MiniScriptImportIntrinsics
                value[1] == ':';
     }
 
+    private static bool IsGodotVirtualPath(string path)
+    {
+        return path.StartsWith("res://", StringComparison.OrdinalIgnoreCase) ||
+               path.StartsWith("user://", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<string> EnumerateGodotVirtualFiles(string rootPath, string extensionWithDot)
+    {
+        var normalizedRoot = rootPath.TrimEnd('/');
+        var pendingDirectories = new Stack<string>();
+        pendingDirectories.Push(normalizedRoot);
+        var files = new List<string>();
+
+        while (pendingDirectories.Count > 0)
+        {
+            var currentDirectory = pendingDirectories.Pop();
+            using var dir = Godot.DirAccess.Open(currentDirectory);
+            if (dir is null)
+            {
+                continue;
+            }
+
+            dir.ListDirBegin();
+            while (true)
+            {
+                var entryName = dir.GetNext();
+                if (string.IsNullOrEmpty(entryName))
+                {
+                    break;
+                }
+
+                if (entryName is "." or "..")
+                {
+                    continue;
+                }
+
+                var entryPath = currentDirectory + "/" + entryName;
+                if (dir.CurrentIsDir())
+                {
+                    pendingDirectories.Push(entryPath);
+                    continue;
+                }
+
+                if (entryName.EndsWith(extensionWithDot, StringComparison.OrdinalIgnoreCase))
+                {
+                    files.Add(entryPath);
+                }
+            }
+
+            dir.ListDirEnd();
+        }
+
+        return files;
+    }
+
+    private static string ReadAllTextFromAnyPath(string path)
+    {
+        if (!IsGodotVirtualPath(path))
+        {
+            return File.ReadAllText(path, Encoding.UTF8);
+        }
+
+        using var file = Godot.FileAccess.Open(path, Godot.FileAccess.ModeFlags.Read);
+        if (file is null)
+        {
+            throw new IOException($"Failed to open '{path}' with Godot FileAccess.");
+        }
+
+        return file.GetAsText();
+    }
+
     private static string DefaultResolveAbsoluteStdlibPath(string resourcePath)
     {
         var trimmedPath = resourcePath?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(trimmedPath))
         {
             return string.Empty;
+        }
+
+        if (trimmedPath.StartsWith("res://", StringComparison.OrdinalIgnoreCase) ||
+            trimmedPath.StartsWith("user://", StringComparison.OrdinalIgnoreCase))
+        {
+            return trimmedPath;
         }
 
         if (!trimmedPath.StartsWith("res://", StringComparison.OrdinalIgnoreCase))
@@ -643,17 +720,7 @@ internal static class MiniScriptImportIntrinsics
             }
         }
 
-        var relativePath = trimmedPath[6..]
-            .Replace('/', Path.DirectorySeparatorChar)
-            .TrimStart(Path.DirectorySeparatorChar);
-        var projectRoot = TryFindProjectRoot(AppContext.BaseDirectory) ??
-                          TryFindProjectRoot(Directory.GetCurrentDirectory());
-        if (string.IsNullOrWhiteSpace(projectRoot))
-        {
-            return string.Empty;
-        }
-
-        return Path.Combine(projectRoot, relativePath);
+        return trimmedPath;
     }
 
     private static string? TryFindProjectRoot(string startPath)
@@ -813,19 +880,51 @@ internal static class MiniScriptImportIntrinsics
             }
 
             var resolvedRootPath = ResolveAbsoluteStdlibPath(StandardLibraryResourceRoot);
-            if (string.IsNullOrWhiteSpace(resolvedRootPath) || !Directory.Exists(resolvedRootPath))
+            if (string.IsNullOrWhiteSpace(resolvedRootPath))
             {
                 standardLibraryIndex = StandardLibraryIndex.Empty;
                 return standardLibraryIndex;
             }
 
             var entries = new List<StandardLibraryEntry>();
-            var absoluteFiles = Directory.GetFiles(resolvedRootPath, "*.ms", SearchOption.AllDirectories);
-            foreach (var absoluteFilePath in absoluteFiles)
+            IEnumerable<string> libraryFiles;
+            if (IsGodotVirtualPath(resolvedRootPath))
             {
-                var relativePath = Path.GetRelativePath(resolvedRootPath, absoluteFilePath)
-                    .Replace('\\', '/')
-                    .Trim();
+                if (Godot.DirAccess.Open(resolvedRootPath) is null)
+                {
+                    standardLibraryIndex = StandardLibraryIndex.Empty;
+                    return standardLibraryIndex;
+                }
+
+                libraryFiles = EnumerateGodotVirtualFiles(resolvedRootPath, ".ms");
+            }
+            else
+            {
+                if (!Directory.Exists(resolvedRootPath))
+                {
+                    standardLibraryIndex = StandardLibraryIndex.Empty;
+                    return standardLibraryIndex;
+                }
+
+                libraryFiles = Directory.GetFiles(resolvedRootPath, "*.ms", SearchOption.AllDirectories);
+            }
+
+            foreach (var absoluteFilePath in libraryFiles)
+            {
+                string relativePath;
+                if (IsGodotVirtualPath(resolvedRootPath))
+                {
+                    relativePath = absoluteFilePath.StartsWith(resolvedRootPath + "/", StringComparison.Ordinal)
+                        ? absoluteFilePath[(resolvedRootPath.Length + 1)..]
+                        : absoluteFilePath;
+                }
+                else
+                {
+                    relativePath = Path.GetRelativePath(resolvedRootPath, absoluteFilePath)
+                        .Replace('\\', '/');
+                }
+
+                relativePath = relativePath.Trim();
                 if (string.IsNullOrWhiteSpace(relativePath))
                 {
                     continue;

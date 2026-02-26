@@ -30,13 +30,7 @@ public partial class WorldRuntime
     /// <summary>Loads default /etc/motd text from packaged scenario resources.</summary>
     private string LoadDefaultMotdContent()
     {
-        var absolutePath = ProjectSettings.GlobalizePath(DefaultMotdFile);
-        if (!File.Exists(absolutePath))
-        {
-            throw new FileNotFoundException($"Default MOTD file not found: {DefaultMotdFile}", absolutePath);
-        }
-
-        return File.ReadAllText(absolutePath, Encoding.UTF8);
+        return ReadAllTextFromPath(DefaultMotdFile);
     }
 
     /// <summary>Builds a fresh runtime world from blueprint YAML files after game systems are initialized.</summary>
@@ -98,13 +92,7 @@ public partial class WorldRuntime
         var dictionaryFile = string.IsNullOrWhiteSpace(DictionaryPasswordFile)
             ? DefaultDictionaryPasswordFile
             : DictionaryPasswordFile.Trim();
-        var absolutePath = ProjectSettings.GlobalizePath(dictionaryFile);
-        if (!File.Exists(absolutePath))
-        {
-            throw new FileNotFoundException($"Dictionary password file not found: {dictionaryFile}", absolutePath);
-        }
-
-        var loadedPool = File.ReadLines(absolutePath, Encoding.UTF8)
+        var loadedPool = ReadAllLinesFromPath(dictionaryFile)
             .Select(static line => line.Trim())
             .Where(static line => !string.IsNullOrWhiteSpace(line))
             .Distinct(StringComparer.Ordinal)
@@ -125,9 +113,8 @@ public partial class WorldRuntime
         var directory = string.IsNullOrWhiteSpace(BlueprintDirectory)
             ? DefaultBlueprintDirectory
             : BlueprintDirectory.Trim();
-        var absoluteDirectory = ProjectSettings.GlobalizePath(directory);
         var yamlReader = new BlueprintYamlReader(static warning => GD.PushWarning(warning));
-        return yamlReader.ReadDirectory(absoluteDirectory, "*.yaml", SearchOption.AllDirectories);
+        return yamlReader.ReadDirectory(directory, "*.yaml", SearchOption.AllDirectories);
     }
 
     /// <summary>Resolves startup scenarios from explicit scenario id or configured campaign tree.</summary>
@@ -317,6 +304,84 @@ public partial class WorldRuntime
         ResetConnectionRateLimiterState();
         ResetInspectProbeRateLimitState();
         ResetEventRuntimeState();
+    }
+
+    private static bool IsGodotVirtualPath(string path)
+    {
+        return path.StartsWith("res://", StringComparison.Ordinal) ||
+               path.StartsWith("user://", StringComparison.Ordinal);
+    }
+
+    private static string NormalizeProjectRelativeResourcePath(string relativePath)
+    {
+        var trimmed = relativePath.Trim();
+        if (IsGodotVirtualPath(trimmed))
+        {
+            return trimmed;
+        }
+
+        return "res://" + trimmed.Replace('\\', '/').TrimStart('/');
+    }
+
+    private static string ReadAllTextFromPath(string path)
+    {
+        if (!IsGodotVirtualPath(path))
+        {
+            if (!File.Exists(path))
+            {
+                throw new FileNotFoundException($"File not found: {path}", path);
+            }
+
+            return File.ReadAllText(path, Encoding.UTF8);
+        }
+
+        if (!Godot.FileAccess.FileExists(path))
+        {
+            throw new FileNotFoundException($"File not found: {path}", path);
+        }
+
+        using var file = Godot.FileAccess.Open(path, Godot.FileAccess.ModeFlags.Read);
+        if (file is null)
+        {
+            throw new IOException($"Failed to open file '{path}' with Godot FileAccess.");
+        }
+
+        return file.GetAsText();
+    }
+
+    private static byte[] ReadAllBytesFromPath(string path)
+    {
+        if (!IsGodotVirtualPath(path))
+        {
+            if (!File.Exists(path))
+            {
+                throw new FileNotFoundException($"File not found: {path}", path);
+            }
+
+            return File.ReadAllBytes(path);
+        }
+
+        if (!Godot.FileAccess.FileExists(path))
+        {
+            throw new FileNotFoundException($"File not found: {path}", path);
+        }
+
+        using var file = Godot.FileAccess.Open(path, Godot.FileAccess.ModeFlags.Read);
+        if (file is null)
+        {
+            throw new IOException($"Failed to open file '{path}' with Godot FileAccess.");
+        }
+
+        return file.GetBuffer((long)file.GetLength()).ToArray();
+    }
+
+    private static IEnumerable<string> ReadAllLinesFromPath(string path)
+    {
+        var content = ReadAllTextFromPath(path);
+        return content
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n');
     }
 
 }
