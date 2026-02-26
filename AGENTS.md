@@ -30,6 +30,20 @@ This project follows context7 principles:
 - If you find inconsistencies, report them as:  
   `DocA <section> contradicts DocB <section>: <1–2 line summary>`, in Korean.
 
+### Decisions Log
+- `DECISIONS.md` records the history of design decisions made in `plans/` documents.
+- Only record **planning/design decisions** — not code changes (use git commits for those).
+- Always read before implementing to avoid unknowingly reversing prior decisions.
+- Each entry must include **what was decided** and **why**.1. list text here
+
+### TODO Policy
+- `TODO.md` tracks features specified in `plans/` documents
+  that were explicitly deferred by the developer during implementation.
+- Add to `TODO.md` only when the developer explicitly says to skip or defer
+  a planned feature (e.g., "implement this later", "skip for now").
+- Do NOT add entire plan documents to `TODO.md` when a new plan is introduced.
+- Remove entries from `TODO.md` once the corresponding feature is implemented.
+
 ### Code Documentation Policy
 - Add XML docstrings for all `public`/`protected` classes and members.
 - For `private` members, write docstrings only when the logic is non-obvious or risky.

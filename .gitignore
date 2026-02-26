@@ -21,8 +21,6 @@ mono_crash.*.json
 **/obj/
 TestResults/
 
-TODO.md
-
 # DocFX generated outputs
 docfx_api_document/_site/
 docfx_api_document/api/.manifest

@@ -23,6 +23,7 @@ If you are implementing a feature, modifying specs, or updating docs, **start he
 
 | You are changing… | SSOT doc to edit |
 |---|---|
+| Market/genre research & differentiation | `01_existing_hacking_games.md` |
 | MiniScript language embedding / interpreter integration (not API list) | `02_miniscript_interpreter_and_constraints.md` |
 | MiniScript **intrinsics** (public API surface, ResultMap shapes, error codes) | `03_game_api_modules.md` |
 | Player strategies / missions / routes / gameplay ideas | `04_attack_routes_and_missions.md` |
@@ -34,7 +35,7 @@ If you are implementing a feature, modifying specs, or updating docs, **start he
 | Save/Load and persistence boundaries | `12_save_load_persistence_spec_v0_1.md` |
 | Multi-window engine contract | `13_multi_window_engine_contract_v1.md` |
 | Official programs (ExecutableHardcode/ExecutableScript) and their contracts | `14_official_programs.md` |
-| Market/genre research & differentiation | `01_existing_hacking_games.md` |
+| 게임 플로우 / 온보딩 / 튜토리얼 / 플레이어 여정 설계 | `15_game_flow_design.md` |
 
 ---
 
@@ -71,7 +72,8 @@ If you are implementing a feature, modifying specs, or updating docs, **start he
 
 ### 04 — `04_attack_routes_and_missions.md` (ACTIVE)
 **Purpose:** Gameplay/mission ideas and player routes (design notebook).  
-**SSOT for:** Player strategy concepts, mission structure, route templates.  
+**SSOT for:** Player strategy concepts, mission structure, route templates,
+힌트 시스템 및 hint agent 설계 (§7).  
 **Must NOT include:** Definitive API/system-call specs (03/07), schemas (08–12), engine contracts (13).
 
 ---
@@ -143,6 +145,14 @@ If you are implementing a feature, modifying specs, or updating docs, **start he
 **Purpose:** Official programs shipped as `ExecutableHardcode` / `ExecutableScript`, and their contracts.  
 **SSOT for:** Program behavior contracts (e.g., inspect), program-level error semantics, gating rules, trace/cost behavior for official tools.  
 **Must NOT include:** Intrinsic API definitions (03) except “API wrapper references program contract”.
+
+---
+
+### 15 — `15_game_flow_design.md` (ACTIVE)
+**Purpose:** 플레이어 전체 여정 설계 (온보딩, 코딩 유도, 중반 흐름, 최종 미션 유도).  
+**SSOT for:** 게임 시작 연출, 재시작/로드 정책, 타겟 플레이어 정의, 플레이어 여정 흐름 설계.  
+**Must NOT include:** 개별 미션 재료/공격 루트 (04), 힌트 시스템/hint agent 상세 (04 §7),
+인게임 API (03), 공식 프로그램 계약 (14).
 
 ---
 

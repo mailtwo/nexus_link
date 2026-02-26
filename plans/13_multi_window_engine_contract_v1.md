@@ -1,13 +1,14 @@
 # 멀티 윈도우 시스템 & SSH 로그인 창(MVP) — 엔진 계약서
 
-- 문서 버전: v1.0-rc
+- 문서 버전: v1.1
 - 대상 엔진: **Godot 4.6**
 - 타겟 플랫폼: **PC / Windows**
 - 문서 목적: Codex가 그대로 구현 가능한 수준의 **규칙/데이터/흐름**을 명문화합니다.
 - 구현 범위:
   - ✅ 멀티 윈도우 시스템(네이티브 OS 윈도우 모드 + 가상 데스크톱 모드)
   - ✅ SSH 로그인 창(MVP)
-  - ⛔ 기타 창(트레이싱/토폴로지/전송큐/웹뷰 등)은 “추후 목록”만 기록
+  - ✅ 데스크톱 오버레이(DesktopOverlay) — 배경 창
+  - ⛔ 기타 창(트레이싱/토폴로지/전송큐/웹뷰 등)은 "추후 목록"만 기록
 
 ---
 
@@ -23,17 +24,19 @@
 
 - **메인 창(Main Window)**: 게임의 주 UI. 본 게임에서는 **터미널 창**.
 - **서브 윈도우(Sub Window)**: 메인 창과 별개로 띄워지는 모든 앱/패널/창.
-- **윈도우 종류(WindowKind)**: 서브 윈도우의 타입(예: `SSH_LOGIN`). 각 Kind는 “단일 인스턴스/지오메트리/리사이즈 정책”의 단위.
+- **윈도우 종류(WindowKind)**: 서브 윈도우의 타입(예: `SSH_LOGIN`). 각 Kind는 "단일 인스턴스/지오메트리/리사이즈 정책"의 단위.
 - **지오메트리(Geometry)**: 위치(Position) + 크기(Size) + (선택) 최대화 상태.
 - **네이티브 OS 윈도우 모드(NATIVE_OS)**: 서브 윈도우가 **Windows OS 윈도우**로 생성되는 모드(= OS 프레임 유지).
 - **가상 데스크톱 모드(VIRTUAL_DESKTOP)**: 메인 창 내부에 **에뮬레이티드 배경(가상 데스크톱)** 을 만들고, 그 위에 서브 윈도우를 **임베디드(가상) 윈도우**로 띄우는 모드.
+- **데스크톱 오버레이(DesktopOverlay)**: NATIVE_OS 모드 전용. 특정 모니터 전체를 덮는 borderless 배경 창. WindowKind 체계와 별개인 시스템 레이어.
+- **모니터 핑거프린트(Monitor Fingerprint)**: 모니터를 고유하게 식별하기 위한 값. 해상도 + DPI 배율의 조합으로 구성.
 
 ---
 
 ## 2. 최상위 목표 및 제약
 
 ### 2.1 전역 목표
-- “영화처럼 여러 창이 동시에 살아있는 느낌”의 멀티 윈도우 UX를 제공한다.
+- "영화처럼 여러 창이 동시에 살아있는 느낌"의 멀티 윈도우 UX를 제공한다.
 - 단, MVP에서는 **SSH 로그인 창**을 1차 목표로 한다.
 
 ### 2.2 전역 제약 (MUST)
@@ -43,10 +46,11 @@
 
 1) 모드 2종 동시 지원  
 - 모든 서브 윈도우는 `NATIVE_OS` / `VIRTUAL_DESKTOP` 두 모드를 모두 지원한다.
+- DesktopOverlay는 이 제약에서 제외된다(NATIVE_OS 전용 시스템 레이어).
 
 2) 단일 인스턴스  
 - WindowKind마다 **동시에 1개만** 존재한다.
-- 동일 Kind에 대한 “열기”가 다시 요청되면: 기존 창을 전면/포커스 처리하고 내용을 갱신한다.
+- 동일 Kind에 대한 "열기"가 다시 요청되면: 기존 창을 전면/포커스 처리하고 내용을 갱신한다.
 
 3) 지오메트리 기억  
 - 각 WindowKind는 모드별로 지오메트리를 저장/복원한다.
@@ -54,12 +58,12 @@
 
 **NATIVE_OS 모드 저장 항목 (MUST):**
 - 위치(Position), 크기(Size), 최대화 여부
-- 해당 창이 위치한 **모니터 식별 정보** (모니터 인덱스 + 해상도 + DPI 배율의 조합)
+- 해당 창이 위치한 **모니터 핑거프린트** (해상도 + DPI 배율의 조합)
   - 모니터 인덱스만으로는 모니터 연결 순서가 바뀔 수 있으므로, 해상도와 DPI 배율을 함께 저장하여 동일 모니터를 식별하는 데 사용한다.
 - 저장 좌표는 해당 모니터의 **물리 픽셀(Physical Pixel) 기준 스크린 절대 좌표**로 한다.
 
 **복원 절차 (MUST):**
-1. 저장된 모니터 식별 정보와 일치하는 모니터가 현재 연결되어 있는지 확인한다.
+1. 저장된 모니터 핑거프린트와 일치하는 모니터가 현재 연결되어 있는지 확인한다.
 2. **일치하는 모니터가 존재하는 경우:**
    - 해당 모니터의 현재 DPI 배율이 저장 시점과 다르면, 저장된 위치/크기에 `(현재 DPI 배율 / 저장 시 DPI 배율)` 비율을 곱하여 보정한다.
    - 보정된 좌표가 해당 모니터의 `screen_get_usable_rect` (작업표시줄 제외) 영역 내부에 있는지 검증한다.
@@ -88,7 +92,7 @@
 - WindowKind 별로 `autoFocus=true/false`를 정의한다.
 - `autoFocus=false`인 창은 새로 열렸을 때 해당 창으로 포커스가 이동하지 않는다.
 - `autoFocus=true`인 창은 새로 열렸을 때 해당 창으로 포커스가 이동한다.
-- `autoFocus=false` 구현은 Best effort로 하고 “열기 직후 다음 프레임에 메인 창으로 포커스 복귀” 등의 Fail-safe 처리를 한다.
+- `autoFocus=false` 구현은 Best effort로 하고 "열기 직후 다음 프레임에 메인 창으로 포커스 복귀" 등의 Fail-safe 처리를 한다.
 - Passthrough 창은 autoFocus 설정과 무관하게 포커스를 갖지 않는다 (autoFocus는 Exclusive 창에만 적용)
 
 7) 포커스 입력 전달 정책 (Focus Mode)
@@ -110,10 +114,11 @@
 
 #### A) NATIVE_OS 모드
 - 메인 창은 **창모드만 허용**한다.
-  - 허용: `WINDOW_MODE_WINDOWED`, `WINDOW_MODE_MAXIMIZED` (둘 다 “창모드”로 간주)
+  - 허용: `WINDOW_MODE_WINDOWED`, `WINDOW_MODE_MAXIMIZED` (둘 다 "창모드"로 간주)
   - 금지: `WINDOW_MODE_FULLSCREEN`, `WINDOW_MODE_EXCLUSIVE_FULLSCREEN`
-- 메인 창 및 모든 서브 윈도우는 **OS 기본 프레임(타이틀바/테두리)을 유지**해야 한다.
+- 메인 창 및 모든 서브 윈도우(WindowKind)는 **OS 기본 프레임(타이틀바/테두리)을 유지**해야 한다.
   - 즉, `borderless`는 금지(= false 유지).
+  - DesktopOverlay는 이 제약에서 제외된다(§15 참조).
 
 #### B) VIRTUAL_DESKTOP 모드
 - 메인 창은 다음을 허용한다.
@@ -128,26 +133,28 @@
 ### 3.3 Fullscreen 계열 강제 규칙 (MUST)
 - 사용자가 **Fullscreen/Exclusive/Borderless Fullscreen** 계열을 선택하거나, 메인 창이 해당 상태가 되면:
   - 시스템은 반드시 `WindowingMode.VIRTUAL_DESKTOP`로 강제 전환한다.
+  - VIRTUAL_DESKTOP으로 전환될 때 활성화된 모든 DesktopOverlay는 자동으로 비활성화한다.
 - 반대로, `WindowingMode.NATIVE_OS`에서는 fullscreen 계열 옵션을 UI에서 비활성화(또는 선택 시 자동 전환)해야 한다.
 
-> 구현 참고: Godot는 fullscreen 진입 시 borderless 플래그가 강제로 설정될 수 있으므로, NATIVE_OS로 복귀 시 borderless를 반드시 원복한다(아래 “리스크/주의” 참고).
+> 구현 참고: Godot는 fullscreen 진입 시 borderless 플래그가 강제로 설정될 수 있으므로, NATIVE_OS로 복귀 시 borderless를 반드시 원복한다(아래 "리스크/주의" 참고).
 
 ---
 
 ## 4. 네이티브 OS 윈도우 모드 요구사항
 
 ### 4.1 종속(생명주기) 정책 (MUST)
-- 모든 서브 윈도우는 메인 창에 **transient(종속)로 설정**한다.
+- 모든 서브 윈도우(WindowKind)는 메인 창에 **transient(종속)로 설정**한다.
   - 목적:
     - 게임 종료 시 모든 서브 윈도우가 함께 닫힌다.
     - (가능하다면) 작업표시줄에 서브 윈도우가 별도로 뜨는 현상을 줄인다.
+- DesktopOverlay 창은 transient 설정을 적용하지 않는다(§15.4 참조).
 
 ### 4.2 작업표시줄 억제는 Best effort (SHOULD)
 - 작업표시줄(아래 바)에 서브 윈도우가 별도로 나타나지 않도록 **최선을 다한다**.
 - 단, transient 동작은 플랫폼/환경에 따라 다를 수 있으므로 **완전 보장은 하지 않는다**.
 - 폴백 정책(아래 중 하나 이상 MUST):
   1) 억제가 실패해도 그대로 허용(사용자 수용)
-  2) “서브 윈도우가 작업표시줄에 뜨면” 사용자에게 가상 데스크톱 모드 전환 옵션을 안내/제공
+  2) "서브 윈도우가 작업표시줄에 뜨면" 사용자에게 가상 데스크톱 모드 전환 옵션을 안내/제공
 
 ### 4.3 위치 연동 없음 (MUST)
 - 메인 창을 이동해도 서브 윈도우는 **자동으로 따라 움직이지 않는다**.
@@ -155,7 +162,7 @@
 - 좌표 복원 시 해당 좌표가 현재 활성화된 전체 스크린 영역(Screen Rect) 내부인지 검증하는 로직이 반드시 포함되어야 한다.
 
 ### 4.4 버튼/리사이즈 정책 구현 (MUST)
-- OS 프레임을 유지하되, 버튼 기능은 아래처럼 제어한다(“없음”은 “비활성화”로 해석).
+- OS 프레임을 유지하되, 버튼 기능은 아래처럼 제어한다("없음"은 "비활성화"로 해석).
   - 모든 창: 최소화 버튼 비활성화
   - resizable=false 창: 최대화 버튼 비활성화
   - resizable=true 창: 최대화 버튼 활성화(허용)
@@ -265,6 +272,7 @@
 - 서브 윈도우 생성/닫기/포커스/전면화
 - 모드 전환 및 화면 모드 전환 시 안전한 재생성 절차 수행(§10 참조)
 - SSH 로그인 시도 이벤트 수신 → SSH 로그인 창 표시/갱신
+- DesktopOverlay 생명주기 관리(§15 참조)
 
 ### 8.2 공개 API (권장)
 - `set_windowing_mode(mode) -> void`
@@ -274,9 +282,11 @@
 - `focus_window(kind) -> void`
 - `notify_ssh_attempt(attempt: SshAuthAttempt) -> void`
 - `load_layout() / save_layout()`
+- `set_desktop_overlay(monitorFingerprint, enabled) -> void`
+- `get_desktop_overlay_states() -> Dictionary<MonitorFingerprint, bool>`
 
 ### 8.3 CEF 관련 고려 사항 (MAY)
-- 추후 구현 목록에 있는 “웹페이지 뷰어(Godot CEF)” 는 리소스를 많이 먹으므로, WindowManager가 CEF의 초기화 또는 해제 (Initialize/Shutdown) 생명주기를 관리한다.
+- 추후 구현 목록에 있는 "웹페이지 뷰어(Godot CEF)" 는 리소스를 많이 먹으므로, WindowManager가 CEF의 초기화 또는 해제 (Initialize/Shutdown) 생명주기를 관리한다.
 
 ### 8.4 서브 윈도우 State 직렬화 인터페이스 (MUST)
 
@@ -295,7 +305,7 @@
 다음 이벤트 발생 시 SSH_LOGIN 창을 자동으로 표시한다.
 1) `ssh.connect` API 호출
 2) `connect` systemcall 시도
-   - 단, “SSH 접속 시도”로 판별된 케이스만(예: 포트 22 또는 상위 레이어 태깅)
+   - 단, "SSH 접속 시도"로 판별된 케이스만(예: 포트 22 또는 상위 레이어 태깅)
 
 ### 9.2 표시 데이터 (MUST)
 각 시도(attempt)에 대해 아래를 표시한다.
@@ -332,7 +342,7 @@
 
 ### 10.1 왜 필요한가
 - `embed_subwindows`(임베디드/비임베디드) 전환은 **이미 떠 있는 창에 즉시/일관되게 적용되지 않을 수 있다**.
-- 따라서 모드 전환 시 서브 윈도우를 “닫고 재생성”하는 방식이 가장 안정적이다.
+- 따라서 모드 전환 시 서브 윈도우를 "닫고 재생성"하는 방식이 가장 안정적이다.
 
 ### 10.2 절차 (MUST)
 모드 전환 또는 메인 창 화면 모드 전환 시, 아래 절차를 따른다.
@@ -341,18 +351,20 @@
    - 지오메트리 저장
    - 각 서브 윈도우의 상태 (State) 데이터 획득. §8.4의 serialize_state()를 호출하여 State를 획득한다.
    - 닫기(hide/queue_free 등 프로젝트 정책)
-2) `embed_subwindows` 설정 변경
-3) 메인 창 화면 모드(Display Mode) 설정 변경
-4) 새 모드의 레이아웃 로드
-5) 열려 있던 모든 서브 윈도우 재오픈
+2) 활성화된 모든 DesktopOverlay 비활성화(§15.5 전환 절차 참조)
+3) `embed_subwindows` 설정 변경
+4) 메인 창 화면 모드(Display Mode) 설정 변경
+5) 새 모드의 레이아웃 로드
+6) 열려 있던 모든 서브 윈도우 재오픈
    - 변경된 모드의 저장되어 있는 지오메트리가 있을 경우 지오메트리 복원
    - 각 서브 윈도우의 상태 (State) 데이터 복원. §8.4의 restore_state()를 호출하여 State를 복원한다.
+7) 새 모드가 NATIVE_OS이면, 저장된 DesktopOverlay 활성 상태를 복원한다.
+
 * 가상 모드 진입(`MAXIMIZED`)은 아래와 같이 더 세심한 정책을 따른다:
     1. `WINDOW_MODE_WINDOWED`로 1프레임 유지
     2. embed 설정/VirtualDesktopRoot 구성
     3. 그 다음 `MAXIMIZED` 전환
     4. 마지막에 서브윈도우 생성
-
 
 ---
 
@@ -360,7 +372,7 @@
 
 - `WINDOW_MODE_EXCLUSIVE_FULLSCREEN` 상태에서는:
   - **OS 윈도우 호출(네이티브 파일 다이얼로그, OS 서브윈도우 생성 등)을 금지**한다.
-  - 이유: 독점 풀스크린은 OS/드라이버/윈도우 매니저에 따라 “전환/블랙스크린/모드 변화”가 발생할 수 있다.
+  - 이유: 독점 풀스크린은 OS/드라이버/윈도우 매니저에 따라 "전환/블랙스크린/모드 변화"가 발생할 수 있다.
 - 필요한 경우:
   - 인게임 UI로 대체(가상 다이얼로그)
   - 또는 EXCLUSIVE 해제 후 호출(상태 전환 절차는 §10 준수)
@@ -386,14 +398,15 @@
   - 모든 서브 윈도우가 닫힌 후 재생성된다.
   - 각 모드의 저장된 지오메트리가 정확히 복원된다.
   - 서브 윈도우의 State가 `serialize_state()` / `restore_state()`를 통해 보존된다 (예: SSH_LOGIN의 표시 데이터, 타이머 잔여 시간).
-- VIRTUAL_DESKTOP → NATIVE_OS 전환 시에도 동일하게 동작한다.
+  - 활성화된 DesktopOverlay가 전환 전에 비활성화된다.
+- VIRTUAL_DESKTOP → NATIVE_OS 전환 시에도 동일하게 동작하고, 저장된 DesktopOverlay 상태가 복원된다.
 - 전환 중 경과 시간이 SSH_LOGIN 자동 닫힘 타이머에서 차감되지 않는다.
 - 가상 모드 진입 시 WINDOWED → embed 설정 → MAXIMIZED → 서브 윈도우 생성 순서가 지켜진다.
 
 ### 13.2 네이티브 OS 모드 (§3.2A, §4)
 - 메인 창이 WINDOWED / MAXIMIZED에서 동작한다.
 - FULLSCREEN / EXCLUSIVE_FULLSCREEN 진입 시 자동으로 VIRTUAL_DESKTOP으로 전환된다.
-- 서브 윈도우는 OS 프레임(타이틀바/테두리)을 유지한다. borderless가 아니다.
+- 서브 윈도우(WindowKind)는 OS 프레임(타이틀바/테두리)을 유지한다. borderless가 아니다.
 - 모든 서브 윈도우의 최소화 버튼이 비활성화되어 있다.
 - resizable=false 창의 최대화 버튼이 비활성화되어 있다.
 - 메인 창을 이동해도 서브 윈도우는 따라 움직이지 않는다.
@@ -470,9 +483,110 @@
 - State가 없는 창은 빈 Dictionary를 반환하며, 복원 시 에러가 발생하지 않는다.
 - 모드 전환 전후로 State가 정확히 보존된다 (SSH_LOGIN: host, user, masked password, 타이머 잔여 시간).
 
+### 13.12 DesktopOverlay (§15)
+- NATIVE_OS 모드에서만 DesktopOverlay를 활성화할 수 있다.
+- VIRTUAL_DESKTOP 모드에서 DesktopOverlay 활성화 시도는 무시된다.
+- 모니터당 독립적으로 켜고 끌 수 있다.
+- 활성화된 DesktopOverlay는 항상 해당 모니터의 모든 게임 창 아래에 위치한다(Z-order 최하단).
+- DesktopOverlay는 포커스를 받지 않으며, 클릭 시 메인 터미널 창으로 포커스가 전달된다.
+- 연결이 끊어진 모니터의 DesktopOverlay는 자동 비활성화된다. 재연결 시 저장된 활성 상태가 복원된다.
+- NATIVE_OS → VIRTUAL_DESKTOP 전환 시 모든 DesktopOverlay가 비활성화된다.
+- 게임 종료 시 모든 DesktopOverlay가 함께 닫힌다.
+
 ---
 
 ## 14. 참고(엔진 동작 관련)
 - Transient 창은 부모와 생명주기가 연결되며, 플랫폼에 따라 동작이 다를 수 있다.
 - Fullscreen 진입 시 borderless가 강제로 설정될 수 있으므로, 모드 복귀 시 원복이 필요할 수 있다.
-- 임베디드/비임베디드 혼합은 별도의 Viewport 구성 없이는 어렵고, 런타임 전환은 “재생성”이 안전하다.
+- 임베디드/비임베디드 혼합은 별도의 Viewport 구성 없이는 어렵고, 런타임 전환은 "재생성"이 안전하다.
+- Win32 `SetWindowPos(hwnd, HWND_BOTTOM, ...)` 호출은 Godot C# 레이어에서 P/Invoke로 처리한다.
+
+---
+
+## 15. DesktopOverlay (배경 오버레이 창)
+
+### 15.1 개요
+- **적용 모드**: NATIVE_OS 전용. VIRTUAL_DESKTOP 모드에서는 비활성 상태를 유지한다.
+- **분류**: WindowKind 체계와 별개인 시스템 레이어. WindowManager가 별도 관리한다.
+- **목적**: 인게임 옵션(프로그램 형태 포함)으로 켜고 끌 수 있는 borderless 배경 창. 게임 창이 다른 앱 위로 올라갈 일이 없도록 데스크톱을 덮는다.
+
+### 15.2 모니터 단위 관리
+
+- DesktopOverlay는 **모니터 1개당 1개**의 창으로 구성된다.
+- 각 창의 UI 표시명은 `background_0`, `background_1`, ... 으로 모니터 인덱스 기반 순서를 따른다.
+  - 표시명은 편의용이며 내부 식별 키로 사용하지 않는다.
+- **내부 식별 키(모니터 핑거프린트)**: 해상도 + DPI 배율 조합을 사용한다.
+  - 모니터 연결 순서(인덱스)가 바뀌어도 동일 모니터를 올바르게 식별하기 위함이다.
+  - 핑거프린트 구성은 §2.2-3의 NATIVE_OS 모드 모니터 식별 정보와 동일한 방식을 따른다.
+- 모니터가 분리되면 해당 DesktopOverlay는 자동으로 비활성화한다.
+- 분리된 모니터가 재연결되면 저장된 활성 상태를 복원한다.
+
+### 15.3 창 속성 (MUST)
+
+- **Borderless**: `true` (OS 프레임 없음)
+- **포커스 불가**: `Window.FLAG_NO_FOCUS = true`
+  - DesktopOverlay는 어떤 경우에도 포커스를 획득하지 않는다.
+- **크기/위치**: 해당 모니터 전체 rect (`screen_get_display_safe_area` 또는 전체 화면 크기)와 동일하게 유지한다. 리사이즈/이동 불가.
+- **Z-order**: 생성 직후 Win32 `SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)` 1회 호출로 OS Z-order 최하단에 고정한다.
+  - 이후 게임의 다른 창들은 별도 처리 없이 자동으로 DesktopOverlay 위에 위치한다.
+  - DesktopOverlay가 `FLAG_NO_FOCUS` 상태이므로 Windows가 이 창을 활성화 대상으로 삼지 않아 Z-order가 자동으로 올라가는 현상이 발생하지 않는다.
+- **작업표시줄 노출**: 숨김 처리를 권장한다(SHOULD). `transient` 설정 또는 Win32 확장 스타일 조정으로 억제한다.
+- **생명주기**: 게임 종료 시 자동으로 닫힌다.
+
+### 15.4 토글 동작 (MUST)
+
+```
+[켜기]
+1. 해당 모니터 핑거프린트에 대응하는 DesktopOverlay 창 생성/show
+2. Win32 SetWindowPos(HWND_BOTTOM) 1회 호출
+3. 완료 — 다른 게임 창은 건드리지 않음
+
+[끄기]
+1. 해당 DesktopOverlay 창 hide (또는 queue_free)
+2. 완료
+```
+
+- 토글 시 다른 창을 순회하거나 Z-order를 재조정하지 않는다.
+- 배경을 껐다가 다시 켜도 위 절차만 반복한다.
+
+### 15.5 모드 전환 시 처리 (MUST)
+
+- NATIVE_OS → VIRTUAL_DESKTOP 전환 시:
+  1. 활성화된 모든 DesktopOverlay를 비활성화(hide/queue_free)한다.
+  2. 각 모니터 핑거프린트별 활성 상태를 메모리에 보존한다(전환 중에만 유지).
+  3. VIRTUAL_DESKTOP으로 전환이 완료된다.
+- VIRTUAL_DESKTOP → NATIVE_OS 전환 시:
+  1. NATIVE_OS 전환이 완료된 후, 보존된 활성 상태를 기반으로 DesktopOverlay를 복원한다.
+  2. 저장된 핑거프린트에 해당하는 모니터가 현재 연결되어 있는 경우에만 복원한다.
+
+### 15.6 클릭 처리 (MUST)
+
+- DesktopOverlay 영역을 클릭하면 포커스가 메인 터미널 창으로 전달된다.
+- `FLAG_NO_FOCUS` 설정으로 인해 클릭이 OS 레벨에서 DesktopOverlay에 흡수되지 않고 하위 창(또는 바탕화면)으로 통과되는 경우, 별도 처리 없이 그대로 허용한다.
+  - 단, 클릭이 게임 외부 창(실제 바탕화면이나 다른 앱)으로 전달되지 않도록 주의한다. 문제가 발생하면 마우스 이벤트를 명시적으로 캡처해 메인 창으로 전달하는 방식으로 보완한다(SHOULD).
+
+### 15.7 구현 참고 (Win32 P/Invoke)
+
+```csharp
+[DllImport("user32.dll")]
+static extern bool SetWindowPos(
+    IntPtr hWnd, IntPtr hWndInsertAfter,
+    int x, int y, int cx, int cy, uint uFlags);
+
+static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
+const uint SWP_NOMOVE    = 0x0002;
+const uint SWP_NOSIZE    = 0x0001;
+const uint SWP_NOACTIVATE = 0x0010;
+
+void PinToBottom(int godotWindowId) {
+    var hwnd = (IntPtr)DisplayServer.WindowGetNativeHandle(
+        DisplayServer.HandleType.WindowHandle, godotWindowId);
+    SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+```
+
+### 15.8 저장/복원
+
+- DesktopOverlay의 on/off 상태 저장 정책은 별도로 결정한다(미확정).
+- 저장 정책이 확정될 때까지 WindowManager는 런타임 중 상태를 메모리에만 유지한다.

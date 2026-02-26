@@ -4,7 +4,8 @@
 
 스코프(이번 버전):
 - 쉬움/중간/어려움(v0) 시나리오를 **클리어 가능**하게 만드는 최소 API 세트
-- 포함 모듈: `term`, `time`, `fs`, `net`, `ssh`, `ftp`
+- 현재 노출 모듈: `term`, `fs`, `net`, `ssh`, `ftp`
+- 미노출(설계 보류): `time`
 - 의도적으로 제외(이번 파일에서 다루지 않음): `http/web/db/crypto/proc/...` 등
 
 핵심 원칙:
@@ -62,7 +63,7 @@
 - **플레이어 입력/공개 API 경계에서는 `userId`만 사용한다.**
 - `userKey`는 엔진 내부 참조 전용(세션/월드 상태에서만 사용)이며, 플레이어 입력/공개 API 응답에 노출하지 않는다.
 
-### 0.5 SessionHandler DTO (ssh.connect 반환)
+### 0.5 Session DTO (ssh.connect 반환)
 `ssh.connect` 성공 시 최상위 `session`은 아래 필드를 포함한다.
 
 ```text
@@ -70,10 +71,16 @@ Session
 - kind: "sshSession"
 - sessionId: string
 - sessionNodeId: string     # 접속한 서버 nodeId
+- sourceNodeId: string      # 이 hop을 연 source endpoint nodeId
+- sourceUserId: string      # source endpoint의 플레이어 노출 userId
+- sourceCwd: string         # source endpoint cwd
 - userId: string            # 플레이어 노출 식별자
 - hostOrIp: string          # connect 인자로 받은 값(대부분 IP)
 - remoteIp: string          # 실제 접속된 IP
 ```
+
+`source*` 필드는 route/ftp 체인 해석에 필요한 공개 계약 필드다. 누락되면
+`ssh.connect(opts.session)`, `ssh.exec(route)`, `ftp.get/put(route)`에서 `ERR_INVALID_ARGS`가 발생할 수 있다.
 
 체인 연결(`opts.session`)을 사용할 때 `ssh.connect`는 최상위 `route`도 함께 반환한다.
 
@@ -108,6 +115,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - `foo(path, ...)`  : 현재 실행 컨텍스트(현재 host/user/cwd)에서 수행
 - `foo(session, path, ...)` : 해당 session의 원격 host/user 컨텍스트에서 수행
 - 일부 API(`ssh.exec`, `ftp.get`, `ftp.put`, `fs.list/read/write/delete/stat`, `net.interfaces/scan/ports/banner`)는 `sessionOrRoute`를 받아 `Session|SshRoute`를 모두 허용한다.
+- 예외: `ftp.get/put`는 `sessionOrRoute` 생략 오버로드를 지원하지 않으며 첫 인자가 필수다.
 
 판정 규칙(v0.2):
 - 첫 인자가 맵이고 `kind == "sshSession"`이면 session으로 해석한다.
@@ -134,7 +142,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 ### 0.9 이벤트 연동(필수 포인트)
 - `ssh.connect` 성공 시: 로그인 계정이 보유한 `read/write/execute` 각각에 대해 `privilegeAcquire` 이벤트를 enqueue(중복 발행 금지).
 - 파일 전송 완료로 “해당 API가 정의한 local 반영 지점에서 파일이 획득 가능해지는 순간” : `fileAcquire` 이벤트를 enqueue(transferMethod=`"ftp"`).
-  - `ftp.get(route, ...)`에서는 local 반영 지점이 `route.sessions[0]`(first endpoint)이다.
+  - `ftp.get(route, ...)`에서는 local 반영 지점이 `route.sessions[0]`의 source endpoint(first endpoint)이다.
 
 ### 0.10 스크립트 인자(`argv`/`argc`) 규약(v0.2)
 - MiniScript 실행 컨텍스트는 전역 `argv`, `argc`를 제공한다.
@@ -155,17 +163,33 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 ### 0.12 API 문서 파생/생성 규약
 - 본 문서(`03_game_api_modules.md`)는 intrinsic API 규약의 SSOT다. ResultMap 규약, 에러 코드, 시그니처/인자/반환/부작용 정의는 이 문서에서만 정의한다.
 - DocFX 기반 API 설명서와 코드 XML docstring은 본 문서를 기반으로 생성/유지되는 **파생 문서**다. 파생 문서에서 새로운 규약을 정의하지 않는다.
+- 파생 문서 계층은 아래처럼 구분한다.
+  - Manual Markdown: `docfx_api_document/api/<module>.md` (학습/온보딩/사용 흐름 중심)
+  - API Reference: DocFX 자동 생성 레퍼런스(`api/*.yml` 기반 페이지, 시그니처/멤버 중심)
+- Manual 문서는 개념/학습 흐름을 우선하고, 세부 규칙(정밀 검증 순서, 전체 에러 매트릭스, 엄격한 전제조건)은 본 SSOT 또는 XML docstring source를 참조로 연결한다.
+- Manual 문서에서 신규 규약/신규 에러/신규 부작용을 정의하지 않는다.
 - 문서 생성 흐름은 다음 순서를 고정한다.
   - `plans/03` 규약 변경
   - 코드 반영
   - XML docstring 반영
   - DocFX 산출물 생성
 - 파생 문서에서 규약 변경 필요가 발견되면 먼저 본 문서를 수정한 뒤 파생 문서를 재생성한다(역정의 금지).
+- Manual 제목 규칙:
+  - 문서 H1: `<Module Name> Module (<module>.*) - Manual`
+  - 함수 섹션 H2: `<Function Title> (<module>.<function>)`
+  - 예시: `SSH Module (ssh.*) - Manual`, `SSH Connect (ssh.connect)`
+- Manual 앵커 규칙:
+  - 모듈 앵커: `<a id="module-<module>"></a>`
+  - 함수 앵커: 함수 섹션 H2는 `id="<module><function>"` (소문자, 구분자 없음)으로 고정한다
+  - 예시(`ssh`): `module-ssh`, `sshconnect`, `sshdisconnect`, `sshexec`, `sshinspect`
 - API intrinsic XML docstring 작성 원칙:
   - `summary`: 함수 목적 1줄
   - `remarks`: MiniScript signature, ResultMap 핵심 키(`ok/code/err/cost/trace`), 주요 전제/부작용
   - `<see href="...">` 링크는 1개만 사용
-- 링크 규칙은 `/docfx_api_document/api/<module>.md#<anchor>`를 표준으로 사용한다.
+- 링크 규칙은 `/api/<module>.html#<anchor>`를 표준으로 사용한다.
+- DocFX 루트 TOC 운영 규칙:
+  - `Manual` 섹션은 Manual Markdown 문서를 노출한다.
+  - `API` 섹션은 자동 생성 Reference 트리를 유지한다.
 
 ---
 
@@ -176,8 +200,9 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 인자:
   - `text: string`
 - 반환:
-  - 성공: `{ ok:1, printed:1, err:null, code:"OK", cost:{...}, trace:{...} }`
-  - 실패(인자 오류): `{ ok:0, err:string, code:"ERR_INVALID_ARGS", cost:{...}, trace:{...} }`
+  - 성공: `{ ok:1, code:"OK", err:null }`
+  - 실패(인자 오류): `{ ok:0, code:"ERR_INVALID_ARGS", err:string }`
+  - 현재 구현은 `printed`/`cost`/`trace` payload를 추가하지 않는다.
 
 ### 1.2 `term.warn(text)` / `term.error(text)`
 - 목적: 경고/에러 로그를 표준 오류로 출력
@@ -191,8 +216,9 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `warn:` 또는 `error:` prefix stderr 라인은 non-fatal로 취급
   - 그 외 stderr 라인만 fatal로 취급
 - 반환:
-  - 성공: `{ ok:1, printed:1, err:null, code:"OK", cost:{...}, trace:{...} }`
-  - 실패(인자 오류): `{ ok:0, err:string, code:"ERR_INVALID_ARGS", cost:{...}, trace:{...} }`
+  - 성공: `{ ok:1, code:"OK", err:null }`
+  - 실패(인자 오류): `{ ok:0, code:"ERR_INVALID_ARGS", err:string }`
+  - 현재 구현은 `printed`/`cost`/`trace` payload를 추가하지 않는다.
 
 ### 1.3 `term.exec(cmd, opts?)`
 - 목적: 현재 실행 컨텍스트(현재 node/user/cwd)에서 로컬 명령 실행 (`ssh.exec`의 로컬 버전)
@@ -201,37 +227,28 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `opts?: map`
 - `opts`:
   - `maxBytes?: int` (UTF-8 stdout byte 상한)
-  - `async?: bool` (내부 파싱은 `0/1` 기준)
+  - `async?: int` (`0/1`만 허용; `0=false`, `1=true`)
   - 지원하지 않는 key/음수/비정수는 `ERR_INVALID_ARGS`
-  - `async=true`일 때 `maxBytes`는 허용되지만 무시한다
+  - `async=1`일 때 `maxBytes`는 허용되지만 무시한다
 - 권한:
   - 별도 우회 없이 기존 터미널 system call 권한 검사(read/write/execute 등)를 그대로 따른다
 - 반환:
-  - 동기 성공: `{ ok:1, code:"OK", err:null, stdout:string, exitCode:int, jobId:null, cost:{...}, trace:{...} }`
-  - 동기 실패: `{ ok:0, code:"ERR_*", err:string, stdout:string, exitCode:int, jobId:null, cost:{...}, trace:{...} }`
-  - 비동기 스케줄 성공(`opts.async=true`): `{ ok:1, code:"OK", err:null, stdout:null, exitCode:null, jobId:string, cost:{...}, trace:{...} }`
-  - 비동기 즉시 실패(파싱/스케줄 실패): `{ ok:0, code:"ERR_*", err:string, stdout:null, exitCode:null, jobId:null, cost:{...}, trace:{...} }`
+  - 동기 성공: `{ ok:1, code:"OK", err:null, stdout:string, exitCode:0, jobId:null }`
+  - 동기 실패: `{ ok:0, code:"ERR_*", err:string, stdout:string, exitCode:1, jobId:null }`
+  - 비동기 스케줄 성공(`opts.async=1`): `{ ok:1, code:"OK", err:null, stdout:null, exitCode:null, jobId:string }`
+  - 비동기 즉시 실패(파싱/스케줄 실패): `{ ok:0, code:"ERR_*", err:string, stdout:null, exitCode:null, jobId:null }`
 - 해석 규칙:
-  - `opts.async=true`일 때 `ok/code`는 "명령 완료"가 아니라 "비동기 작업 스케줄 성공" 의미다
+  - `opts.async=1`일 때 `ok/code`는 "명령 완료"가 아니라 "비동기 작업 스케줄 성공" 의미다
 - 실패 코드 예시:
   - `ERR_INVALID_ARGS`, `ERR_PERMISSION_DENIED`, `ERR_TOO_LARGE`, `ERR_NOT_FOUND`, `ERR_UNKNOWN_COMMAND`, `ERR_INTERNAL_ERROR`
 
 ---
 
-## 2) time (대기)
+## 2) time (현재 미노출)
 
-> 이번 버전에서는 `time.now()`를 **노출하지 않는다**. (`authMode=otp`의 TOTP window 계산을 플레이어 입력/수학 과제로 만들지 않기 위함)
-
-### 2.1 `time.sleep(seconds)`
-- 목적:
-  - 스크립트가 대기/재시도(backoff)하면서도 프레임을 멈추지 않게 “yield” 제공
-- 인자:
-  - `seconds: number` (0 이상)
-- 조건:
-  - 내부 시간 기준은 고정 스텝 WorldTick(60Hz) 누적이다.
-- 반환:
-  - 성공: `{ ok:1, slept: seconds, ... }`
-  - 실패: `ERR_INVALID_ARGS`
+- 현재 구현(v0.2)에서는 `time` 모듈을 인터프리터에 주입하지 않는다.
+- 따라서 `time.sleep`, `time.now`는 인게임 intrinsic API로 호출할 수 없다.
+- 대기/yield는 MiniScript 기본 intrinsic `wait`를 사용한다(게임 고유 intrinsic 아님).
 
 ---
 
@@ -254,14 +271,16 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `sessionOrRoute?: Session|SshRoute`
     - `Session`이면 해당 session의 서버/계정/cwd 기준
     - `SshRoute`이면 `route.lastSession`의 서버/계정/cwd 기준
+    - 생략하면 현재 실행 컨텍스트 endpoint 기준
   - `path: string` (디렉토리)
 - 권한:
   - session 모드: 해당 session 사용자 `read`
   - route 모드: `lastSession` 사용자 `read`
+  - 생략 모드: 현재 실행 컨텍스트 사용자 `read`
 - 반환(최상위 필드):
   - `entries: List<{ name, entryKind: "File"|"Dir" }>`
 - 실패:
-  - `ERR_NOT_FOUND`, `ERR_NOT_DIRECTORY`, `ERR_PERMISSION_DENIED`
+  - `ERR_NOT_FOUND`, `ERR_NOT_DIRECTORY`, `ERR_PERMISSION_DENIED`, `ERR_INVALID_ARGS`
 
 ### 3.2 `fs.read([sessionOrRoute], path, opts?)`
 - 목적: 텍스트 파일 읽기
@@ -270,18 +289,23 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
     - `Session`이면 해당 session의 서버/계정/cwd 기준
     - `SshRoute`이면 `route.lastSession`의 서버/계정/cwd 기준
   - `path: string`
-  - `opts.maxBytes?: int` (기본 상한 권장)
+  - `opts.maxBytes?: int` (0 이상 정수)
+  - 인자 오버로드:
+    - session 생략 시: `fs.read(path, opts?)`
+    - session 포함 시: `fs.read(sessionOrRoute, path, opts?)`
 - 권한:
   - session 모드: 해당 session 사용자 `read`
   - route 모드: `lastSession` 사용자 `read`
+  - 생략 모드: 현재 실행 컨텍스트 사용자 `read`
 - 동작:
   - `fileKind == Text`만 읽기 허용
   - `fileKind != Text`면 `ERR_NOT_TEXT_FILE`
   - `maxBytes` 초과 시 `ERR_TOO_LARGE`
+  - `opts`는 현재 `maxBytes` 키만 허용(그 외 key는 `ERR_INVALID_ARGS`)
 - 반환(최상위 필드):
   - `{ text: string }`
 - 실패:
-  - `ERR_NOT_FOUND`, `ERR_IS_DIRECTORY`, `ERR_NOT_TEXT_FILE`, `ERR_PERMISSION_DENIED`, `ERR_TOO_LARGE`
+  - `ERR_NOT_FOUND`, `ERR_IS_DIRECTORY`, `ERR_NOT_TEXT_FILE`, `ERR_PERMISSION_DENIED`, `ERR_TOO_LARGE`, `ERR_INVALID_ARGS`
 
 ### 3.3 `fs.write([sessionOrRoute], path, text, opts?)`
 - 목적: 텍스트 파일 쓰기/생성
@@ -291,22 +315,28 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
     - `SshRoute`이면 `route.lastSession`의 서버/계정/cwd 기준
   - `path: string`
   - `text: string`
-  - `opts.overwrite?: bool` (기본 false 권장)
-  - `opts.createParents?: bool` (기본 false 권장)
+  - `opts.overwrite?: bool-like` (기본 false)
+  - `opts.createParents?: bool-like` (기본 false)
+  - 인자 오버로드:
+    - session 생략 시: `fs.write(path, text, opts?)`
+    - session 포함 시: `fs.write(sessionOrRoute, path, text, opts?)`
 - 권한:
   - session 모드: 해당 session 사용자 `write`
   - route 모드: `lastSession` 사용자 `write`
+  - 생략 모드: 현재 실행 컨텍스트 사용자 `write`
 - 동작:
+  - `opts`는 현재 `overwrite`, `createParents` 키만 허용(그 외 key는 `ERR_INVALID_ARGS`)
   - 대상이 이미 존재하고 `overwrite=false`면 `ERR_ALREADY_EXISTS`
   - 기존 엔트리가 `Dir`이면 `ERR_IS_DIRECTORY`
   - 부모 디렉토리가 없거나 디렉토리가 아니면:
     - `createParents=false`면 `ERR_NOT_FOUND`/`ERR_NOT_DIRECTORY`
     - `createParents=true`면 필요한 디렉토리를 생성 후 진행
   - 쓰기는 overlay에 반영한다(기본/base는 직접 수정하지 않음)
+  - 성공 시(RealWorld 모드) `fileAcquire` 이벤트를 `transferMethod="fs.write"`로 enqueue한다
 - 반환(최상위 필드):
   - `{ written: int /*chars*/, path: string }`
 - 실패:
-  - `ERR_INVALID_ARGS`, `ERR_ALREADY_EXISTS`, `ERR_IS_DIRECTORY`, `ERR_NOT_DIRECTORY`, `ERR_PERMISSION_DENIED`
+  - `ERR_INVALID_ARGS`, `ERR_ALREADY_EXISTS`, `ERR_IS_DIRECTORY`, `ERR_NOT_DIRECTORY`, `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`
 
 ### 3.4 `fs.delete([sessionOrRoute], path)`
 - 목적: 파일/디렉토리 삭제
@@ -318,12 +348,15 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 권한:
   - session 모드: 해당 session 사용자 `write`
   - route 모드: `lastSession` 사용자 `write`
+  - 생략 모드: 현재 실행 컨텍스트 사용자 `write`
 - 동작:
+  - 루트 경로(`/`) 삭제는 금지(`ERR_INVALID_ARGS`)
   - base 파일 삭제는 tombstone으로 가림 처리
   - overlay 파일 삭제는 overlay 엔트리 제거
-  - 디렉토리 삭제는 **비어 있을 때만** 허용(MVP 권장)
+  - 디렉토리 삭제는 **비어 있을 때만** 허용
+  - 비어있지 않은 디렉토리 삭제 시 `ERR_NOT_DIRECTORY` 반환(현재 구현 정책)
 - 반환(최상위 필드):
-  - `{ deleted: 1 }` 또는 `{ deleted: 0 }`
+  - 성공 시 `{ deleted: 1 }`
 - 실패:
   - `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`, `ERR_NOT_DIRECTORY`(rmdir 조건 불일치 시), `ERR_INVALID_ARGS`
 
@@ -337,10 +370,12 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 권한:
   - session 모드: 해당 session 사용자 `read`
   - route 모드: `lastSession` 사용자 `read`
-- 반환(최상위 필드, 권장 최소):
-  - `{ entryKind, fileKind?, size? }`
+  - 생략 모드: 현재 실행 컨텍스트 사용자 `read`
+- 반환(최상위 필드):
+  - 파일: `{ entryKind:"File", fileKind:string, size:number }`
+  - 디렉토리: `{ entryKind:"Dir", fileKind:null, size:null }`
 - 실패:
-  - `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`
+  - `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`, `ERR_INVALID_ARGS`
 
 ---
 
@@ -395,14 +430,15 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
     - `Session`이면 해당 session을 source 컨텍스트로 사용
     - `SshRoute`이면 `route.lastSession`을 source 컨텍스트로 사용
   - `hostOrIp: string` (v0.2에서는 IP 문자열을 권장)
+  - `opts?: map` (현재 구현은 옵션 키 미지원; 빈 맵 또는 생략만 허용)
 - 동작:
   - 대상 서버의 `ports` 중 `portType != none`인 항목을 반환한다.
   - 네트워크 접근 가능 여부는 `exposure` 규칙으로 판정한다(실행 source 컨텍스트 기준).
-    - 접근 불가이면: v0에서는 전체 실패(`ERR_NET_DENIED`) 또는 결과 숨김 중 하나를 선택(일관되게 고정).
+    - 접근 불가 포트는 현재 구현에서 에러로 중단하지 않고 결과 목록에서 제외한다.
 - 반환(최상위 필드, 권장):
   - `{ ports: List<{ port:int, portType:string, exposure:string }> }`
 - 실패:
-  - `ERR_NOT_FOUND`, `ERR_NET_DENIED`
+  - `ERR_NOT_FOUND`, `ERR_INVALID_ARGS`
 
 ### 4.4 `net.banner([sessionOrRoute], hostOrIp, port)`
 - 목적: 서비스 배너/버전 단서 조회
@@ -415,8 +451,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 조건:
   - `net.ports`와 동일한 네트워크 접근 판정 적용(실행 source 컨텍스트 기준)
   - 포트가 비할당(`portType==none`)이면 `ERR_PORT_CLOSED`
-  - `banner` 값은 target `ports[port].banner`를 우선 사용하고, 미정의면 빈 문자열로 처리한다.
-  - `banner` 저장 위치/스키마는 `09_server_node_runtime_schema_v0.md` / `10_blueprint_schema_v0.md`의 `PortConfig`를 따른다.
+  - `banner` 값은 현재 구현에서 target `ports[port].serviceId`를 trim한 문자열을 사용한다.
 - 반환(최상위 필드):
   - `{ banner: string }` (없으면 빈 문자열 허용)
 - 실패:
@@ -441,6 +476,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - 인자 파싱 규칙:
     - `ssh.connect(host,user,pw,{session:x})` 허용 (4번째 인자 맵이면 `opts`로 해석)
     - `ssh.connect(host,user,pw,22,{session:x})` 허용
+    - `opts` 지원 키는 `session`이며, 다른 키는 `ERR_INVALID_ARGS`
 - 사전 조건:
   - target 서버의 `ports[port].portType == ssh` 이어야 한다.
   - `exposure` 판정을 통과해야 한다(0.6 규칙).
@@ -452,7 +488,10 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - 기본: `{ session: Session, route: null }`
   - 체인(`opts.session` 사용): `{ session: Session, route: SshRoute }`
 - 실패:
-  - `ERR_NOT_FOUND`(대상 없음), `ERR_PORT_CLOSED`, `ERR_NET_DENIED`, `ERR_AUTH_FAILED`, `ERR_RATE_LIMITED`
+  - `ERR_INVALID_ARGS`(포트/opts 형식 오류, 포트 타입 불일치 등)
+  - `ERR_NOT_FOUND`(host/user/port 미존재, offline 포함)
+  - `ERR_PERMISSION_DENIED`(exposure 거부, 인증 실패, connectionRateLimiter 차단)
+  - `ERR_INTERNAL_ERROR`
 - 부작용(필수):
   - 성공 시, 로그인 계정이 이미 보유한 `read/write/execute` 각각에 대해 `privilegeAcquire` 이벤트를 enqueue(중복 발행 금지).
   - `PrivilegeAcquireDto.via = "ssh.connect"`
@@ -482,7 +521,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
     - `SshRoute`이면 `route.lastSession`의 서버/계정/cwd에서 실행한다.
   - `cmd: string` (단일 커맨드 라인)
   - `opts.maxBytes?: int` (stdout 상한 권장)
-  - `opts.async?: bool` (내부 파싱은 `0/1` 기준)
+  - `opts.async?: int` (`0/1`만 허용; `0=false`, `1=true`)
 - 커맨드 해석(권장):
   - 터미널 명령 파싱/시스템콜/프로그램 fallback 규칙은 `07_ui_terminal_prototype_godot.md` 및 `14_official_programs.md`를 따른다.  
     See DOCS_INDEX.md → 07, 14.
@@ -490,11 +529,11 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 반환:
   - 동기 성공: `{ ok:1, code:"OK", err:null, stdout:string, exitCode:int, jobId:null }`
   - 동기 실패: `{ ok:0, code:"ERR_*", err:string, stdout:string, exitCode:int, jobId:null }`
-  - 비동기 스케줄 성공(`opts.async=true`): `{ ok:1, code:"OK", err:null, stdout:null, exitCode:null, jobId:string }`
+  - 비동기 스케줄 성공(`opts.async=1`): `{ ok:1, code:"OK", err:null, stdout:null, exitCode:null, jobId:string }`
   - 비동기 즉시 실패(파싱/스케줄 실패): `{ ok:0, code:"ERR_*", err:string, stdout:null, exitCode:null, jobId:null }`
 - 추가 규칙:
-  - `opts.async=true`일 때 `maxBytes`는 허용되지만 무시한다
-  - `opts.async=true`일 때 `ok/code`는 "원격 명령 완료"가 아니라 "비동기 작업 스케줄 성공" 의미다
+  - `opts.async=1`일 때 `maxBytes`는 허용되지만 무시한다
+  - `opts.async=1`일 때 `ok/code`는 "원격 명령 완료"가 아니라 "비동기 작업 스케줄 성공" 의미다
 - 실패:
   - route 구조 검증 실패 시 `ERR_INVALID_ARGS`
   - `ERR_INVALID_ARGS`, `ERR_PERMISSION_DENIED`, `ERR_NOT_FOUND`(프로그램/경로 없음), `ERR_UNKNOWN_COMMAND`, `ERR_TOO_LARGE`, `ERR_INTERNAL_ERROR`
@@ -507,7 +546,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `hostOrIp: string`
   - `userId: string` (필수)
   - `port: int` (기본 22)
-  - `opts?: map` (v0.2 예약)
+  - `opts?: map` (현재 구현은 옵션 키 미지원; 키 전달 시 `ERR_INVALID_ARGS`)
 - 인자 파싱(허용):
   - `ssh.inspect(hostOrIp, userId, { ...opts })`
   - `ssh.inspect(hostOrIp, userId, port, { ...opts })`
@@ -552,6 +591,12 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 
 지원 함수(이번 버전): `get/put`
 
+공통 route 해석 규칙(v0.2 구현):
+- route 입력은 `route.version/hopCount/sessions/lastSession/prefixRoutes` 전체 구조가 유효해야 한다.
+- 각 `session`에는 `sourceNodeId/sourceUserId/sourceCwd`가 필요하다.
+- 누락/불일치 시 `ERR_INVALID_ARGS`를 반환한다.
+- `first endpoint`는 `route.sessions[0]` 자체가 아니라 `route.sessions[0]`의 source metadata로 계산한다.
+
 ### 6.1 `ftp.get(sessionOrRoute, remotePath, localPath?, opts?)`
 - 목적: 원격 endpoint → local endpoint 다운로드
 - 인자:
@@ -561,26 +606,27 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
       - local endpoint = 현재 실행 컨텍스트
     - `SshRoute` 모드:
       - remote endpoint = `route.lastSession`
-      - local endpoint = `route.sessions[0]` (first endpoint)
+      - local endpoint = `route.sessions[0]`의 source endpoint (first endpoint)
       - 전송 방향은 `last -> first`로 고정한다.
   - `remotePath: string`
     - `Session` 모드: `session`의 cwd 기준 상대경로 허용
     - `SshRoute` 모드: `lastSession`의 cwd 기준 상대경로 허용
   - `localPath?: string`
-    - `Session` 모드: 현재 실행 컨텍스트 cwd 기준(생략 시 `/home/player/<basename(remotePath)>` 권장)
-    - `SshRoute` 모드: first endpoint session의 cwd 기준
+    - `Session` 모드: 현재 실행 컨텍스트 cwd 기준(생략 시 `<cwd>/<basename(remotePath)>`)
+    - `SshRoute` 모드: first endpoint(source)의 cwd 기준
   - `opts.port?: int` (기본 21)
-  - `opts.overwrite?: bool` (기본 false 권장)
-  - `opts.maxBytes?: int` (다운로드 상한; 권장)
+  - `opts`는 현재 구현에서 `port` 키만 지원한다.
 - cwd 기본값(v0.2):
   - 현재 `Session`의 cwd 초기값은 `/`이다.
   - 세션별 cwd 변경 API는 아직 없고, 후속 버전에서 확장 가능하다.
 - 필수 조건(게이팅):
   - `Endpoint direct only` 정책:
     - `Session` 모드: `source = 현재 실행 컨텍스트`, `target = session.sessionNodeId`
-    - `SshRoute` 모드: `source = first`, `target = last`
-  - `target`의 `ports[opts.port].portType == ftp` 이어야 함. 아니면 `ERR_PORT_CLOSED`
-  - `source -> target`에 대해 `exposure` 판정 통과(0.6 규칙). 실패 시 `ERR_NET_DENIED`
+    - `SshRoute` 모드: `source = first(source endpoint)`, `target = last`
+  - `target`의 포트 검증은 `TryValidatePortAccess` 결과를 그대로 따른다.
+    - 포트 미존재/미할당: `ERR_NOT_FOUND`
+    - 포트 타입 불일치(ftp 아님): `ERR_INVALID_ARGS`
+    - `source -> target` exposure 거부: `ERR_PERMISSION_DENIED`
 - 권한 조건(권장):
   - `Session` 모드: 원격 read + 로컬 write
   - `SshRoute` 모드: `last(read) + first(write)`
@@ -590,10 +636,9 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
     - `fileName = basename(remotePath)` (확장자 포함)
     - `transferMethod = "ftp"`
 - 반환(최상위 필드):
-  - MVP(동기) 권장: `{ savedTo: localPath, bytes?: int }`
-  - 비동기(권장)로 갈 경우: `{ processId: int }` 형태를 추가해도 된다.
+  - 현재 구현(동기): `{ savedTo: localPath, bytes?: int }`
 - 실패:
-  - `ERR_INVALID_ARGS`, `ERR_PORT_CLOSED`, `ERR_NET_DENIED`, `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`, `ERR_ALREADY_EXISTS`, `ERR_TOO_LARGE`
+  - `ERR_INVALID_ARGS`, `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`, `ERR_NOT_DIRECTORY`, `ERR_IS_DIRECTORY`
 
 ### 6.2 `ftp.put(sessionOrRoute, localPath, remotePath?, opts?)`
 - 목적: local endpoint → 원격 endpoint 업로드
@@ -603,30 +648,33 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
       - local endpoint = 현재 실행 컨텍스트
       - remote endpoint = `session.sessionNodeId`
     - `SshRoute` 모드:
-      - local endpoint = `route.sessions[0]` (first endpoint)
+      - local endpoint = `route.sessions[0]`의 source endpoint (first endpoint)
       - remote endpoint = `route.lastSession`
       - 전송 방향은 `first -> last`로 고정한다.
   - `localPath: string`
     - `Session` 모드: 현재 실행 컨텍스트 cwd 기준
-    - `SshRoute` 모드: first endpoint session의 cwd 기준
+    - `SshRoute` 모드: first endpoint(source)의 cwd 기준
   - `remotePath?: string`
     - `Session` 모드: 생략 시 `session` cwd 기준 `<basename(localPath)>` 권장
     - `SshRoute` 모드: 생략 시 `lastSession` cwd 기준 `<basename(localPath)>` 권장
   - `opts.port?: int` (기본 21)
-  - `opts.overwrite?: bool` (기본 false 권장)
-  - `opts.maxBytes?: int`
+  - `opts`는 현재 구현에서 `port` 키만 지원한다.
 - 필수 조건(게이팅):
   - `Endpoint direct only` 정책:
     - `Session` 모드: `source = 현재 실행 컨텍스트`, `target = session.sessionNodeId`
-    - `SshRoute` 모드: `source = first`, `target = last`
-  - `target`의 ftp 포트 타입/노출 판정을 `source -> target` 기준으로 검사한다.
+    - `SshRoute` 모드: `source = first(source endpoint)`, `target = last`
+  - `target`의 포트 검증은 `TryValidatePortAccess` 결과를 그대로 따른다.
+    - 포트 미존재/미할당: `ERR_NOT_FOUND`
+    - 포트 타입 불일치(ftp 아님): `ERR_INVALID_ARGS`
+    - `source -> target` exposure 거부: `ERR_PERMISSION_DENIED`
 - 권한 조건(권장):
   - `Session` 모드: 로컬 read + 원격 write
   - `SshRoute` 모드: `first(read) + last(write)`
 - 완료 처리(필수):
   - `fileAcquire` 이벤트는 발행하지 않는다(기존 정책 유지).
 - 반환/실패:
-  - `ftp.get`과 동일한 형식/정책을 따른다.
+  - `ftp.get`과 동일한 형식을 따른다.
+  - 실패 코드는 `ERR_INVALID_ARGS`, `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`, `ERR_NOT_DIRECTORY`, `ERR_IS_DIRECTORY`를 사용한다.
 
 ---
 
