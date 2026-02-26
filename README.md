@@ -1,4 +1,4 @@
-# uplink2 (working title)
+# Nexus Link
 
 > **터미널 기반 코딩·해킹 시뮬레이션 게임 프로토타입** (Godot 4.6 .NET / Windows)
 >

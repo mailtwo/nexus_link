@@ -1,4 +1,4 @@
-# uplink2 (working title)
+# Nexus Link
 
 > **Terminal-based coding & hacking simulation game prototype** (Godot 4.6 .NET / Windows)
 >
