@@ -101,29 +101,9 @@ internal sealed class HelpCommandHandler : VfsCommandHandlerBase
             return SystemCallResultFactory.Usage("help");
         }
 
-        string absolutePath;
-        try
+        if (!TryReadAllText(HelpPageResourcePath, out var content, out var readFailure))
         {
-            absolutePath = Godot.ProjectSettings.GlobalizePath(HelpPageResourcePath);
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or NotSupportedException)
-        {
-            return SystemCallResultFactory.Failure(SystemCallErrorCode.InternalError, ex.Message);
-        }
-
-        if (!File.Exists(absolutePath))
-        {
-            return SystemCallResultFactory.NotFound(HelpPageResourcePath);
-        }
-
-        string content;
-        try
-        {
-            content = File.ReadAllText(absolutePath, Encoding.UTF8);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
-        {
-            return SystemCallResultFactory.Failure(SystemCallErrorCode.InternalError, ex.Message);
+            return readFailure;
         }
 
         if (string.IsNullOrEmpty(content))
@@ -135,6 +115,146 @@ internal sealed class HelpCommandHandler : VfsCommandHandlerBase
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Replace('\r', '\n');
         return SystemCallResultFactory.Success(lines: normalizedContent.Split('\n'));
+    }
+
+    private static bool TryReadAllText(string path, out string content, out SystemCallResult failure)
+    {
+        content = string.Empty;
+        failure = SystemCallResultFactory.Success();
+        try
+        {
+            if (path.StartsWith("res://", StringComparison.Ordinal) ||
+                path.StartsWith("user://", StringComparison.Ordinal))
+            {
+                if (TryReadVirtualPathViaHostFileSystem(path, out content))
+                {
+                    return true;
+                }
+
+                if (!Godot.FileAccess.FileExists(path))
+                {
+                    failure = SystemCallResultFactory.NotFound(path);
+                    return false;
+                }
+
+                using var file = Godot.FileAccess.Open(path, Godot.FileAccess.ModeFlags.Read);
+                if (file is null)
+                {
+                    failure = SystemCallResultFactory.Failure(
+                        SystemCallErrorCode.InternalError,
+                        $"failed to open file: {path}");
+                    return false;
+                }
+
+                content = file.GetAsText();
+                return true;
+            }
+
+            if (!File.Exists(path))
+            {
+                failure = SystemCallResultFactory.NotFound(path);
+                return false;
+            }
+
+            content = File.ReadAllText(path, Encoding.UTF8);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or NotSupportedException or ArgumentException)
+        {
+            failure = SystemCallResultFactory.Failure(SystemCallErrorCode.InternalError, ex.Message);
+            return false;
+        }
+    }
+
+    private static bool TryReadVirtualPathViaHostFileSystem(string virtualPath, out string content)
+    {
+        content = string.Empty;
+
+        if (virtualPath.StartsWith("res://", StringComparison.Ordinal))
+        {
+            var relativePath = virtualPath["res://".Length..].Replace('/', Path.DirectorySeparatorChar);
+            if (!string.IsNullOrWhiteSpace(relativePath) &&
+                TryFindProjectRelativeFile(relativePath, out var resolvedHostPath))
+            {
+                content = File.ReadAllText(resolvedHostPath, Encoding.UTF8);
+                return true;
+            }
+        }
+
+        var globalizedPath = TryGlobalizePath(virtualPath);
+        if (!string.IsNullOrWhiteSpace(globalizedPath) && File.Exists(globalizedPath))
+        {
+            content = File.ReadAllText(globalizedPath, Encoding.UTF8);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryFindProjectRelativeFile(string relativePath, out string resolvedPath)
+    {
+        resolvedPath = string.Empty;
+        foreach (var start in EnumerateSearchRoots())
+        {
+            var current = start;
+            for (var depth = 0; depth < 12; depth++)
+            {
+                var candidate = Path.Combine(current, relativePath);
+                if (File.Exists(candidate))
+                {
+                    resolvedPath = candidate;
+                    return true;
+                }
+
+                var parent = Directory.GetParent(current);
+                if (parent is null)
+                {
+                    break;
+                }
+
+                current = parent.FullName;
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<string> EnumerateSearchRoots()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var currentDirectory = Directory.GetCurrentDirectory();
+        if (!string.IsNullOrWhiteSpace(currentDirectory))
+        {
+            var normalizedCurrent = Path.GetFullPath(currentDirectory);
+            if (seen.Add(normalizedCurrent))
+            {
+                yield return normalizedCurrent;
+            }
+        }
+
+        var baseDirectory = AppContext.BaseDirectory;
+        if (string.IsNullOrWhiteSpace(baseDirectory))
+        {
+            yield break;
+        }
+
+        var normalizedBase = Path.GetFullPath(baseDirectory);
+        if (seen.Add(normalizedBase))
+        {
+            yield return normalizedBase;
+        }
+    }
+
+    private static string? TryGlobalizePath(string path)
+    {
+        try
+        {
+            return Godot.ProjectSettings.GlobalizePath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or NotSupportedException)
+        {
+            return null;
+        }
     }
 }
 

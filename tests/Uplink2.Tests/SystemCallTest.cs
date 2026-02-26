@@ -1315,6 +1315,31 @@ public sealed class SystemCallTest
         Assert.Equal("-n hi", result.Lines[0]);
     }
 
+    /// <summary>Ensures help loads bundled help text and emits non-empty output.</summary>
+    [Fact]
+    public void Execute_Help_ReturnsHelpLines()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+
+        var result = Execute(harness, "help");
+
+        Assert.True(result.Ok);
+        Assert.NotEmpty(result.Lines);
+    }
+
+    /// <summary>Ensures help rejects extra arguments and returns usage error.</summary>
+    [Fact]
+    public void Execute_Help_WithArguments_ReturnsUsage()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+
+        var result = Execute(harness, "help now");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("usage: help", result.Lines[0], StringComparison.Ordinal);
+    }
+
     /// <summary>Ensures clear returns clearTerminal transition payload and no output lines.</summary>
     [Fact]
     public void Execute_Clear_ReturnsClearTerminalPayload()
