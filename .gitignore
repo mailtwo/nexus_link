@@ -25,3 +25,9 @@ TestResults/
 docfx_api_document/_site/
 docfx_api_document/api/.manifest
 docfx_api_document/api/*.yml
+
+# gdUnit4 (local plugin install; keep pinned version in addons/gdunit4.version)
+addons/gdUnit4/
+addons/.gdunit_update/
+GdUnitRunner.cfg
+reports/

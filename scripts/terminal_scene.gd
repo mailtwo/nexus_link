@@ -913,8 +913,21 @@ func _clear_programmatic_scroll_change() -> void:
 func _on_output_scroll_value_changed(_value: float) -> void:
 	if is_programmatic_scroll_change:
 		return
-	if is_motd_anchor_active:
-		_dismiss_motd_anchor()
+	if not is_motd_anchor_active:
+		return
+
+	var was_at_bottom := _is_output_scroll_at_bottom()
+	_dismiss_motd_anchor()
+	if was_at_bottom:
+		_scroll_to_bottom()
+
+
+func _is_output_scroll_at_bottom(tolerance_px: float = 1.0) -> bool:
+	var v_scroll := output_scroll.get_v_scroll_bar()
+	if v_scroll == null:
+		return true
+
+	return (v_scroll.max_value - v_scroll.value) <= tolerance_px
 
 
 func _apply_terminal_theme() -> void:
@@ -1009,9 +1022,15 @@ func _exit_editor_mode() -> void:
 	current_editor_cwd = "/"
 	editor_overlay.visible = false
 	terminal_vbox.visible = true
+	_restore_terminal_scroll_after_editor_exit()
 	input_line.editable = true
 	editor.editable = true
 	input_line.call_deferred("grab_focus")
+
+
+func _restore_terminal_scroll_after_editor_exit() -> void:
+	_scroll_to_bottom()
+	call_deferred("_scroll_to_bottom")
 
 
 func _on_editor_text_changed() -> void:
