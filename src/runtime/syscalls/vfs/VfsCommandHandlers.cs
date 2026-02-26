@@ -522,6 +522,502 @@ internal sealed class MkdirCommandHandler : VfsCommandHandlerBase
     }
 }
 
+internal sealed class CpCommandHandler : VfsCommandHandlerBase
+{
+    private const string UsageText = "cp [(-r|-R|--recursive)] <src> <dst>";
+
+    public override string Command => "cp";
+
+    public override SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
+    {
+        if (!RequireRead(context, Command, out var readPermissionResult))
+        {
+            return readPermissionResult;
+        }
+
+        if (!RequireWrite(context, Command, out var writePermissionResult))
+        {
+            return writePermissionResult;
+        }
+
+        if (!CopyMoveCommandHelper.TryParseArguments(arguments, UsageText, out var parsed, out var parseFailure))
+        {
+            return parseFailure;
+        }
+
+        if (!CopyMoveCommandHelper.TryResolveCopyMoveTarget(
+                context,
+                parsed.SourcePathInput,
+                parsed.DestinationPathInput,
+                out var sourcePath,
+                out var sourceEntry,
+                out var destinationPath,
+                out var resolveFailure))
+        {
+            return resolveFailure;
+        }
+
+        if (string.Equals(sourcePath, destinationPath, StringComparison.Ordinal))
+        {
+            return SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, "cp source and destination are identical.");
+        }
+
+        if (CopyMoveCommandHelper.IsDescendantPath(destinationPath, sourcePath))
+        {
+            return SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, "cp destination cannot be inside source.");
+        }
+
+        if (sourceEntry.EntryKind == VfsEntryKind.Dir && !parsed.Recursive)
+        {
+            return SystemCallResultFactory.Usage(UsageText);
+        }
+
+        return CopyMoveCommandHelper.TryCopyEntry(
+                context.Server.DiskOverlay,
+                sourcePath,
+                sourceEntry,
+                destinationPath,
+                out var copyFailure)
+            ? SystemCallResultFactory.Success()
+            : copyFailure;
+    }
+}
+
+internal sealed class MvCommandHandler : VfsCommandHandlerBase
+{
+    private const string UsageText = "mv [(-r|-R|--recursive)] <src> <dst>";
+
+    public override string Command => "mv";
+
+    public override SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
+    {
+        if (!RequireRead(context, Command, out var readPermissionResult))
+        {
+            return readPermissionResult;
+        }
+
+        if (!RequireWrite(context, Command, out var writePermissionResult))
+        {
+            return writePermissionResult;
+        }
+
+        if (!CopyMoveCommandHelper.TryParseArguments(arguments, UsageText, out var parsed, out var parseFailure))
+        {
+            return parseFailure;
+        }
+
+        if (!CopyMoveCommandHelper.TryResolveCopyMoveTarget(
+                context,
+                parsed.SourcePathInput,
+                parsed.DestinationPathInput,
+                out var sourcePath,
+                out var sourceEntry,
+                out var destinationPath,
+                out var resolveFailure))
+        {
+            return resolveFailure;
+        }
+
+        if (string.Equals(sourcePath, destinationPath, StringComparison.Ordinal))
+        {
+            return SystemCallResultFactory.Success();
+        }
+
+        if (CopyMoveCommandHelper.IsDescendantPath(destinationPath, sourcePath))
+        {
+            return SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, "mv destination cannot be inside source.");
+        }
+
+        if (!CopyMoveCommandHelper.TryCopyEntry(
+                context.Server.DiskOverlay,
+                sourcePath,
+                sourceEntry,
+                destinationPath,
+                out var copyFailure))
+        {
+            return copyFailure;
+        }
+
+        return CopyMoveCommandHelper.TryTombstoneSubtree(context.Server.DiskOverlay, sourcePath, out var deleteFailure)
+            ? SystemCallResultFactory.Success()
+            : deleteFailure;
+    }
+}
+
+internal readonly record struct ParsedCopyMoveArguments(bool Recursive, string SourcePathInput, string DestinationPathInput);
+
+internal static class CopyMoveCommandHelper
+{
+    private static readonly HashSet<string> RecursiveOptionTokens = new(StringComparer.Ordinal)
+    {
+        "-r",
+        "-R",
+        "--recursive",
+    };
+
+    internal static bool TryParseArguments(
+        IReadOnlyList<string> arguments,
+        string usageText,
+        out ParsedCopyMoveArguments parsed,
+        out SystemCallResult failure)
+    {
+        parsed = default;
+        failure = SystemCallResultFactory.Success();
+
+        if (arguments.Count < 2)
+        {
+            failure = SystemCallResultFactory.Usage(usageText);
+            return false;
+        }
+
+        var recursive = false;
+        var positional = new List<string>(capacity: 2);
+        foreach (var token in arguments)
+        {
+            if (RecursiveOptionTokens.Contains(token))
+            {
+                recursive = true;
+                continue;
+            }
+
+            if (token.StartsWith("-", StringComparison.Ordinal))
+            {
+                failure = SystemCallResultFactory.Usage(usageText);
+                return false;
+            }
+
+            positional.Add(token);
+        }
+
+        if (positional.Count != 2)
+        {
+            failure = SystemCallResultFactory.Usage(usageText);
+            return false;
+        }
+
+        parsed = new ParsedCopyMoveArguments(recursive, positional[0], positional[1]);
+        return true;
+    }
+
+    internal static bool TryResolveCopyMoveTarget(
+        SystemCallExecutionContext context,
+        string sourcePathInput,
+        string destinationPathInput,
+        out string sourcePath,
+        out VfsEntryMeta sourceEntry,
+        out string destinationPath,
+        out SystemCallResult failure)
+    {
+        sourcePath = BaseFileSystem.NormalizePath(context.Cwd, sourcePathInput);
+        sourceEntry = null!;
+        destinationPath = string.Empty;
+        failure = SystemCallResultFactory.Success();
+
+        if (sourcePath == "/")
+        {
+            failure = SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, "root path cannot be used as source.");
+            return false;
+        }
+
+        if (!context.Server.DiskOverlay.TryResolveEntry(sourcePath, out sourceEntry))
+        {
+            failure = SystemCallResultFactory.NotFound(sourcePath);
+            return false;
+        }
+
+        var destinationCandidate = BaseFileSystem.NormalizePath(context.Cwd, destinationPathInput);
+        if (context.Server.DiskOverlay.TryResolveEntry(destinationCandidate, out var destinationCandidateEntry) &&
+            destinationCandidateEntry.EntryKind == VfsEntryKind.Dir)
+        {
+            destinationPath = JoinPath(destinationCandidate, GetName(sourcePath));
+            return true;
+        }
+
+        destinationPath = destinationCandidate;
+        return true;
+    }
+
+    internal static bool TryCopyEntry(
+        OverlayFileSystem diskOverlay,
+        string sourcePath,
+        VfsEntryMeta sourceEntry,
+        string destinationPath,
+        out SystemCallResult failure)
+    {
+        if (sourceEntry.EntryKind == VfsEntryKind.File)
+        {
+            return TryCopyFile(
+                diskOverlay,
+                sourcePath,
+                sourceEntry,
+                destinationPath,
+                out failure);
+        }
+
+        return TryCopyDirectoryTree(
+            diskOverlay,
+            sourcePath,
+            destinationPath,
+            out failure);
+    }
+
+    internal static bool TryTombstoneSubtree(OverlayFileSystem diskOverlay, string sourcePath, out SystemCallResult failure)
+    {
+        failure = SystemCallResultFactory.Success();
+        if (!diskOverlay.TryResolveEntry(sourcePath, out var sourceEntry))
+        {
+            failure = SystemCallResultFactory.NotFound(sourcePath);
+            return false;
+        }
+
+        var targets = new List<string> { sourcePath };
+        if (sourceEntry.EntryKind == VfsEntryKind.Dir)
+        {
+            var queue = new Queue<string>();
+            queue.Enqueue(sourcePath);
+            while (queue.Count > 0)
+            {
+                var currentDirPath = queue.Dequeue();
+                foreach (var childName in diskOverlay.ListChildren(currentDirPath))
+                {
+                    var childPath = JoinPath(currentDirPath, childName);
+                    targets.Add(childPath);
+                    if (diskOverlay.TryResolveEntry(childPath, out var childEntry) &&
+                        childEntry.EntryKind == VfsEntryKind.Dir)
+                    {
+                        queue.Enqueue(childPath);
+                    }
+                }
+            }
+        }
+
+        targets.Sort(static (left, right) =>
+        {
+            var byLength = right.Length.CompareTo(left.Length);
+            return byLength != 0
+                ? byLength
+                : StringComparer.Ordinal.Compare(right, left);
+        });
+
+        foreach (var path in targets)
+        {
+            try
+            {
+                diskOverlay.AddTombstone(path);
+            }
+            catch (InvalidOperationException ex)
+            {
+                failure = SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, ex.Message);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    internal static bool IsDescendantPath(string candidatePath, string ancestorPath)
+    {
+        if (string.Equals(candidatePath, ancestorPath, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return candidatePath.StartsWith(ancestorPath + "/", StringComparison.Ordinal);
+    }
+
+    private static bool TryCopyDirectoryTree(
+        OverlayFileSystem diskOverlay,
+        string sourceDirectoryPath,
+        string destinationDirectoryPath,
+        out SystemCallResult failure)
+    {
+        failure = SystemCallResultFactory.Success();
+        if (!TryEnsureDestinationDirectory(diskOverlay, destinationDirectoryPath, out failure))
+        {
+            return false;
+        }
+
+        var queue = new Queue<(string SourceDirPath, string DestinationDirPath)>();
+        queue.Enqueue((sourceDirectoryPath, destinationDirectoryPath));
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            foreach (var childName in diskOverlay.ListChildren(current.SourceDirPath))
+            {
+                var sourceChildPath = JoinPath(current.SourceDirPath, childName);
+                if (!diskOverlay.TryResolveEntry(sourceChildPath, out var sourceChildEntry))
+                {
+                    continue;
+                }
+
+                var destinationChildPath = JoinPath(current.DestinationDirPath, childName);
+                if (sourceChildEntry.EntryKind == VfsEntryKind.Dir)
+                {
+                    if (!TryEnsureDestinationDirectory(diskOverlay, destinationChildPath, out failure))
+                    {
+                        return false;
+                    }
+
+                    queue.Enqueue((sourceChildPath, destinationChildPath));
+                    continue;
+                }
+
+                if (!TryCopyFile(
+                        diskOverlay,
+                        sourceChildPath,
+                        sourceChildEntry,
+                        destinationChildPath,
+                        out failure))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private static bool TryCopyFile(
+        OverlayFileSystem diskOverlay,
+        string sourceFilePath,
+        VfsEntryMeta sourceFileEntry,
+        string destinationFilePath,
+        out SystemCallResult failure)
+    {
+        failure = SystemCallResultFactory.Success();
+        if (sourceFileEntry.EntryKind != VfsEntryKind.File)
+        {
+            failure = SystemCallResultFactory.NotFile(sourceFilePath);
+            return false;
+        }
+
+        if (diskOverlay.TryResolveEntry(destinationFilePath, out var destinationEntry) &&
+            destinationEntry.EntryKind != VfsEntryKind.File)
+        {
+            failure = SystemCallResultFactory.IsDirectory(destinationFilePath);
+            return false;
+        }
+
+        var destinationParentPath = GetParentPath(destinationFilePath);
+        if (!diskOverlay.TryResolveEntry(destinationParentPath, out var destinationParentEntry))
+        {
+            failure = SystemCallResultFactory.NotFound(destinationParentPath);
+            return false;
+        }
+
+        if (destinationParentEntry.EntryKind != VfsEntryKind.Dir)
+        {
+            failure = SystemCallResultFactory.NotDirectory(destinationParentPath);
+            return false;
+        }
+
+        if (!diskOverlay.TryReadFileText(sourceFilePath, out var sourceContent))
+        {
+            failure = SystemCallResultFactory.NotFile(sourceFilePath);
+            return false;
+        }
+
+        try
+        {
+            diskOverlay.WriteFile(
+                destinationFilePath,
+                sourceContent,
+                cwd: "/",
+                fileKind: sourceFileEntry.FileKind ?? VfsFileKind.Text,
+                size: sourceFileEntry.Size);
+        }
+        catch (InvalidOperationException ex)
+        {
+            failure = SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, ex.Message);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryEnsureDestinationDirectory(OverlayFileSystem diskOverlay, string destinationDirectoryPath, out SystemCallResult failure)
+    {
+        failure = SystemCallResultFactory.Success();
+        if (diskOverlay.TryResolveEntry(destinationDirectoryPath, out var existingEntry))
+        {
+            if (existingEntry.EntryKind != VfsEntryKind.Dir)
+            {
+                failure = SystemCallResultFactory.NotDirectory(destinationDirectoryPath);
+                return false;
+            }
+
+            return true;
+        }
+
+        var destinationParentPath = GetParentPath(destinationDirectoryPath);
+        if (!diskOverlay.TryResolveEntry(destinationParentPath, out var parentEntry))
+        {
+            failure = SystemCallResultFactory.NotFound(destinationParentPath);
+            return false;
+        }
+
+        if (parentEntry.EntryKind != VfsEntryKind.Dir)
+        {
+            failure = SystemCallResultFactory.NotDirectory(destinationParentPath);
+            return false;
+        }
+
+        try
+        {
+            diskOverlay.AddDirectory(destinationDirectoryPath, cwd: "/");
+        }
+        catch (InvalidOperationException ex)
+        {
+            failure = SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, ex.Message);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static string JoinPath(string directoryPath, string childName)
+    {
+        return directoryPath == "/"
+            ? "/" + childName
+            : directoryPath + "/" + childName;
+    }
+
+    private static string GetParentPath(string normalizedPath)
+    {
+        if (normalizedPath == "/")
+        {
+            return "/";
+        }
+
+        var index = normalizedPath.LastIndexOf('/');
+        if (index <= 0)
+        {
+            return "/";
+        }
+
+        return normalizedPath[..index];
+    }
+
+    private static string GetName(string normalizedPath)
+    {
+        if (normalizedPath == "/")
+        {
+            return string.Empty;
+        }
+
+        var trimmed = normalizedPath.TrimEnd('/');
+        if (trimmed.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var separatorIndex = trimmed.LastIndexOf('/');
+        return separatorIndex < 0
+            ? trimmed
+            : trimmed[(separatorIndex + 1)..];
+    }
+}
+
 internal sealed class DebugMiniScriptCommandHandler : VfsCommandHandlerBase
 {
     public override string Command => "DEBUG_miniscript";
@@ -816,21 +1312,23 @@ internal static class MiniScriptExecutionRunner
 
 internal sealed class RmCommandHandler : VfsCommandHandlerBase
 {
+    private const string UsageText = "rm [(-r|-R|--recursive)] <path>";
+
     public override string Command => "rm";
 
     public override SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
     {
-        if (arguments.Count != 1)
-        {
-            return SystemCallResultFactory.Usage("rm <file>");
-        }
-
         if (!RequireWrite(context, Command, out var permissionResult))
         {
             return permissionResult;
         }
 
-        var targetPath = NormalizePath(context, arguments[0]);
+        if (!TryParseArguments(arguments, out var recursive, out var pathInput))
+        {
+            return SystemCallResultFactory.Usage(UsageText);
+        }
+
+        var targetPath = NormalizePath(context, pathInput);
         if (targetPath == "/")
         {
             return SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, "rm cannot remove root directory.");
@@ -841,12 +1339,107 @@ internal sealed class RmCommandHandler : VfsCommandHandlerBase
             return SystemCallResultFactory.NotFound(targetPath);
         }
 
-        if (entry.EntryKind != VfsEntryKind.File)
+        if (!recursive && entry.EntryKind != VfsEntryKind.File)
         {
             return SystemCallResultFactory.NotFile(targetPath);
         }
 
-        context.Server.DiskOverlay.AddTombstone(targetPath);
+        if (recursive &&
+            (string.Equals(targetPath, context.Cwd, StringComparison.Ordinal) ||
+             context.Cwd.StartsWith(targetPath + "/", StringComparison.Ordinal)))
+        {
+            return SystemCallResultFactory.Failure(
+                SystemCallErrorCode.InvalidArgs,
+                "rm cannot remove current working directory or its ancestor.");
+        }
+
+        if (!recursive || entry.EntryKind == VfsEntryKind.File)
+        {
+            context.Server.DiskOverlay.AddTombstone(targetPath);
+            return SystemCallResultFactory.Success();
+        }
+
+        var targets = EnumerateLiveSubtree(context.Server.DiskOverlay, targetPath);
+        targets.Sort(static (left, right) =>
+        {
+            var byLength = right.Length.CompareTo(left.Length);
+            return byLength != 0
+                ? byLength
+                : StringComparer.Ordinal.Compare(right, left);
+        });
+
+        foreach (var path in targets)
+        {
+            try
+            {
+                context.Server.DiskOverlay.AddTombstone(path);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, ex.Message);
+            }
+        }
+
         return SystemCallResultFactory.Success();
+    }
+
+    private static bool TryParseArguments(IReadOnlyList<string> arguments, out bool recursive, out string pathInput)
+    {
+        recursive = false;
+        pathInput = string.Empty;
+        if (arguments.Count == 1)
+        {
+            pathInput = arguments[0];
+            return !string.IsNullOrWhiteSpace(pathInput);
+        }
+
+        if (arguments.Count != 2)
+        {
+            return false;
+        }
+
+        if (!IsRecursiveOption(arguments[0]))
+        {
+            return false;
+        }
+
+        recursive = true;
+        pathInput = arguments[1];
+        return !string.IsNullOrWhiteSpace(pathInput);
+    }
+
+    private static bool IsRecursiveOption(string token)
+    {
+        return string.Equals(token, "-r", StringComparison.Ordinal) ||
+               string.Equals(token, "-R", StringComparison.Ordinal) ||
+               string.Equals(token, "--recursive", StringComparison.Ordinal);
+    }
+
+    private static List<string> EnumerateLiveSubtree(OverlayFileSystem diskOverlay, string rootPath)
+    {
+        var targets = new List<string> { rootPath };
+        var queue = new Queue<string>();
+        queue.Enqueue(rootPath);
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            foreach (var childName in diskOverlay.ListChildren(current))
+            {
+                var childPath = current == "/" ? "/" + childName : current + "/" + childName;
+                if (!diskOverlay.TryResolveEntry(childPath, out var childEntry))
+                {
+                    continue;
+                }
+
+                targets.Add(childPath);
+                if (childEntry.EntryKind == VfsEntryKind.Dir)
+                {
+                    queue.Enqueue(childPath);
+                }
+            }
+        }
+
+        return targets;
     }
 }

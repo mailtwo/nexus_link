@@ -684,6 +684,476 @@ public sealed class SystemCallTest
         Assert.Contains("/missing", result.Lines[0], StringComparison.Ordinal);
     }
 
+    /// <summary>Ensures rm removes file targets in non-recursive mode.</summary>
+    [Fact]
+    public void Execute_Rm_FilePath_DeletesFile()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "rm /work/a.txt");
+
+        Assert.True(result.Ok);
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/a.txt", out _));
+    }
+
+    /// <summary>Ensures rm without recursive flags rejects directory targets.</summary>
+    [Fact]
+    public void Execute_Rm_DirectoryWithoutRecursiveOption_ReturnsIsDirectory()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/dir");
+
+        var result = Execute(harness, "rm /work/dir");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFile, result.Code);
+        Assert.Contains("/work/dir", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures rm requires write privilege.</summary>
+    [Fact]
+    public void Execute_Rm_RequiresWritePrivilege()
+    {
+        var harness = CreateHarness(
+            includeVfsModule: true,
+            cwd: "/work",
+            privilege: new PrivilegeConfig
+            {
+                Read = true,
+                Write = false,
+                Execute = true,
+            });
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "rm /work/a.txt");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Contains("permission denied: rm", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures recursive rm aliases delete nested directory trees.</summary>
+    [Theory]
+    [InlineData("-r")]
+    [InlineData("-R")]
+    [InlineData("--recursive")]
+    public void Execute_Rm_RecursiveAliases_DeleteDirectoryTree(string option)
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/dir");
+        harness.BaseFileSystem.AddDirectory("/work/dir/sub");
+        harness.BaseFileSystem.AddFile("/work/dir/a.txt", "alpha", fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile("/work/dir/sub/b.txt", "beta", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, $"rm {option} /work/dir");
+
+        Assert.True(result.Ok);
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/dir", out _));
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/dir/a.txt", out _));
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/dir/sub/b.txt", out _));
+    }
+
+    /// <summary>Ensures rm -r also removes file targets.</summary>
+    [Fact]
+    public void Execute_Rm_RecursiveOption_DeletesFileTarget()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "rm -r /work/a.txt");
+
+        Assert.True(result.Ok);
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/a.txt", out _));
+    }
+
+    /// <summary>Ensures rm -r cannot remove root directory.</summary>
+    [Fact]
+    public void Execute_Rm_Recursive_RootTarget_ReturnsInvalidArgs()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+
+        var result = Execute(harness, "rm -r /");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("rm cannot remove root directory", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures rm -r reports not found when target path is missing.</summary>
+    [Fact]
+    public void Execute_Rm_Recursive_MissingTarget_ReturnsNotFound()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+
+        var result = Execute(harness, "rm -r /work/missing");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFound, result.Code);
+    }
+
+    /// <summary>Ensures rm rejects unsupported options with usage error.</summary>
+    [Fact]
+    public void Execute_Rm_UnsupportedOption_ReturnsUsage()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "rm -x /work/a.txt");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("usage: rm [(-r|-R|--recursive)] <path>", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures recursive rm blocks deleting current working directory.</summary>
+    [Fact]
+    public void Execute_Rm_Recursive_TargetIsCurrentWorkingDirectory_ReturnsInvalidArgs()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/sub");
+
+        var result = Execute(harness, "rm -r .");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("current working directory or its ancestor", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures recursive rm blocks deleting ancestors of current working directory.</summary>
+    [Fact]
+    public void Execute_Rm_Recursive_TargetIsAncestorOfCurrentWorkingDirectory_ReturnsInvalidArgs()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work/sub");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/sub");
+
+        var result = Execute(harness, "rm -r /work");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("current working directory or its ancestor", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures recursive rm keeps subtree tombstones so deleted base children do not reappear after recreate.</summary>
+    [Fact]
+    public void Execute_Rm_Recursive_RecreatePath_DoesNotRevealOldBaseChildren()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/tree");
+        harness.BaseFileSystem.AddDirectory("/work/tree/sub");
+        harness.BaseFileSystem.AddFile("/work/tree/sub/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var remove = Execute(harness, "rm -r /work/tree");
+        Assert.True(remove.Ok);
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/tree", out _));
+
+        var recreate = Execute(harness, "mkdir /work/tree");
+        Assert.True(recreate.Ok);
+        Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/work/tree", out var recreatedEntry));
+        Assert.Equal(VfsEntryKind.Dir, recreatedEntry.EntryKind);
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/tree/sub", out _));
+        Assert.Empty(harness.Server.DiskOverlay.ListChildren("/work/tree"));
+    }
+
+    /// <summary>Ensures cp copies a file to a new destination path and keeps source intact.</summary>
+    [Fact]
+    public void Execute_Cp_CopiesFileToNewPath()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "cp /work/a.txt /work/b.txt");
+
+        Assert.True(result.Ok);
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/work/a.txt", out var sourceContent));
+        Assert.Equal("alpha", sourceContent);
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/work/b.txt", out var destinationContent));
+        Assert.Equal("alpha", destinationContent);
+    }
+
+    /// <summary>Ensures cp overwrites existing destination files by default.</summary>
+    [Fact]
+    public void Execute_Cp_OverwritesDestinationFileByDefault()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/a.txt", "new", fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile("/work/b.txt", "old", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "cp /work/a.txt /work/b.txt");
+
+        Assert.True(result.Ok);
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/work/b.txt", out var destinationContent));
+        Assert.Equal("new", destinationContent);
+    }
+
+    /// <summary>Ensures cp copies a source file into destination directory using source basename.</summary>
+    [Fact]
+    public void Execute_Cp_FileToDirectory_UsesSourceBasename()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/out");
+        harness.BaseFileSystem.AddFile("/work/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "cp /work/a.txt /work/out");
+
+        Assert.True(result.Ok);
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/work/out/a.txt", out var copiedContent));
+        Assert.Equal("alpha", copiedContent);
+    }
+
+    /// <summary>Ensures cp requires recursive option when copying directories.</summary>
+    [Fact]
+    public void Execute_Cp_DirectoryWithoutRecursiveOption_ReturnsUsage()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/src");
+        harness.BaseFileSystem.AddFile("/work/src/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "cp /work/src /work/dst");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("usage: cp [(-r|-R|--recursive)] <src> <dst>", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures cp -r copies nested directory trees.</summary>
+    [Fact]
+    public void Execute_Cp_RecursiveCopiesNestedTree()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/src");
+        harness.BaseFileSystem.AddDirectory("/work/src/sub");
+        harness.BaseFileSystem.AddFile("/work/src/a.txt", "alpha", fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile("/work/src/sub/b.txt", "beta", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "cp -r /work/src /work/dst");
+
+        Assert.True(result.Ok);
+        Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/work/dst", out var dstRoot));
+        Assert.Equal(VfsEntryKind.Dir, dstRoot.EntryKind);
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/work/dst/a.txt", out var aContent));
+        Assert.Equal("alpha", aContent);
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/work/dst/sub/b.txt", out var bContent));
+        Assert.Equal("beta", bContent);
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/work/src/sub/b.txt", out var sourceContent));
+        Assert.Equal("beta", sourceContent);
+    }
+
+    /// <summary>Ensures cp -r rejects destinations inside source subtree.</summary>
+    [Fact]
+    public void Execute_Cp_Recursive_FailsWhenDestinationIsDescendant()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/src");
+        harness.BaseFileSystem.AddDirectory("/work/src/sub");
+        harness.BaseFileSystem.AddFile("/work/src/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "cp -r /work/src /work/src/sub");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("destination cannot be inside source", result.Lines[0], StringComparison.Ordinal);
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/src/sub/src", out _));
+    }
+
+    /// <summary>Ensures cp requires both read and write privileges.</summary>
+    [Theory]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, true)]
+    public void Execute_Cp_RequiresReadAndWritePrivileges(bool canRead, bool canWrite, bool expectedOk)
+    {
+        var harness = CreateHarness(
+            includeVfsModule: true,
+            cwd: "/work",
+            privilege: new PrivilegeConfig
+            {
+                Read = canRead,
+                Write = canWrite,
+                Execute = true,
+            });
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "cp /work/a.txt /work/b.txt");
+
+        Assert.Equal(expectedOk, result.Ok);
+        if (expectedOk)
+        {
+            Assert.True(harness.Server.DiskOverlay.TryReadFileText("/work/b.txt", out var content));
+            Assert.Equal("alpha", content);
+            return;
+        }
+
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Contains("permission denied: cp", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures cp rejects unsupported option flags.</summary>
+    [Fact]
+    public void Execute_Cp_UnsupportedOption_ReturnsUsage()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "cp -n /work/a.txt /work/b.txt");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("usage: cp [(-r|-R|--recursive)] <src> <dst>", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures mv moves files and removes source entry after success.</summary>
+    [Fact]
+    public void Execute_Mv_MovesFileAndRemovesSource()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "mv /work/a.txt /work/b.txt");
+
+        Assert.True(result.Ok);
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/a.txt", out _));
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/work/b.txt", out var destinationContent));
+        Assert.Equal("alpha", destinationContent);
+    }
+
+    /// <summary>Ensures mv can move directories without requiring recursive flags.</summary>
+    [Fact]
+    public void Execute_Mv_MovesDirectoryWithoutRecursiveFlag()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/src");
+        harness.BaseFileSystem.AddDirectory("/work/src/sub");
+        harness.BaseFileSystem.AddFile("/work/src/sub/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "mv /work/src /work/dst");
+
+        Assert.True(result.Ok);
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/src", out _));
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/work/dst/sub/a.txt", out var copiedContent));
+        Assert.Equal("alpha", copiedContent);
+    }
+
+    /// <summary>Ensures mv accepts recursive option token as no-op compatibility flag.</summary>
+    [Fact]
+    public void Execute_Mv_RecursiveOption_IsAccepted()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "mv -r /work/a.txt /work/b.txt");
+
+        Assert.True(result.Ok);
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/a.txt", out _));
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/work/b.txt", out var destinationContent));
+        Assert.Equal("alpha", destinationContent);
+    }
+
+    /// <summary>Ensures mv with identical source/destination path succeeds as no-op.</summary>
+    [Fact]
+    public void Execute_Mv_SamePath_ReturnsSuccessNoOp()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "mv /work/a.txt /work/a.txt");
+
+        Assert.True(result.Ok);
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/work/a.txt", out var content));
+        Assert.Equal("alpha", content);
+    }
+
+    /// <summary>Ensures mv rejects destinations inside source subtree.</summary>
+    [Fact]
+    public void Execute_Mv_FailsWhenDestinationIsDescendant()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/src");
+        harness.BaseFileSystem.AddDirectory("/work/src/sub");
+        harness.BaseFileSystem.AddFile("/work/src/sub/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "mv /work/src /work/src/sub");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("destination cannot be inside source", result.Lines[0], StringComparison.Ordinal);
+        Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/work/src", out _));
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/src/sub/src", out _));
+    }
+
+    /// <summary>Ensures mv requires both read and write privileges.</summary>
+    [Theory]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, true)]
+    public void Execute_Mv_RequiresReadAndWritePrivileges(bool canRead, bool canWrite, bool expectedOk)
+    {
+        var harness = CreateHarness(
+            includeVfsModule: true,
+            cwd: "/work",
+            privilege: new PrivilegeConfig
+            {
+                Read = canRead,
+                Write = canWrite,
+                Execute = true,
+            });
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "mv /work/a.txt /work/b.txt");
+
+        Assert.Equal(expectedOk, result.Ok);
+        if (expectedOk)
+        {
+            Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/a.txt", out _));
+            Assert.True(harness.Server.DiskOverlay.TryReadFileText("/work/b.txt", out var movedContent));
+            Assert.Equal("alpha", movedContent);
+            return;
+        }
+
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Contains("permission denied: mv", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures mv rejects unsupported option flags.</summary>
+    [Fact]
+    public void Execute_Mv_UnsupportedOption_ReturnsUsage()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "mv -n /work/a.txt /work/b.txt");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("usage: mv [(-r|-R|--recursive)] <src> <dst>", result.Lines[0], StringComparison.Ordinal);
+    }
+
     /// <summary>Ensures SaveEditorContent overwrites existing text files when write privilege exists.</summary>
     [Fact]
     public void SaveEditorContent_OverwritesExistingTextFile()
@@ -6052,7 +6522,9 @@ public sealed class SystemCallTest
 
         var completionList = completions!.ToList();
         Assert.Contains("cat", completionList);
+        Assert.Contains("cp", completionList);
         Assert.Contains("connect", completionList);
+        Assert.Contains("mv", completionList);
         Assert.Contains("localtool", completionList);
         Assert.Contains("remotetool", completionList);
         Assert.DoesNotContain("not_exec.txt", completionList);
