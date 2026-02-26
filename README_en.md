@@ -6,11 +6,11 @@
 
 **Terminal prototype (command execution / known hosts / connect)**
 
-![Terminal prototype](docs/screenshots/terminal_known_hosts.png)
+![Terminal prototype](readme_resource/main_1.png)
 
 **Built-in editor + MiniScript (tool modification & automation)**
 
-![Built-in editor + MiniScript](docs/screenshots/editor_miniscript.png)
+![Built-in editor + MiniScript](readme_resource/script_1.png)
 
 ---
 

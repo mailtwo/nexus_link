@@ -6,11 +6,11 @@
 
 **터미널 프로토타입 (명령 실행 / known hosts / connect)**
 
-![터미널 프로토타입](docs/screenshots/terminal_known_hosts.png)
+![터미널 프로토타입](readme_resource/main_1.png)
 
 **내장 에디터 + MiniScript (툴/스크립트 수정·자동화)**
 
-![내장 에디터 + MiniScript](docs/screenshots/editor_miniscript.png)
+![내장 에디터 + MiniScript](readme_resource/script_1.png)
 
 ---
 
