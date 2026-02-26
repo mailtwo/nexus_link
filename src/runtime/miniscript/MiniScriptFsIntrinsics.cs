@@ -407,7 +407,7 @@ internal static class MiniScriptFsIntrinsics
     /// <para><b>Note</b></para>
     /// <list type="bullet">
     /// <item><description>루트 경로 <c>/</c>는 삭제할 수 없으며 <c>ERR_INVALID_ARGS</c>를 반환합니다.</description></item>
-    /// <item><description>비어 있지 않은 디렉터리는 삭제되지 않으며 현재 구현에서 <c>ERR_NOT_DIRECTORY</c>를 반환합니다.</description></item>
+    /// <item><description>비어 있지 않은 디렉터리는 삭제되지 않으며 현재 구현에서 <c>ERR_NOT_EMPTY</c>를 반환합니다.</description></item>
     /// <item><description>write 권한이 필요합니다.</description></item>
     /// </list>
     /// <para><b>See</b>: <see href="/api/fs.html#fsdelete">Manual</see>.</para>
@@ -472,7 +472,7 @@ internal static class MiniScriptFsIntrinsics
             {
                 return new Intrinsic.Result(
                     CreateFsFailureMap(
-                        SystemCallErrorCode.NotDirectory,
+                        SystemCallErrorCode.NotEmpty,
                         "directory not empty: " + targetPath));
             }
 

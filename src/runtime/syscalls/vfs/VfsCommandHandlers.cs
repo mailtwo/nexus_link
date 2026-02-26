@@ -138,6 +138,45 @@ internal sealed class HelpCommandHandler : VfsCommandHandlerBase
     }
 }
 
+internal sealed class EchoCommandHandler : VfsCommandHandlerBase
+{
+    public override string Command => "echo";
+
+    public override SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
+    {
+        _ = context;
+        if (arguments.Count == 0)
+        {
+            return SystemCallResultFactory.Success(lines: new[] { string.Empty });
+        }
+
+        return SystemCallResultFactory.Success(lines: new[] { string.Join(' ', arguments) });
+    }
+}
+
+internal sealed class ClearCommandHandler : VfsCommandHandlerBase
+{
+    private const string UsageText = "clear";
+
+    public override string Command => "clear";
+
+    public override SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
+    {
+        _ = context;
+        if (arguments.Count != 0)
+        {
+            return SystemCallResultFactory.Usage(UsageText);
+        }
+
+        return SystemCallResultFactory.Success(
+            data: new TerminalContextTransition
+            {
+                ClearTerminalBeforeOutput = true,
+                NextCwd = string.Empty,
+            });
+    }
+}
+
 internal sealed class PwdCommandHandler : VfsCommandHandlerBase
 {
     public override string Command => "pwd";
@@ -518,6 +557,68 @@ internal sealed class MkdirCommandHandler : VfsCommandHandlerBase
         }
 
         context.Server.DiskOverlay.AddDirectory(targetPath);
+        return SystemCallResultFactory.Success();
+    }
+}
+
+internal sealed class RmdirCommandHandler : VfsCommandHandlerBase
+{
+    private const string UsageText = "rmdir <dir>";
+
+    public override string Command => "rmdir";
+
+    public override SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count != 1 ||
+            string.IsNullOrWhiteSpace(arguments[0]) ||
+            arguments[0].StartsWith("-", StringComparison.Ordinal))
+        {
+            return SystemCallResultFactory.Usage(UsageText);
+        }
+
+        if (!RequireWrite(context, Command, out var permissionResult))
+        {
+            return permissionResult;
+        }
+
+        var targetPath = NormalizePath(context, arguments[0]);
+        if (targetPath == "/")
+        {
+            return SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, "rmdir cannot remove root directory.");
+        }
+
+        if (!context.Server.DiskOverlay.TryResolveEntry(targetPath, out var entry))
+        {
+            return SystemCallResultFactory.NotFound(targetPath);
+        }
+
+        if (entry.EntryKind != VfsEntryKind.Dir)
+        {
+            return SystemCallResultFactory.NotDirectory(targetPath);
+        }
+
+        if (string.Equals(targetPath, context.Cwd, StringComparison.Ordinal) ||
+            context.Cwd.StartsWith(targetPath + "/", StringComparison.Ordinal))
+        {
+            return SystemCallResultFactory.Failure(
+                SystemCallErrorCode.InvalidArgs,
+                "rmdir cannot remove current working directory or its ancestor.");
+        }
+
+        if (context.Server.DiskOverlay.ListChildren(targetPath).Count != 0)
+        {
+            return SystemCallResultFactory.NotEmpty(targetPath);
+        }
+
+        try
+        {
+            context.Server.DiskOverlay.AddTombstone(targetPath);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, ex.Message);
+        }
+
         return SystemCallResultFactory.Success();
     }
 }

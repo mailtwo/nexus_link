@@ -12,12 +12,15 @@ internal sealed class VfsSystemCallModule : ISystemCallModule
     public void Register(SystemCallRegistry registry)
     {
         registry.Register(new HelpCommandHandler());
+        registry.Register(new EchoCommandHandler());
+        registry.Register(new ClearCommandHandler());
         registry.Register(new PwdCommandHandler());
         registry.Register(new LsCommandHandler());
         registry.Register(new CdCommandHandler());
         registry.Register(new CatCommandHandler());
         registry.Register(new EditCommandHandler());
         registry.Register(new MkdirCommandHandler());
+        registry.Register(new RmdirCommandHandler());
         registry.Register(new CpCommandHandler());
         registry.Register(new MvCommandHandler());
         if (enableDebugCommands)

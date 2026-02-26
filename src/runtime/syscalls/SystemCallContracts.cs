@@ -20,6 +20,7 @@ public enum SystemCallErrorCode
     PortClosed,
     NotFile,
     NotDirectory,
+    NotEmpty,
     Conflict,
     InternalError,
     AlreadyExists,
@@ -51,6 +52,7 @@ internal static class SystemCallErrorCodeTokenMapper
             SystemCallErrorCode.PortClosed => "ERR_PORT_CLOSED",
             SystemCallErrorCode.NotFile => "ERR_IS_DIRECTORY",
             SystemCallErrorCode.NotDirectory => "ERR_NOT_DIRECTORY",
+            SystemCallErrorCode.NotEmpty => "ERR_NOT_EMPTY",
             SystemCallErrorCode.Conflict => "ERR_ALREADY_EXISTS",
             SystemCallErrorCode.InternalError => "ERR_INTERNAL_ERROR",
             SystemCallErrorCode.AlreadyExists => "ERR_ALREADY_EXISTS",
@@ -158,6 +160,11 @@ internal static class SystemCallResultFactory
     internal static SystemCallResult NotDirectory(string path)
     {
         return Failure(SystemCallErrorCode.NotDirectory, "not a directory: " + path);
+    }
+
+    internal static SystemCallResult NotEmpty(string path)
+    {
+        return Failure(SystemCallErrorCode.NotEmpty, "directory not empty: " + path);
     }
 
     internal static SystemCallResult NotFile(string path)

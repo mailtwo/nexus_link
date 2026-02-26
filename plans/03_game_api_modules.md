@@ -44,6 +44,7 @@
 - `ERR_NOT_TEXT_FILE` (텍스트가 아닌 파일을 text API로 다룸)
 - `ERR_ALREADY_EXISTS` (overwrite=false에서 파일 존재)
 - `ERR_NOT_DIRECTORY` (dir 기대인데 file)
+- `ERR_NOT_EMPTY` (비어있지 않은 디렉토리 삭제 시)
 - `ERR_IS_DIRECTORY` (file 기대인데 dir)
 - `ERR_PORT_CLOSED` (포트 비할당/서비스 없음)
 - `ERR_NET_DENIED` (exposure/라우팅 규칙상 접근 불가)
@@ -354,11 +355,11 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - base 파일 삭제는 tombstone으로 가림 처리
   - overlay 파일 삭제는 overlay 엔트리 제거
   - 디렉토리 삭제는 **비어 있을 때만** 허용
-  - 비어있지 않은 디렉토리 삭제 시 `ERR_NOT_DIRECTORY` 반환(현재 구현 정책)
+  - 비어있지 않은 디렉토리 삭제 시 `ERR_NOT_EMPTY` 반환
 - 반환(최상위 필드):
   - 성공 시 `{ deleted: 1 }`
 - 실패:
-  - `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`, `ERR_NOT_DIRECTORY`(rmdir 조건 불일치 시), `ERR_INVALID_ARGS`
+  - `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`, `ERR_NOT_EMPTY`(rmdir 조건 불일치 시), `ERR_INVALID_ARGS`
 
 ### 3.5 `fs.stat([sessionOrRoute], path)`
 - 목적: 메타 조회

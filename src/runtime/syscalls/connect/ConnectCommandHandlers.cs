@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Threading;
 using Uplink2.Vfs;
 
 #nullable enable
@@ -171,6 +172,206 @@ internal sealed class DisconnectCommandHandler : ISystemCallHandler
         };
 
         return SystemCallResultFactory.Success(nextCwd: transition.NextCwd, data: transition);
+    }
+}
+
+internal sealed class PingCommandHandler : ISystemCallHandler
+{
+    private const string UsageText = "ping [(-c) <count>] <host|ip>";
+    private const int DefaultCount = 5;
+    private const int MinCount = 1;
+    private const int MaxCount = 10;
+    private const int ProbeIntervalMs = 1000;
+    private const int PingBytes = 64;
+    private const int InitialTtl = 64;
+
+    public string Command => "ping";
+
+    public SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
+    {
+        if (!TryParseArguments(arguments, out var parsed, out var parseFailure))
+        {
+            return parseFailure!;
+        }
+
+        if (parsed.Count == 1)
+        {
+            var singleProbe = EvaluateProbe(context, parsed.HostOrIp);
+            var line = singleProbe.IsSuccess
+                ? "success"
+                : $"fail({singleProbe.ErrorMessage})";
+            return SystemCallResultFactory.Success(lines: new[] { line });
+        }
+
+        var lines = new List<string>(parsed.Count + 2);
+        var received = 0;
+        for (var sequence = 1; sequence <= parsed.Count; sequence++)
+        {
+            var probe = EvaluateProbe(context, parsed.HostOrIp);
+            if (probe.IsSuccess)
+            {
+                received++;
+                lines.Add($"{PingBytes} bytes from {probe.ReplyAddress}: icmp_seq={sequence} ttl={InitialTtl}");
+            }
+            else
+            {
+                lines.Add($"Request timeout for icmp_seq={sequence} ({probe.ErrorMessage})");
+            }
+
+            if (sequence < parsed.Count)
+            {
+                Thread.Sleep(ProbeIntervalMs);
+            }
+        }
+
+        var packetLoss = (parsed.Count - received) * 100 / parsed.Count;
+        lines.Add($"--- {parsed.HostOrIp} ping statistics ---");
+        lines.Add($"{parsed.Count} packets transmitted, {received} received, {packetLoss}% packet loss");
+        return SystemCallResultFactory.Success(lines: lines);
+    }
+
+    private static PingProbeResult EvaluateProbe(SystemCallExecutionContext context, string hostOrIp)
+    {
+        if (!context.World.TryResolveServerByHostOrIp(hostOrIp, out var targetServer))
+        {
+            return PingProbeResult.CreateFailure($"host not found: {hostOrIp}");
+        }
+
+        if (targetServer.Status != ServerStatus.Online)
+        {
+            return PingProbeResult.CreateFailure($"server offline: {targetServer.NodeId}");
+        }
+
+        if (!context.World.TryValidatePortAccess(
+                context.Server,
+                targetServer,
+                port: 22,
+                requiredPortType: PortType.Ssh,
+                out var portFailure))
+        {
+            return PingProbeResult.CreateFailure(ResolveHumanMessage(portFailure));
+        }
+
+        return PingProbeResult.CreateSuccess(ResolveReplyAddress(targetServer, hostOrIp));
+    }
+
+    private static bool TryParseArguments(
+        IReadOnlyList<string> arguments,
+        out ParsedPingArguments parsed,
+        out SystemCallResult? failure)
+    {
+        parsed = default;
+        failure = null;
+
+        if (arguments.Count == 0)
+        {
+            failure = SystemCallResultFactory.Usage(UsageText);
+            return false;
+        }
+
+        var count = DefaultCount;
+        string hostOrIp;
+        if (arguments.Count == 1)
+        {
+            if (arguments[0].StartsWith("-", StringComparison.Ordinal))
+            {
+                failure = SystemCallResultFactory.Usage(UsageText);
+                return false;
+            }
+
+            hostOrIp = arguments[0].Trim();
+        }
+        else
+        {
+            if (arguments.Count != 3)
+            {
+                failure = SystemCallResultFactory.Usage(UsageText);
+                return false;
+            }
+
+            if (!string.Equals(arguments[0], "-c", StringComparison.Ordinal))
+            {
+                failure = SystemCallResultFactory.Usage(UsageText);
+                return false;
+            }
+
+            if (!int.TryParse(arguments[1], NumberStyles.None, CultureInfo.InvariantCulture, out count))
+            {
+                failure = SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, $"invalid count: {arguments[1]}");
+                return false;
+            }
+
+            hostOrIp = arguments[2].Trim();
+        }
+
+        if (count is < MinCount or > MaxCount)
+        {
+            failure = SystemCallResultFactory.Failure(
+                SystemCallErrorCode.InvalidArgs,
+                $"count must be in range {MinCount}..{MaxCount}.");
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(hostOrIp))
+        {
+            failure = SystemCallResultFactory.Failure(SystemCallErrorCode.InvalidArgs, "host or ip is required.");
+            return false;
+        }
+
+        parsed = new ParsedPingArguments(hostOrIp, count);
+        return true;
+    }
+
+    private static string ResolveReplyAddress(ServerNodeRuntime targetServer, string fallback)
+    {
+        if (!string.IsNullOrWhiteSpace(targetServer.PrimaryIp))
+        {
+            return targetServer.PrimaryIp;
+        }
+
+        foreach (var iface in targetServer.Interfaces)
+        {
+            if (!string.IsNullOrWhiteSpace(iface.Ip))
+            {
+                return iface.Ip;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(fallback))
+        {
+            return fallback;
+        }
+
+        return targetServer.NodeId;
+    }
+
+    private static string ResolveHumanMessage(SystemCallResult result)
+    {
+        if (result.Lines.Count == 0)
+        {
+            return "unknown error.";
+        }
+
+        var firstLine = result.Lines[0]?.Trim() ?? string.Empty;
+        const string errorPrefix = "error: ";
+        return firstLine.StartsWith(errorPrefix, StringComparison.OrdinalIgnoreCase)
+            ? firstLine[errorPrefix.Length..]
+            : firstLine;
+    }
+
+    private readonly record struct ParsedPingArguments(string HostOrIp, int Count);
+
+    private readonly record struct PingProbeResult(bool IsSuccess, string ReplyAddress, string ErrorMessage)
+    {
+        public static PingProbeResult CreateSuccess(string replyAddress)
+        {
+            return new PingProbeResult(true, replyAddress, string.Empty);
+        }
+
+        public static PingProbeResult CreateFailure(string errorMessage)
+        {
+            return new PingProbeResult(false, string.Empty, errorMessage);
+        }
     }
 }
 

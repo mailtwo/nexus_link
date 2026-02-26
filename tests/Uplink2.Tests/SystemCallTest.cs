@@ -20,7 +20,7 @@ using Xunit;
 namespace Uplink2.Tests;
 
 /// <summary>Unit tests for SystemCallProcessor command dispatch and program fallback contracts.</summary>
-[Trait("Speed", "medium")]
+[Trait("Speed", "fast")]
 public sealed class SystemCallTest
 {
     /// <summary>Ensures API code token mapping covers all SystemCallErrorCode values with canonical outputs.</summary>
@@ -44,6 +44,7 @@ public sealed class SystemCallTest
             [SystemCallErrorCode.PortClosed] = "ERR_PORT_CLOSED",
             [SystemCallErrorCode.NotFile] = "ERR_IS_DIRECTORY",
             [SystemCallErrorCode.NotDirectory] = "ERR_NOT_DIRECTORY",
+            [SystemCallErrorCode.NotEmpty] = "ERR_NOT_EMPTY",
             [SystemCallErrorCode.Conflict] = "ERR_ALREADY_EXISTS",
             [SystemCallErrorCode.InternalError] = "ERR_INTERNAL_ERROR",
             [SystemCallErrorCode.AlreadyExists] = "ERR_ALREADY_EXISTS",
@@ -684,6 +685,87 @@ public sealed class SystemCallTest
         Assert.Contains("/missing", result.Lines[0], StringComparison.Ordinal);
     }
 
+    /// <summary>Ensures echo joins arguments with spaces and prints one line.</summary>
+    [Fact]
+    public void Execute_Echo_JoinsArgumentsWithSpaces()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+
+        var result = Execute(harness, "echo hello world");
+
+        Assert.True(result.Ok);
+        Assert.Single(result.Lines);
+        Assert.Equal("hello world", result.Lines[0]);
+    }
+
+    /// <summary>Ensures echo preserves quoted spaces through parser tokenization.</summary>
+    [Fact]
+    public void Execute_Echo_QuotedArgument_PreservesSpaces()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+
+        var result = Execute(harness, "echo \"a b\"");
+
+        Assert.True(result.Ok);
+        Assert.Single(result.Lines);
+        Assert.Equal("a b", result.Lines[0]);
+    }
+
+    /// <summary>Ensures echo without arguments still emits a single empty line.</summary>
+    [Fact]
+    public void Execute_Echo_NoArguments_ReturnsSingleEmptyLine()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+
+        var result = Execute(harness, "echo");
+
+        Assert.True(result.Ok);
+        Assert.Single(result.Lines);
+        Assert.Equal(string.Empty, result.Lines[0]);
+    }
+
+    /// <summary>Ensures echo treats option-like tokens as normal text.</summary>
+    [Fact]
+    public void Execute_Echo_DoesNotParseOptions()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+
+        var result = Execute(harness, "echo -n hi");
+
+        Assert.True(result.Ok);
+        Assert.Single(result.Lines);
+        Assert.Equal("-n hi", result.Lines[0]);
+    }
+
+    /// <summary>Ensures clear returns clearTerminal transition payload and no output lines.</summary>
+    [Fact]
+    public void Execute_Clear_ReturnsClearTerminalPayload()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+
+        var result = Execute(harness, "clear", cwd: "/work");
+
+        Assert.True(result.Ok);
+        Assert.Empty(result.Lines);
+        var payload = BuildTerminalCommandResponsePayload(result);
+        Assert.Equal(true, payload["clearTerminal"]);
+        Assert.Equal(string.Empty, payload["nextCwd"]);
+    }
+
+    /// <summary>Ensures clear rejects extra arguments and returns usage error.</summary>
+    [Fact]
+    public void Execute_Clear_WithArguments_ReturnsUsage()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+
+        var result = Execute(harness, "clear now");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("usage: clear", result.Lines[0], StringComparison.Ordinal);
+    }
+
     /// <summary>Ensures rm removes file targets in non-recursive mode.</summary>
     [Fact]
     public void Execute_Rm_FilePath_DeletesFile()
@@ -864,6 +946,150 @@ public sealed class SystemCallTest
         Assert.Equal(VfsEntryKind.Dir, recreatedEntry.EntryKind);
         Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/tree/sub", out _));
         Assert.Empty(harness.Server.DiskOverlay.ListChildren("/work/tree"));
+    }
+
+    /// <summary>Ensures rmdir removes empty directory targets.</summary>
+    [Fact]
+    public void Execute_Rmdir_EmptyDirectory_DeletesPath()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/empty");
+
+        var result = Execute(harness, "rmdir /work/empty");
+
+        Assert.True(result.Ok);
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/work/empty", out _));
+    }
+
+    /// <summary>Ensures rmdir requires write privilege.</summary>
+    [Fact]
+    public void Execute_Rmdir_RequiresWritePrivilege()
+    {
+        var harness = CreateHarness(
+            includeVfsModule: true,
+            cwd: "/work",
+            privilege: new PrivilegeConfig
+            {
+                Read = true,
+                Write = false,
+                Execute = true,
+            });
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/empty");
+
+        var result = Execute(harness, "rmdir /work/empty");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Contains("permission denied: rmdir", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures rmdir returns not-found for missing targets.</summary>
+    [Fact]
+    public void Execute_Rmdir_MissingTarget_ReturnsNotFound()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+
+        var result = Execute(harness, "rmdir /work/missing");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.NotFound, result.Code);
+    }
+
+    /// <summary>Ensures rmdir rejects file targets with not-directory.</summary>
+    [Fact]
+    public void Execute_Rmdir_FileTarget_ReturnsNotDirectory()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile("/work/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "rmdir /work/a.txt");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.NotDirectory, result.Code);
+    }
+
+    /// <summary>Ensures rmdir returns not-empty for non-empty directories.</summary>
+    [Fact]
+    public void Execute_Rmdir_NonEmptyDirectory_ReturnsNotEmpty()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/dir");
+        harness.BaseFileSystem.AddFile("/work/dir/a.txt", "alpha", fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "rmdir /work/dir");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.NotEmpty, result.Code);
+        Assert.Contains("directory not empty: /work/dir", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures rmdir cannot remove root directory.</summary>
+    [Fact]
+    public void Execute_Rmdir_RootTarget_ReturnsInvalidArgs()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+
+        var result = Execute(harness, "rmdir /");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("rmdir cannot remove root directory", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures rmdir validates usage for missing, extra, or unsupported-option arguments.</summary>
+    [Theory]
+    [InlineData("rmdir")]
+    [InlineData("rmdir /work/a /work/b")]
+    [InlineData("rmdir -p /work/a")]
+    [InlineData("rmdir -p")]
+    public void Execute_Rmdir_InvalidUsage_ReturnsUsage(string commandLine)
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/a");
+        harness.BaseFileSystem.AddDirectory("/work/b");
+
+        var result = Execute(harness, commandLine);
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("usage: rmdir <dir>", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures rmdir blocks deleting current working directory.</summary>
+    [Fact]
+    public void Execute_Rmdir_TargetIsCurrentWorkingDirectory_ReturnsInvalidArgs()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/sub");
+
+        var result = Execute(harness, "rmdir .");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("current working directory or its ancestor", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures rmdir blocks deleting ancestors of current working directory.</summary>
+    [Fact]
+    public void Execute_Rmdir_TargetIsAncestorOfCurrentWorkingDirectory_ReturnsInvalidArgs()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work/sub");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddDirectory("/work/sub");
+
+        var result = Execute(harness, "rmdir /work");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Contains("current working directory or its ancestor", result.Lines[0], StringComparison.Ordinal);
     }
 
     /// <summary>Ensures cp copies a file to a new destination path and keeps source intact.</summary>
@@ -4077,7 +4303,7 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "d2ok=0", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "d2code=ERR_NOT_FOUND", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "d3ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "d3code=ERR_NOT_DIRECTORY", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "d3code=ERR_NOT_EMPTY", StringComparison.Ordinal));
         Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/tmp/x.txt", out _));
         Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/tmp/dir/y.txt", out _));
     }
@@ -5156,6 +5382,94 @@ public sealed class SystemCallTest
         Assert.Equal(SystemCallErrorCode.RateLimited, result.Code);
         Assert.Equal("error: rate limited", result.Lines[0]);
         Assert.Equal("code: ERR_RATE_LIMITED", result.Lines[1]);
+    }
+
+    /// <summary>Ensures ping validates usage and count range parsing.</summary>
+    [Theory]
+    [InlineData("ping", "usage: ping")]
+    [InlineData("ping -c", "usage: ping")]
+    [InlineData("ping -x 10.0.1.20", "usage: ping")]
+    [InlineData("ping -c x 10.0.1.20", "invalid count")]
+    [InlineData("ping -c 0 10.0.1.20", "count must be in range 1..10")]
+    [InlineData("ping -c 11 10.0.1.20", "count must be in range 1..10")]
+    public void Execute_Ping_UsageAndCountValidation(string commandLine, string expectedMessage)
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var result = Execute(harness, commandLine, terminalSessionId: "ts-ping-usage");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Contains(expectedMessage, result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures ping -c 1 prints a simple success line when target is reachable.</summary>
+    [Fact]
+    public void Execute_Ping_SingleProbe_Succeeds_WhenTargetReachable()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var result = Execute(harness, "ping -c 1 10.0.1.20", terminalSessionId: "ts-ping-single-ok");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Equal("success", result.Lines[0]);
+    }
+
+    /// <summary>Ensures ping -c 1 returns fail(host not found) for unknown targets.</summary>
+    [Fact]
+    public void Execute_Ping_SingleProbe_Fails_WhenHostNotFound()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+
+        var result = Execute(harness, "ping -c 1 10.0.1.99", terminalSessionId: "ts-ping-single-missing");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Equal("fail(host not found: 10.0.1.99)", result.Lines[0]);
+    }
+
+    /// <summary>Ensures ping -c 1 returns fail(server offline) when target is offline.</summary>
+    [Fact]
+    public void Execute_Ping_SingleProbe_Fails_WhenTargetOffline()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.SetOffline(ServerReason.Disabled);
+
+        var result = Execute(harness, "ping -c 1 10.0.1.20", terminalSessionId: "ts-ping-single-offline");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Equal($"fail(server offline: {remote.NodeId})", result.Lines[0]);
+    }
+
+    /// <summary>Ensures ping -c 1 reuses SSH exposure checks and fails on denied exposure.</summary>
+    [Fact]
+    public void Execute_Ping_SingleProbe_Fails_WhenExposureDenied()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(
+            harness,
+            "node-2",
+            "remote",
+            "10.0.1.20",
+            AuthMode.Static,
+            "pw",
+            exposure: PortExposure.Localhost);
+
+        var result = Execute(harness, "ping -c 1 10.0.1.20", terminalSessionId: "ts-ping-single-denied");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Equal("fail(port exposure denied: 22)", result.Lines[0]);
     }
 
     /// <summary>Ensures connect validates usage and strict port syntax.</summary>
@@ -6522,9 +6836,13 @@ public sealed class SystemCallTest
 
         var completionList = completions!.ToList();
         Assert.Contains("cat", completionList);
+        Assert.Contains("clear", completionList);
         Assert.Contains("cp", completionList);
         Assert.Contains("connect", completionList);
+        Assert.Contains("ping", completionList);
+        Assert.Contains("echo", completionList);
         Assert.Contains("mv", completionList);
+        Assert.Contains("rmdir", completionList);
         Assert.Contains("localtool", completionList);
         Assert.Contains("remotetool", completionList);
         Assert.DoesNotContain("not_exec.txt", completionList);
@@ -7268,7 +7586,7 @@ public sealed class SystemCallTest
         return bytes.ToArray();
     }
 
-    private static SystemCallHarness CreateHarness(
+    internal static SystemCallHarness CreateHarness(
         bool includeVfsModule,
         bool includeConnectModule = false,
         bool includePrototypeSaveLoadModule = false,
@@ -7318,7 +7636,7 @@ public sealed class SystemCallTest
         return new SystemCallHarness(world, server, baseFileSystem, processor, "guest", cwd);
     }
 
-    private static ServerNodeRuntime AddRemoteServer(
+    internal static ServerNodeRuntime AddRemoteServer(
         SystemCallHarness harness,
         string nodeId,
         string name,
@@ -7679,7 +7997,7 @@ public sealed class SystemCallTest
         return instance!;
     }
 
-    private static SystemCallResult Execute(
+    internal static SystemCallResult Execute(
         SystemCallHarness harness,
         string commandLine,
         string? nodeId = null,
@@ -7899,12 +8217,70 @@ public sealed class SystemCallTest
         Assert.DoesNotContain(intrinsic!.id, wrappedIntrinsicIds);
     }
 
-    private sealed record SystemCallHarness(
+internal sealed record SystemCallHarness(
         WorldRuntime World,
         ServerNodeRuntime Server,
         BaseFileSystem BaseFileSystem,
         object Processor,
         string UserId,
         string Cwd);
+}
+
+/// <summary>Time-consuming ping tests that intentionally wait between probes.</summary>
+[Trait("Speed", "medium")]
+public sealed class SystemCallPingTimedTest
+{
+    /// <summary>Ensures ping -c&gt;1 prints per-probe rows and packet-loss summary.</summary>
+    [Fact]
+    public void Execute_Ping_MultiProbe_PrintsStatistics()
+    {
+        var harness = SystemCallTest.CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        SystemCallTest.AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var result = SystemCallTest.Execute(harness, "ping -c 2 10.0.1.20", terminalSessionId: "ts-ping-multi-ok");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Equal(4, result.Lines.Count);
+        Assert.Contains(result.Lines[0], "64 bytes from", StringComparison.Ordinal);
+        Assert.Contains(result.Lines[0], "icmp_seq=1", StringComparison.Ordinal);
+        Assert.Contains(result.Lines[1], "icmp_seq=2", StringComparison.Ordinal);
+        Assert.Equal("--- 10.0.1.20 ping statistics ---", result.Lines[2]);
+        Assert.Equal("2 packets transmitted, 2 received, 0% packet loss", result.Lines[3]);
+    }
+
+    /// <summary>Ensures ping re-evaluates target status every second instead of cloning the first probe result.</summary>
+    [Fact]
+    public void Execute_Ping_MultiProbe_ReevaluatesServerStateEachSecond()
+    {
+        var harness = SystemCallTest.CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = SystemCallTest.AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        SystemCallResult? result = null;
+        var startedAt = DateTimeOffset.UtcNow;
+        var worker = new Thread(() =>
+        {
+            result = SystemCallTest.Execute(harness, "ping -c 2 10.0.1.20", terminalSessionId: "ts-ping-multi-transition");
+        });
+        worker.Start();
+
+        Thread.Sleep(350);
+        remote.SetOffline(ServerReason.Disabled);
+
+        Assert.True(worker.Join(millisecondsTimeout: 5000), "Timed ping worker did not finish within timeout.");
+        Assert.NotNull(result);
+
+        var elapsed = DateTimeOffset.UtcNow - startedAt;
+        Assert.True(elapsed >= TimeSpan.FromMilliseconds(900), $"Expected >=900ms elapsed, got {elapsed.TotalMilliseconds:0}ms.");
+
+        Assert.True(result!.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Equal(4, result.Lines.Count);
+        Assert.Contains(result.Lines[0], "icmp_seq=1", StringComparison.Ordinal);
+        Assert.Contains(result.Lines[1], "Request timeout for icmp_seq=2", StringComparison.Ordinal);
+        Assert.Contains(result.Lines[1], "server offline: node-2", StringComparison.Ordinal);
+        Assert.Equal("--- 10.0.1.20 ping statistics ---", result.Lines[2]);
+        Assert.Equal("2 packets transmitted, 1 received, 50% packet loss", result.Lines[3]);
+    }
 }
 
