@@ -168,7 +168,6 @@ MVP에서는 `Ctrl+S`, `Esc`만 있어도 충분.
 - `cd <path>`
 - `cat <file>`
 - `mkdir <dir>`
-- `touch <file>`
 - `rm <path>`
 - `cp <src> <dst>`
 - `mv <src> <dst>`
