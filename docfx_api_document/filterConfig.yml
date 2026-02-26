@@ -3,10 +3,10 @@ apiRules:
       uidRegex: ^Uplink2\.Runtime\.MiniScript$
       type: Namespace
   - include:
-      uidRegex: ^Uplink2\.Runtime\.MiniScript\.(MiniScriptSshIntrinsics|MiniScriptFtpIntrinsics|MiniScriptNetIntrinsics|MiniScriptTermIntrinsics|MiniScriptFsIntrinsics)$
+      uidRegex: ^Uplink2\.Runtime\.MiniScript\.(MiniScriptSshIntrinsics|MiniScriptFtpIntrinsics|MiniScriptNetIntrinsics|MiniScriptTermIntrinsics|MiniScriptFsIntrinsics|MiniScriptImportIntrinsics)$
       type: Type
   - include:
-      uidRegex: ^Uplink2\.Runtime\.MiniScript\.MiniScriptSshIntrinsics\.(SshConnect|SshDisconnect|SshExec|SshInspect)$|^Uplink2\.Runtime\.MiniScript\.MiniScriptFtpIntrinsics\.(FtpGet|FtpPut)$|^Uplink2\.Runtime\.MiniScript\.MiniScriptNetIntrinsics\.(NetInterfaces|NetScan|NetPorts|NetBanner)$|^Uplink2\.Runtime\.MiniScript\.MiniScriptTermIntrinsics\.(TermExec|TermPrint|TermWarn|TermError)$|^Uplink2\.Runtime\.MiniScript\.MiniScriptFsIntrinsics\.(RegisterFsListIntrinsic|RegisterFsReadIntrinsic|RegisterFsWriteIntrinsic|RegisterFsDeleteIntrinsic|RegisterFsStatIntrinsic)$
+      uidRegex: ^Uplink2\.Runtime\.MiniScript\.MiniScriptSshIntrinsics\.(SshConnect|SshDisconnect|SshExec|SshInspect)$|^Uplink2\.Runtime\.MiniScript\.MiniScriptFtpIntrinsics\.(FtpGet|FtpPut)$|^Uplink2\.Runtime\.MiniScript\.MiniScriptNetIntrinsics\.(NetInterfaces|NetScan|NetPorts|NetBanner)$|^Uplink2\.Runtime\.MiniScript\.MiniScriptTermIntrinsics\.(TermExec|TermPrint|TermWarn|TermError)$|^Uplink2\.Runtime\.MiniScript\.MiniScriptFsIntrinsics\.(RegisterFsListIntrinsic|RegisterFsReadIntrinsic|RegisterFsWriteIntrinsic|RegisterFsDeleteIntrinsic|RegisterFsStatIntrinsic)$|^Uplink2\.Runtime\.MiniScript\.MiniScriptImportIntrinsics\.(RegisterImportIntrinsic)$
       type: Member
   - exclude:
       uidRegex: .*

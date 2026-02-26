@@ -227,3 +227,21 @@ syntax:
   content: r = fs.stat([sessionOrRoute], path)
 ---
 <a id="fsstat"></a>
+
+---
+uid: Uplink2.Runtime.MiniScript.MiniScriptImportIntrinsics
+name: import
+nameWithType: import
+fullName: import
+summary: 전역 intrinsic <code>import</code>는 라이브러리 스크립트를 로드하고 모듈 값을 반환하며 호출자 스코프에 바인딩합니다.
+---
+
+---
+uid: Uplink2.Runtime.MiniScript.MiniScriptImportIntrinsics.RegisterImportIntrinsic
+name: import()
+nameWithType: import()
+fullName: import()
+syntax:
+  content: m = import(name, alias=null)
+---
+<a id="importcall"></a>

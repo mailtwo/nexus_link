@@ -6,6 +6,7 @@ const moduleNameByUid = {
   "Uplink2.Runtime.MiniScript.MiniScriptNetIntrinsics": "Module net",
   "Uplink2.Runtime.MiniScript.MiniScriptTermIntrinsics": "Module term",
   "Uplink2.Runtime.MiniScript.MiniScriptFsIntrinsics": "Module fs",
+  "Uplink2.Runtime.MiniScript.MiniScriptImportIntrinsics": "import",
 };
 
 const moduleOrderByUid = {
@@ -14,6 +15,7 @@ const moduleOrderByUid = {
   "Uplink2.Runtime.MiniScript.MiniScriptNetIntrinsics": 30,
   "Uplink2.Runtime.MiniScript.MiniScriptTermIntrinsics": 40,
   "Uplink2.Runtime.MiniScript.MiniScriptFsIntrinsics": 50,
+  "Uplink2.Runtime.MiniScript.MiniScriptImportIntrinsics": 60,
 };
 
 const moduleNameByTopicFile = {
@@ -22,6 +24,7 @@ const moduleNameByTopicFile = {
   "Uplink2.Runtime.MiniScript.MiniScriptNetIntrinsics.html": "Module net",
   "Uplink2.Runtime.MiniScript.MiniScriptTermIntrinsics.html": "Module term",
   "Uplink2.Runtime.MiniScript.MiniScriptFsIntrinsics.html": "Module fs",
+  "Uplink2.Runtime.MiniScript.MiniScriptImportIntrinsics.html": "import",
 };
 
 function getFileNameFromHref(href) {

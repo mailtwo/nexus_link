@@ -6,6 +6,7 @@ const miniScriptModulePrefixes = [
   "Uplink2.Runtime.MiniScript.MiniScriptNetIntrinsics",
   "Uplink2.Runtime.MiniScript.MiniScriptTermIntrinsics",
   "Uplink2.Runtime.MiniScript.MiniScriptFsIntrinsics",
+  "Uplink2.Runtime.MiniScript.MiniScriptImportIntrinsics",
 ];
 
 const moduleInfoByClassUid = {
@@ -23,6 +24,9 @@ const moduleInfoByClassUid = {
   },
   "Uplink2.Runtime.MiniScript.MiniScriptFsIntrinsics": {
     title: "Module fs",
+  },
+  "Uplink2.Runtime.MiniScript.MiniScriptImportIntrinsics": {
+    title: "import",
   },
 };
 
@@ -90,6 +94,9 @@ exports.postTransform = function (model) {
     const moduleInfo = moduleInfoByClassUid[model.uid];
     model._isMiniScriptModulePage = true;
     model._moduleTitle = moduleInfo.title;
+    if (model.uid === "Uplink2.Runtime.MiniScript.MiniScriptImportIntrinsics") {
+      model._manualAnchorId = "import";
+    }
   }
 
   markMiniScriptSyntax(model);

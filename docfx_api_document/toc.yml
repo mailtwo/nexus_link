@@ -1,5 +1,9 @@
 - name: Manual
   items:
+  - name: Introduction
+    href: docs/introduction.md
+  - name: Getting Started
+    href: docs/getting-started.md
   - name: SSH Module (ssh.*) - Manual
     href: api/ssh.md
   - name: FTP Module (ftp.*) - Manual
@@ -10,12 +14,12 @@
     href: api/term.md
   - name: FS Module (fs.*) - Manual
     href: api/fs.md
-  - name: Introduction
-    href: docs/introduction.md
-  - name: Getting Started
-    href: docs/getting-started.md
+  - name: import - Manual
+    href: api/import.md
 - name: API
   items:
+  - name: Managed Reference Index
+    href: api/
   - name: SSH API (Managed Reference)
     href: api/ssh-api.md
   - name: FTP API (Managed Reference)
@@ -26,5 +30,5 @@
     href: api/term-api.md
   - name: FS API (Managed Reference)
     href: api/fs-api.md
-  - name: Managed Reference Index
-    href: api/
+  - name: import API (Managed Reference)
+    href: api/import-api.md

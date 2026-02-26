@@ -1,6 +1,9 @@
 {{!Licensed to the .NET Foundation under one or more agreements. The .NET Foundation licenses this file to you under the MIT license.}}
 
 {{#_isMiniScriptModulePage}}
+{{#_manualAnchorId}}
+<a id="{{_manualAnchorId}}"></a>
+{{/_manualAnchorId}}
 <h1 id="{{id}}" data-uid="{{uid}}" class="text-break">
   {{#_moduleTitle}}{{_moduleTitle}}{{/_moduleTitle}}{{^_moduleTitle}}{{name.0.value}}{{/_moduleTitle}}
   {{#sourceurl}}<a class="header-action link-secondary" title="View source" href="{{sourceurl}}"><i class="bi bi-code-slash"></i></a>{{/sourceurl}}
@@ -23,6 +26,9 @@
 {{/_isMiniScriptModulePage}}
 
 {{^_isMiniScriptModulePage}}
+{{#_manualAnchorId}}
+<a id="{{_manualAnchorId}}"></a>
+{{/_manualAnchorId}}
 <h1 id="{{id}}" data-uid="{{uid}}" class="text-break">
   {{>partials/title}}
   {{#sourceurl}}<a class="header-action link-secondary" title="View source" href="{{sourceurl}}"><i class="bi bi-code-slash"></i></a>{{/sourceurl}}
