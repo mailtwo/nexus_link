@@ -60,7 +60,11 @@ internal sealed class MiniScriptExecutableHardcodeHandler : IExecutableHardcodeH
             scriptArguments[index - 1] = invocation.Arguments[index];
         }
 
-        return MiniScriptExecutionRunner.ExecuteScript(scriptSource, context, scriptArguments);
+        return MiniScriptExecutionRunner.ExecuteScript(
+            scriptSource,
+            context,
+            scriptArguments,
+            currentScriptPath: scriptPath);
     }
 }
 

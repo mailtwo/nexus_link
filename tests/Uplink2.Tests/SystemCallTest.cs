@@ -7,6 +7,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using Miniscript;
 using Uplink2.Blueprint;
@@ -54,6 +55,9 @@ public sealed class SystemCallTest
             [SystemCallErrorCode.ToolMissing] = "ERR_TOOL_MISSING",
             [SystemCallErrorCode.AuthFailed] = "ERR_AUTH_FAILED",
             [SystemCallErrorCode.RateLimited] = "ERR_RATE_LIMITED",
+            [SystemCallErrorCode.NotALibrary] = "ERR_NOT_A_LIBRARY",
+            [SystemCallErrorCode.ImportCycle] = "ERR_IMPORT_CYCLE",
+            [SystemCallErrorCode.ImportAmbiguous] = "ERR_IMPORT_AMBIGUOUS",
         };
 
         foreach (var pair in expected)
@@ -369,7 +373,7 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => line.Contains("Hello world!", StringComparison.Ordinal));
     }
 
-    /// <summary>Ensures intrinsic rate limiter wraps only gameplay intrinsics (`ssh/fs/net/ftp`).</summary>
+    /// <summary>Ensures intrinsic rate limiter wraps gameplay intrinsics (`ssh/fs/net/ftp/import`).</summary>
     [Fact]
     public void Execute_Miniscript_IntrinsicRateLimiter_WrapsGameplayIntrinsicsOnly()
     {
@@ -388,11 +392,412 @@ public sealed class SystemCallTest
         AssertIntrinsicWrapped(wrappedIntrinsicIds, "uplink_net_interfaces");
         AssertIntrinsicWrapped(wrappedIntrinsicIds, "uplink_net_scan");
         AssertIntrinsicWrapped(wrappedIntrinsicIds, "uplink_ftp_get");
+        AssertIntrinsicWrapped(wrappedIntrinsicIds, "uplink_import");
 
         AssertIntrinsicNotWrapped(wrappedIntrinsicIds, "len");
         AssertIntrinsicNotWrapped(wrappedIntrinsicIds, "print");
         AssertIntrinsicNotWrapped(wrappedIntrinsicIds, "uplink_crypto_unixTime");
         AssertIntrinsicNotWrapped(wrappedIntrinsicIds, "uplink_term_exec");
+    }
+
+    /// <summary>Ensures relative import returns module value and binds default stem global.</summary>
+    [Fact]
+    public void Execute_Miniscript_Import_Relative_ReturnsModuleAndBindsStem()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddDirectory("/scripts/lib");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lib/mathUtil.ms",
+            """
+            // @name mathUtil
+            // @desc math helper
+            answer = 41
+            inc = function(x)
+                return x + 1
+            end function
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/main.ms",
+            """
+            m = import("lib/mathUtil")
+            print "m=" + str(m.answer)
+            print "g=" + str(mathUtil.answer)
+            print "f=" + str(m.inc(1))
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/main.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "m=41", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "g=41", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "f=2", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures alias import binds alias only and overwrites existing alias variable.</summary>
+    [Fact]
+    public void Execute_Miniscript_Import_Alias_BindsAliasOnlyAndOverwrites()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddDirectory("/scripts/lib");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lib/mathUtil.ms",
+            """
+            // @name mathUtil
+            answer = 99
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/main.ms",
+            """
+            a = "old"
+            m = import("lib/mathUtil", "a")
+            print "alias=" + str(a.answer)
+            print "defaultBound=" + str(hasIndex(locals, "mathUtil"))
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/main.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "alias=99", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "defaultBound=0", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures relative import allows '..' segments after normalization policy checks.</summary>
+    [Fact]
+    public void Execute_Miniscript_Import_Relative_DotDot_NormalizesAndLoads()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddDirectory("/scripts/lib");
+        harness.BaseFileSystem.AddDirectory("/scripts/sub");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lib/mod.ms",
+            """
+            // @name mod
+            return { "value": 5 }
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/sub/main.ms",
+            """
+            m = import("../lib/mod")
+            print "value=" + str(m.value)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/sub/main.ms");
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "value=5", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures import rejects files without top-of-file @name docstring contract.</summary>
+    [Fact]
+    public void Execute_Miniscript_Import_RejectsFileWithoutLibraryHeader()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddDirectory("/scripts/lib");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lib/notLib.ms",
+            """
+            print "hello"
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/main.ms",
+            """
+            import("lib/notLib")
+            print "unreachable"
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/main.ms");
+
+        Assert.False(result.Ok);
+        Assert.Contains(result.Lines, static line => line.Contains("ERR_NOT_A_LIBRARY", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures repeated import executes module once and returns cached module value.</summary>
+    [Fact]
+    public void Execute_Miniscript_Import_Cache_ReusesModule()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddDirectory("/scripts/lib");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lib/once.ms",
+            """
+            // @name once
+            term.print("loaded once")
+            return { "x": 1 }
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/main.ms",
+            """
+            m1 = import("lib/once")
+            m2 = import("lib/once")
+            m1.x = 2
+            print "same=" + str(m2.x)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/main.ms");
+
+        Assert.True(result.Ok);
+        Assert.Equal(1, result.Lines.Count(static line => string.Equals(line, "loaded once", StringComparison.Ordinal)));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "same=2", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures import cache key prefixes canonical path with execution server id.</summary>
+    [Fact]
+    public void ImportRuntimeState_BuildCacheKey_UsesServerIdPrefix()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.None, "pw");
+
+        var contextType = RequireRuntimeType("Uplink2.Runtime.Syscalls.SystemCallExecutionContext");
+        var contextCtor = contextType.GetConstructor(
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            new[]
+            {
+                typeof(WorldRuntime),
+                typeof(ServerNodeRuntime),
+                typeof(UserConfig),
+                typeof(string),
+                typeof(string),
+                typeof(string),
+                typeof(string),
+            },
+            modifiers: null);
+        Assert.NotNull(contextCtor);
+
+        var localUser = harness.Server.Users["guest"];
+        var remoteUser = remote.Users["guest"];
+        var localContext = contextCtor!.Invoke(new object?[]
+        {
+            harness.World,
+            harness.Server,
+            localUser,
+            harness.Server.NodeId,
+            "guest",
+            "/",
+            "ts-local",
+        });
+        var remoteContext = contextCtor.Invoke(new object?[]
+        {
+            harness.World,
+            remote,
+            remoteUser,
+            remote.NodeId,
+            "guest",
+            "/",
+            "ts-remote",
+        });
+
+        var modeType = RequireRuntimeType("Uplink2.Runtime.Syscalls.MiniScriptSshExecutionMode");
+        var mode = Enum.Parse(modeType, "RealWorld", ignoreCase: false);
+
+        var stateType = RequireRuntimeType("Uplink2.Runtime.MiniScript.MiniScriptImportIntrinsics+ImportRuntimeState");
+        var stateCtor = stateType.GetConstructor(
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            new[]
+            {
+                contextType,
+                typeof(string),
+                modeType,
+                typeof(double),
+                typeof(CancellationToken),
+            },
+            modifiers: null);
+        Assert.NotNull(stateCtor);
+
+        var localState = stateCtor!.Invoke(new[] { localContext, "/scripts/main.ms", mode, 100000d, CancellationToken.None });
+        var remoteState = stateCtor.Invoke(new[] { remoteContext, "/scripts/main.ms", mode, 100000d, CancellationToken.None });
+        var buildCacheKey = stateType.GetMethod("BuildCacheKey", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        Assert.NotNull(buildCacheKey);
+
+        var canonicalPath = "/scripts/lib/mod.ms";
+        var localKey = buildCacheKey!.Invoke(localState, new object?[] { canonicalPath }) as string;
+        var remoteKey = buildCacheKey.Invoke(remoteState, new object?[] { canonicalPath }) as string;
+        Assert.NotNull(localKey);
+        Assert.NotNull(remoteKey);
+        Assert.NotEqual(localKey, remoteKey);
+        Assert.StartsWith("node-1:", localKey, StringComparison.Ordinal);
+        Assert.StartsWith("node-2:", remoteKey, StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures import cycle is detected immediately via loading-set pending marker.</summary>
+    [Fact]
+    public void Execute_Miniscript_Import_Cycle_ReturnsImportCycleError()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddDirectory("/scripts/lib");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lib/A.ms",
+            """
+            // @name A
+            import("B")
+            return { "ok": 1 }
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lib/B.ms",
+            """
+            // @name B
+            import("A")
+            return { "ok": 1 }
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/main.ms",
+            """
+            import("lib/A")
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/main.ms");
+
+        Assert.False(result.Ok);
+        Assert.Contains(result.Lines, static line => line.Contains("ERR_IMPORT_CYCLE", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures stdlib import loads recursively discovered .ms module by unique stem.</summary>
+    [Fact]
+    public void Execute_Miniscript_Import_Stdlib_ByStem_Succeeds()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/main.ms",
+            """
+            m = import("stdlib_math")
+            print "value=" + str(m.value)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var stdlibRoot = CreateTemporaryStdlibRoot();
+        Directory.CreateDirectory(Path.Combine(stdlibRoot, "math"));
+        File.WriteAllText(
+            Path.Combine(stdlibRoot, "math", "stdlib_math.ms"),
+            """
+            // @name stdlib_math
+            return { "value": 7 }
+            """,
+            Encoding.UTF8);
+
+        using var _ = new DelegateRestoreScope(() =>
+        {
+            if (Directory.Exists(stdlibRoot))
+            {
+                Directory.Delete(stdlibRoot, recursive: true);
+            }
+        });
+        using var __ = OverrideStdlibRootPath(stdlibRoot);
+
+        var result = Execute(harness, "miniscript /scripts/main.ms");
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "value=7", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures missing stdlib root is treated as empty and import falls back to ERR_NOT_FOUND.</summary>
+    [Fact]
+    public void Execute_Miniscript_Import_MissingStdlibRoot_ReturnsNotFound()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile("/scripts/main.ms", "import(\"missing_stdlib_mod\")", fileKind: VfsFileKind.Text);
+        var missingStdlibRoot = Path.Combine(
+            Path.GetTempPath(),
+            "uplink2-stdlib-missing-" + Guid.NewGuid().ToString("N"));
+        using var _ = OverrideStdlibRootPath(missingStdlibRoot);
+
+        var result = Execute(harness, "miniscript /scripts/main.ms");
+
+        Assert.False(result.Ok);
+        Assert.Contains(result.Lines, static line => line.Contains("ERR_NOT_FOUND", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures duplicate stdlib stem collision returns ERR_IMPORT_AMBIGUOUS.</summary>
+    [Fact]
+    public void Execute_Miniscript_Import_Stdlib_DuplicateStem_ReturnsAmbiguous()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile("/scripts/main.ms", "import(\"dup\")", fileKind: VfsFileKind.Text);
+
+        var stdlibRoot = CreateTemporaryStdlibRoot();
+        Directory.CreateDirectory(Path.Combine(stdlibRoot, "a"));
+        Directory.CreateDirectory(Path.Combine(stdlibRoot, "b"));
+        File.WriteAllText(
+            Path.Combine(stdlibRoot, "a", "dup.ms"),
+            """
+            // @name dup
+            return { "value": 1 }
+            """,
+            Encoding.UTF8);
+        File.WriteAllText(
+            Path.Combine(stdlibRoot, "b", "dup.ms"),
+            """
+            // @name dup
+            return { "value": 2 }
+            """,
+            Encoding.UTF8);
+
+        using var _ = new DelegateRestoreScope(() =>
+        {
+            if (Directory.Exists(stdlibRoot))
+            {
+                Directory.Delete(stdlibRoot, recursive: true);
+            }
+        });
+        using var __ = OverrideStdlibRootPath(stdlibRoot);
+
+        var result = Execute(harness, "miniscript /scripts/main.ms");
+
+        Assert.False(result.Ok);
+        Assert.Contains(result.Lines, static line => line.Contains("ERR_IMPORT_AMBIGUOUS", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures host path style import inputs are rejected with ERR_INVALID_ARGS.</summary>
+    [Theory]
+    [InlineData("res://stdlib/math")]
+    [InlineData("C:\\temp\\lib")]
+    [InlineData("\\host\\share\\lib")]
+    public void Execute_Miniscript_Import_RejectsHostPathLikeInput(string importPath)
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        var escapedImportPath = importPath
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/main.ms",
+            $"import(\"{escapedImportPath}\")",
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/main.ms");
+
+        Assert.False(result.Ok);
+        Assert.Contains(result.Lines, static line => line.Contains("ERR_INVALID_ARGS", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures miniscript string literals support common backslash escapes.</summary>
@@ -7875,6 +8280,35 @@ public sealed class SystemCallTest
 
         property.SetValue(null, resolver);
         return new DelegateRestoreScope(() => property.SetValue(null, previousResolver));
+    }
+
+    private static string CreateTemporaryStdlibRoot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "uplink2-stdlib-tests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        return root;
+    }
+
+    private static IDisposable OverrideStdlibRootPath(string stdlibRootAbsolutePath)
+    {
+        var importType = RequireRuntimeType("Uplink2.Runtime.MiniScript.MiniScriptImportIntrinsics");
+        var property = importType.GetProperty(
+            "ResolveAbsoluteStdlibPath",
+            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        Assert.NotNull(property);
+
+        var previousResolverObject = property!.GetValue(null);
+        Assert.NotNull(previousResolverObject);
+        var previousResolver = (Func<string, string>)previousResolverObject!;
+        Func<string, string> resolver = path => string.Equals(
+            path,
+            "res://scenario_content/resources/text/stdlib",
+            StringComparison.Ordinal)
+            ? stdlibRootAbsolutePath
+            : previousResolver(path);
+
+        property.SetValue(null, resolver);
+        return new DelegateRestoreScope(() => property.SetValue(null, previousResolverObject));
     }
 
     private static void DeleteDirectoryIfExists(string path)

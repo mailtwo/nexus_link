@@ -298,6 +298,7 @@ internal sealed class SystemCallProcessor
             context,
             scriptSource,
             resolvedProgramPath,
+            resolvedProgramPath,
             command,
             commandLine,
             arguments.ToArray());
@@ -363,6 +364,7 @@ internal sealed class SystemCallProcessor
             context,
             scriptSource,
             scriptPath,
+            scriptPath,
             command,
             commandLine,
             Array.Empty<string>());
@@ -418,6 +420,7 @@ internal sealed class SystemCallProcessor
             context,
             scriptSource,
             resolvedProgramPath,
+            scriptPath,
             command,
             commandLine,
             scriptArguments);
@@ -579,7 +582,11 @@ internal sealed class SystemCallProcessor
             return true;
         }
 
-        result = MiniScriptExecutionRunner.ExecuteScript(scriptSource, context, arguments);
+        result = MiniScriptExecutionRunner.ExecuteScript(
+            scriptSource,
+            context,
+            arguments,
+            currentScriptPath: resolvedProgramPath);
         return true;
     }
 

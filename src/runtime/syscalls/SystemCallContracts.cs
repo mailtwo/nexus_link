@@ -33,6 +33,12 @@ public enum SystemCallErrorCode
     AuthFailed,
     /// <summary>Shared rate limit exceeded for the requested operation.</summary>
     RateLimited,
+    /// <summary>Import target is not recognized as a library source.</summary>
+    NotALibrary,
+    /// <summary>Import chain contains an immediate or indirect cycle.</summary>
+    ImportCycle,
+    /// <summary>Import target is ambiguous and resolves to multiple candidates.</summary>
+    ImportAmbiguous,
 }
 
 internal static class SystemCallErrorCodeTokenMapper
@@ -62,6 +68,9 @@ internal static class SystemCallErrorCodeTokenMapper
             SystemCallErrorCode.ToolMissing => "ERR_TOOL_MISSING",
             SystemCallErrorCode.AuthFailed => "ERR_AUTH_FAILED",
             SystemCallErrorCode.RateLimited => "ERR_RATE_LIMITED",
+            SystemCallErrorCode.NotALibrary => "ERR_NOT_A_LIBRARY",
+            SystemCallErrorCode.ImportCycle => "ERR_IMPORT_CYCLE",
+            SystemCallErrorCode.ImportAmbiguous => "ERR_IMPORT_AMBIGUOUS",
             _ => "ERR_INTERNAL_ERROR",
         };
     }
@@ -238,6 +247,7 @@ internal readonly record struct MiniScriptProgramLaunch(
     SystemCallExecutionContext Context,
     string ScriptSource,
     string ProgramPath,
+    string ScriptPath,
     string Command,
     string CommandLine,
     IReadOnlyList<string> ScriptArguments);

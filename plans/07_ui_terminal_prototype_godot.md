@@ -192,6 +192,8 @@ TerminalScene (Control)
 - `[옵션: DEBUG]` `DEBUG_miniscript <script>`: 개발/검증 전용 시스템콜이다. `DebugOption`이 켜진 런타임에서만 활성화된다.
 - `miniscript`, `inspect` 등 **프로그램 실행 계약(시스템콜 아님)** 은 `14_official_programs.md`를 따른다.  
   See DOCS_INDEX.md → 14.
+- MiniScript 전역 `import(name, alias?)` intrinsic의 계약/탐색/오류코드는 `03_game_api_modules.md`가 SSOT다.  
+  See DOCS_INDEX.md → 03.
 
 ### 6.5 프로토타입 임시 명령
 - 이 명령들은 현재 프로토타입 편의 기능이며, 다음 단계에서 제거 대상이다.

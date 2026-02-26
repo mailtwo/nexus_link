@@ -782,6 +782,7 @@ public partial class WorldRuntime
                 SshMode = MiniScriptSshExecutionMode.SandboxValidated,
                 CaptureOutputLines = false,
                 ScriptArguments = state.Launch.ScriptArguments,
+                CurrentScriptPath = state.Launch.ScriptPath,
             };
 
             var execution = MiniScriptExecutionRunner.ExecuteScriptWithOptions(

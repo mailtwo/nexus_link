@@ -51,6 +51,9 @@
 - `ERR_AUTH_FAILED` (인증 실패)
 - `ERR_RATE_LIMITED` (레이트리미터/쿨다운)
 - `ERR_TOO_LARGE` (maxBytes 등 상한 초과)
+- `ERR_NOT_A_LIBRARY` (import 대상 파일이 라이브러리 계약 미충족)
+- `ERR_IMPORT_CYCLE` (순환 import 감지)
+- `ERR_IMPORT_AMBIGUOUS` (표준 라이브러리 동일 이름 충돌)
 - `ERR_INTERNAL_ERROR` (엔진 내부 실패/실행 컨텍스트 불일치)
 
 ### 0.3 비용/탐지 모델(권장)
@@ -179,10 +182,16 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - 문서 H1: `<Module Name> Module (<module>.*) - Manual`
   - 함수 섹션 H2: `<Function Title> (<module>.<function>)`
   - 예시: `SSH Module (ssh.*) - Manual`, `SSH Connect (ssh.connect)`
+  - 예외(비모듈 intrinsic): 전역 intrinsic(예: `import`)은 `Module ...` 형식을 사용하지 않는다.
+    - 문서 H1: `<intrinsic> - Manual`
+    - 함수 섹션 H2: `<intrinsic> (<intrinsic>)`
+    - 예시: `import - Manual`, `import (import)`
 - Manual 앵커 규칙:
   - 모듈 앵커: `<a id="module-<module>"></a>`
   - 함수 앵커: 함수 섹션 H2는 `id="<module><function>"` (소문자, 구분자 없음)으로 고정한다
   - 예시(`ssh`): `module-ssh`, `sshconnect`, `sshdisconnect`, `sshexec`, `sshinspect`
+  - 예외(비모듈 intrinsic): 전역 intrinsic(예: `import`)은 함수 앵커를 `<a id="<intrinsic>"></a>`로 사용한다.
+    - 예시: `<a id="import"></a>`
 - API intrinsic XML docstring 작성 원칙:
   - `summary`: 함수 목적 1줄
   - `remarks`: MiniScript signature, ResultMap 핵심 키(`ok/code/err/cost/trace`), 주요 전제/부작용
@@ -696,7 +705,81 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 
 ---
 
-## 8) 레거시 정보
+## 8) import (라이브러리 로더) v1
+
+이번 버전(v1)에서 `import`는 MiniScript 전역 함수로 제공된다.
+
+### 8.1 시그니처/반환/실패 표면
+- 시그니처:
+  - `import(name, alias=null)`
+- 반환:
+  - 모듈 값(모듈이 `return`한 값 또는 기본 `locals` map)
+- 실패:
+  - ResultMap이 아니라 **runtime error**를 발생시킨다.
+  - runtime error 메시지에는 `ERR_*` code token을 포함해야 한다.
+
+### 8.2 바인딩 규칙(v1)
+- `import("x")`
+  - 기본 바인딩명은 **해결된 파일명 stem** (`.ms` 제거)이다.
+  - 예: `mathUtil.ms`를 로드하면 `mathUtil` 변수에 바인딩한다.
+- `import("x", "a")`
+  - `a`만 바인딩한다.
+  - 기존 `a`가 있으면 덮어쓴다.
+
+### 8.3 탐색 순서(v1)
+v1 탐색은 아래 순서로 고정한다.
+1) 현재 실행 중인 스크립트 파일의 디렉터리 기준 상대 탐색
+2) 표준 라이브러리 탐색
+   - 경로: `res://scenario_content/resources/text/stdlib` 하위 `.ms` 파일 재귀 스캔
+
+v1 제외 사항:
+- `.scripts_registry` 탐색 미포함
+- CWD 기반 탐색 미포함
+- `reload/importReload` 미포함
+
+### 8.4 표준 라이브러리 탐색 규칙(v1)
+- 표준 라이브러리 루트 디렉터리가 없으면 빈 stdlib로 취급한다(엔진 초기화 실패로 보지 않음).
+- 동일 파일명 stem 충돌 시 `ERR_IMPORT_AMBIGUOUS`로 실패한다.
+- not found 오류에는 시도한 **가상 경로 목록**을 포함하되, 호스트 절대경로는 노출하지 않는다.
+
+### 8.5 라이브러리 계약(v1)
+import 대상 파일은 아래 계약을 만족해야 한다.
+- 파일 최상단 연속 주석 블록(첫 줄부터 시작)에서 `@name`이 선언되어야 한다.
+- 최상단 규칙:
+  - 파일의 첫 유효 문자부터 `//` 연속 블록이어야 한다.
+  - 앞에 빈 줄/공백이 있으면 계약 불일치로 본다.
+- `@name` 누락 시 `ERR_NOT_A_LIBRARY`.
+
+docstring 컨벤션:
+- 파일 최상단:
+  - `// @name <라이브러리 이름>` (필수)
+  - `// @desc <한 줄 설명>` (권장)
+- 함수 선언 직전:
+  - `// @func <함수명>`
+  - `// @param <이름> <타입> - <설명>` (반복 가능)
+  - `// @returns <타입> - <설명>`
+
+### 8.6 Resolve 입력 검증(v1)
+- `name`은 비어 있으면 `ERR_INVALID_ARGS`.
+- `..` 세그먼트는 허용하되 정규화 후 정책 검사를 수행한다.
+- 호스트 경로 형태는 거부한다:
+  - `\` 포함 경로
+  - 드라이브 문자 경로(예: `C:\...`)
+  - `res://` 같은 호스트/엔진 리소스 경로
+
+### 8.7 Load/Run/Cache(v1)
+- 캐시 키:
+  - `serverId + ":" + canonicalPath`
+- 순환 감지:
+  - `loadingSet(PENDING)` 마커를 사용해 재진입 즉시 `ERR_IMPORT_CYCLE`.
+- 실행:
+  - `Parser.CreateImport()` 경로로 모듈을 실행한다.
+  - 모듈 내 `return`이 있으면 해당 값을 모듈 값으로 채택한다.
+  - 그렇지 않으면 기본 `locals` map을 모듈 값으로 채택한다.
+
+---
+
+## 9) 레거시 정보
 
 ### 1) 웹/DB/앱 계층 모듈
 

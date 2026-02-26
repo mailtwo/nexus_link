@@ -1163,7 +1163,10 @@ internal sealed class DebugMiniScriptCommandHandler : VfsCommandHandlerBase
             return SystemCallResultFactory.NotFile(scriptPath);
         }
 
-        return MiniScriptExecutionRunner.ExecuteScript(scriptSource, context);
+        return MiniScriptExecutionRunner.ExecuteScript(
+            scriptSource,
+            context,
+            currentScriptPath: scriptPath);
     }
 }
 
@@ -1187,6 +1190,8 @@ internal sealed class MiniScriptExecutionOptions
 
     internal IReadOnlyList<string> ScriptArguments { get; init; } = Array.Empty<string>();
 
+    internal string? CurrentScriptPath { get; init; }
+
     internal double MaxIntrinsicCallsPerSecond { get; init; } = 100000;
 }
 
@@ -1199,7 +1204,8 @@ internal static class MiniScriptExecutionRunner
     internal static SystemCallResult ExecuteScript(
         string scriptSource,
         SystemCallExecutionContext executionContext = null,
-        IReadOnlyList<string> scriptArguments = null)
+        IReadOnlyList<string> scriptArguments = null,
+        string? currentScriptPath = null)
     {
         return ExecuteScriptWithOptions(
             scriptSource,
@@ -1207,6 +1213,7 @@ internal static class MiniScriptExecutionRunner
             new MiniScriptExecutionOptions
             {
                 ScriptArguments = scriptArguments ?? Array.Empty<string>(),
+                CurrentScriptPath = currentScriptPath,
             }).Result;
     }
 
@@ -1242,10 +1249,17 @@ internal static class MiniScriptExecutionRunner
                 implicitOutput = standardOutput.Append,
             };
 
+            var importRuntimeState = new MiniScriptImportIntrinsics.ImportRuntimeState(
+                executionContext,
+                options.CurrentScriptPath,
+                options.SshMode,
+                options.MaxIntrinsicCallsPerSecond,
+                options.CancellationToken);
             MiniScriptCryptoIntrinsics.InjectCryptoModule(interpreter);
             MiniScriptSshIntrinsics.InjectSshModule(interpreter, executionContext, options.SshMode);
             MiniScriptTermIntrinsics.InjectTermModule(interpreter, executionContext);
             ArgsIntrinsics.InjectArgs(interpreter, options.ScriptArguments);
+            MiniScriptImportIntrinsics.InjectImportIntrinsic(interpreter, importRuntimeState);
             MiniScriptIntrinsicRateLimiter.ConfigureInterpreter(interpreter, options.MaxIntrinsicCallsPerSecond);
             while (!interpreter.done)
             {

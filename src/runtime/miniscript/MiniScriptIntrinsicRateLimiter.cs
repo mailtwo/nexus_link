@@ -18,6 +18,7 @@ internal static class MiniScriptIntrinsicRateLimiter
         "uplink_fs_",
         "uplink_net_",
         "uplink_ftp_",
+        "uplink_import",
     };
 
     private static readonly object wrapSync = new();
