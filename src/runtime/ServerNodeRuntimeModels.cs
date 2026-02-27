@@ -222,6 +222,9 @@ public sealed class LogStruct
     /// <summary>Action subject display user id text.</summary>
     public string User { get; set; } = string.Empty;
 
+    /// <summary>Source server node id used as the internal trace key.</summary>
+    public string SourceNodeId { get; set; } = string.Empty;
+
     /// <summary>Remote source IP.</summary>
     public string RemoteIp { get; set; } = "127.0.0.1";
 
@@ -257,6 +260,7 @@ public sealed class LogStruct
             Id = Id,
             Time = Time,
             User = User,
+            SourceNodeId = SourceNodeId,
             RemoteIp = RemoteIp,
             ActionType = ActionType,
             Action = Action,
@@ -269,6 +273,7 @@ public sealed class LogStruct
         int id,
         long time,
         string user,
+        string sourceNodeId,
         string remoteIp,
         LogActionType actionType,
         string action,
@@ -280,6 +285,7 @@ public sealed class LogStruct
             Id = id,
             Time = time,
             User = user ?? string.Empty,
+            SourceNodeId = sourceNodeId?.Trim() ?? string.Empty,
             RemoteIp = string.IsNullOrWhiteSpace(remoteIp) ? "127.0.0.1" : remoteIp,
             ActionType = actionType,
             Action = action ?? string.Empty,
@@ -489,6 +495,11 @@ public sealed class ServerNodeRuntime
     /// <summary>Appends a log using ring-buffer eviction.</summary>
     public void AppendLog(LogStruct log)
     {
+        if (string.IsNullOrWhiteSpace(log.SourceNodeId))
+        {
+            throw new ArgumentException("log sourceNodeId cannot be empty.", nameof(log));
+        }
+
         if (LogCapacity < 1)
         {
             LogCapacity = 1;

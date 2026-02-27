@@ -4,7 +4,12 @@
 
 범위(v0)
 - 엔진/플랫폼: Godot(로직 C#), PC
-- 동적 생성/랜덤 생성: **이번 범위 밖** (단, AUTO 계정/패스워드 생성은 포함)
+- 동적 생성/랜덤 생성: **알파 버전 범위에 포함**
+  - 본 문서에서의 의미: 월드 생성 시점의 **서버 런타임 동적 생성**
+    (서버 수/배치, 토폴로지, 이벤트, 데이터, 계정/자격정보 생성/변형 포함)
+  - 예: 랜덤 서버 노드 추가, 링크/허브 재배치, 이벤트 초기 집합 재구성, 초기 파일/계정 데이터 주입
+  - 랜덤 생성은 `worldSeed` 기반 결정적 생성만 허용한다(현재 시각/환경값 기반 비결정 입력 금지).
+  - `AUTO` 계정/패스워드 생성은 동적 생성 범위에 포함되며 기존 규칙을 그대로 유지한다.
 - 서브넷 가시화 규칙: v0에서는 **고정 규칙(하드코딩 가능)** 으로 둔다(아래 “런타임 규칙” 참고)
 - Uplink 스타일 “공용 인터넷 + 사설 서브넷 + 게이트웨이(인터넷 노출 1대)” 구조를 지원한다.
 
@@ -22,7 +27,10 @@
   서버 목록 + (옵션) 서브넷 토폴로지 + 이벤트 정의를 포함한다.
 
 - **CampaignBlueprint**: 시나리오를 묶는 상위 단위  
-  v0에서는 단순 “목록/포함”만 제공한다(추후 진행/해금/순서/스테이지 합성 확장 가능).
+  알파 버전에서는 진행/해금/순서/스테이지 등 game flow 메타 확장을 포함한다.
+  단, 스테이지의 상세 내용(플레이 흐름/연출/난이도 설계)은 `15_game_flow_design.md`를 따른다.
+  See DOCS_INDEX.md → 15.
+  본 문서(10)는 해당 game flow 메타를 YAML로 어떻게 작성하고, Blueprint 로더가 이를 어떻게 읽어 초기화 매핑하는지만 다룬다.
 
 ---
 
@@ -323,19 +331,30 @@ events:
 
 ## 5) CampaignBlueprint (캠페인)
 
-v0 최소 정의(확장 여지 유지):
+알파 최소 정의(확장 여지 유지):
 
 ```text
 CampaignBlueprint
 - campaignId: string
 - childCampaigns: List<string /*campaignId*/>
 - scenarios: List<string /*scenarioId*/>
+- flowMeta?: Dictionary<string, object>   # 알파 game flow 메타 확장 슬롯(미결정 키 허용)
 ```
 
 비고:
-- v0에서는 캠페인 순서/해금/진행 규칙을 아직 정의하지 않는다.
-- 추후 확장 후보:
-  - startScenarioId, scenarioOrder, unlockRules, rewards, persistentFlags 등
+- 알파에서는 캠페인 순서/해금/진행/스테이지 참조 메타를 `flowMeta`에 담을 수 있다.
+- 스테이지 상세 내용(플레이 흐름/연출/난이도 설계)은 `15_game_flow_design.md`를 따른다.
+  See DOCS_INDEX.md → 15.
+- 본 문서(10)의 범위:
+  - YAML 작성 위치(`CampaignBlueprint.flowMeta`)와 로더 파싱/초기화 매핑만 정의
+  - `flowMeta` 세부 키 의미/검증 규칙은 고정하지 않음(미결정)
+- 추후 확장 후보(미결정, optional):
+  - `startScenarioId`: 캠페인 시작 시나리오
+  - `scenarioOrder`: 선형 진행 순서
+  - `unlockRules`: 시나리오/캠페인 해금 조건
+  - `stageRefs`: 스테이지 참조 키(상세는 15 문서)
+  - `rewards`: 해금 보상/지급 메타
+  - `persistentFlags`: 캠페인 진행 플래그 초기값/보존 대상
 
 ---
 
@@ -373,6 +392,16 @@ CampaignBlueprint
 2) **Scenario 로딩**
 - ScenarioBlueprint 로딩
 - nodeId 유일성 검증
+
+2.5) **동적 생성 Pass (알파)**
+- ScenarioBlueprint를 베이스로 Generator Pass를 실행해 런타임 초기 배치를 확정한다.
+- 이 Pass에서 다음 항목의 동적 생성/변형을 허용한다:
+  - 서버 수/배치(랜덤 서버 노드 추가/제거 포함)
+  - subnet topology(hubs/links) 구성
+  - 이벤트 초기 집합/트리거 파라미터
+  - 초기 데이터(diskOverlay 엔트리/톰브스톤 등)
+  - 계정/자격정보(users의 userKey/userId/passwd/authMode/privilege)
+- 동적 생성 결과를 3) 이후 파이프라인의 입력으로 사용한다.
 
 3) **서버 인스턴스 생성**
 - 각 ServerSpawnBlueprint에 대해:

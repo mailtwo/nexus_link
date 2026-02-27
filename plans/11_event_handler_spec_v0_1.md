@@ -335,10 +335,11 @@ indexFile:
    - guard가 true면 actions 실행
 3) 이벤트 타입이 시나리오에서 지원하지 않으면(예: processFinished) “시스템 훅만 수행”하거나 무시(v0.1에서는 무시해도 됨)
 
-### 7.3 Reentrancy (v0.1)
-- v0.1에서는 action이 새로운 이벤트를 emit하지 않는 것으로 가정한다.
-- 추후 action이 이벤트를 emit하게 되면:
-  - “즉시 재진입 처리” 대신 **queue에 append**하고 다음 Drain 루프에서 처리(무한 루프 방지).
+### 7.3 Reentrancy (알파 확장)
+- 알파 버전부터 action이 새로운 이벤트를 emit할 수 있다.
+- action에서 emit된 이벤트는 “즉시 재진입 처리”하지 않고, **eventQueue tail에 append**한다.
+- Drain은 head→tail 순서로 처리하며, append된 이벤트는 tick guard 예산이 남아 있으면 같은 tick에서 이어서 처리하고,
+  예산을 초과하면 다음 tick으로 이월한다.
 
 ---
 
@@ -355,6 +356,7 @@ ActionBlueprint (v0): `{ print, setFlag }`
 - 액션별로 실패 가능(잘못된 args 타입, 키 누락 등)
 - 실패 시: warn 로그 남기고 **다음 액션 계속 실행**
 - 핸들러 once-only 기록은 “actions 실행 시도 완료” 기준으로 남긴다(권장)
+- 액션 구현체가 새 이벤트를 emit하는 경우, enqueue/reentrancy 규칙은 7.3을 따른다.
 
 ---
 

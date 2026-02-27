@@ -581,6 +581,7 @@ public partial class WorldRuntime
             Id = log.Id,
             Time = log.Time,
             User = log.User ?? string.Empty,
+            SourceNodeId = log.SourceNodeId ?? string.Empty,
             RemoteIp = log.RemoteIp ?? "127.0.0.1",
             ActionType = (int)log.ActionType,
             Action = log.Action ?? string.Empty,
@@ -1194,6 +1195,13 @@ public partial class WorldRuntime
             return false;
         }
 
+        var sourceNodeId = snapshot.SourceNodeId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(sourceNodeId))
+        {
+            errorMessage = "sourceNodeId is required.";
+            return false;
+        }
+
         LogStruct? origin = null;
         if (snapshot.Origin is not null)
         {
@@ -1209,6 +1217,7 @@ public partial class WorldRuntime
             snapshot.Id,
             snapshot.Time,
             snapshot.User ?? string.Empty,
+            sourceNodeId,
             snapshot.RemoteIp ?? "127.0.0.1",
             actionType,
             snapshot.Action ?? string.Empty,

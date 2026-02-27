@@ -6,7 +6,7 @@
 
 범위(v0.1):
 - 엔진: Godot C#
-- 저장/로드 UI는 제외(엔진 API만 정의)
+- 저장/로드 UI는 알파 버전 범위(엔진 API + UI 연동 포함)
 - 로드시 시작 컨텍스트는 항상 `myWorkstation`
 - 유저/서버 세션 연결 상태는 저장하지 않음
 
@@ -219,11 +219,16 @@ Chunk
 - `id`
 - `time`
 - `user`
+- `sourceNodeId` (필수, 내부 추적/역산 식별 키. UI 직접 노출 금지)
 - `remoteIp`
 - `actionType`
 - `action`
 - `dirty`
 - `origin` (선택; dirty 최초 원본 복원용)
+
+`LogSnapshot` 규칙:
+- `sourceNodeId`는 공백/누락을 허용하지 않는다(누락 시 로드 실패).
+- `remoteIp`는 표시용 관측값이며, 추적 판정 키로 사용하지 않는다.
 
 ---
 
@@ -310,7 +315,7 @@ Chunk
 - [ ] MessagePack DTO 정의(`[Key(n)]` 고정)
 - [ ] Brotli 압축/해제 연결
 - [ ] HMAC 생성/검증 연결
-- [ ] WorldRuntime Save/Load 엔진 API 추가(UI 제외)
+- [ ] WorldRuntime Save/Load 엔진 API + 저장/로드 UI 연동 추가
 - [ ] 로드 시 `myWorkstation` 시작 컨텍스트 강제
 - [ ] 세션 상태 미복원 정책 반영
 - [ ] 파생 캐시 재구축 루틴 반영
@@ -323,11 +328,3 @@ Chunk
 - [ ] unknown chunk skip 검증
 - [ ] minor 확장 필드 추가 후 구버전 로더 동작 검증
 - [ ] HMAC 변조 검출 검증
-
----
-
-## 9) v0.1 비범위
-
-- 저장/로드 UI
-- 클라우드 동기화
-- 완전한 anti-cheat/암호학적 비밀보장

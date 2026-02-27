@@ -275,17 +275,23 @@ OTP/레이트리미터의 동작 규칙(검증/판정/처리 순서)은 본 문�
 
 ```text
 LogStruct
-- id: int
-- time: int
-- user: string                    # 표시용 userId 텍스트
-- remoteIp: IP
-- actionType: ENUM { login, logout, read, write, execute }
-- action: string
-- dirty: bool
-- origin: Optional<LogStruct>
+- id: int                          # 서버 로컬 단조 증가 로그 id
+- time: int                        # worldTimeMs 기준 기록 시각(ms)
+- user: string                     # 표시용 userId 텍스트
+- sourceNodeId: string             # 로그를 남긴 접속 주체 서버 nodeId (A->B에서 A), 필수
+- remoteIp: IP                     # 현재 서버(B)가 관측한 source endpoint IP (A->B에서 A의 접속 IP, 표시용)
+- actionType: ENUM { login, logout, read, write, execute }   # 로그 카테고리
+- action: string                   # 사람이 읽는 상세 이벤트 메시지
+- dirty: bool                      # 로그가 생성 후 변조되었는지 여부
+- origin: Optional<LogStruct>      # 최초 변조 전 원본 스냅샷
 ```
 
 권장 규칙(v0):
+- `sourceNodeId`는 항상 채운다(빈 문자열 금지).
+- `sourceNodeId`는 **런타임 내부 추적/역산용 필드**이며 UI/플레이어 출력에 직접 노출하지 않는다.
+- Trace/Forensic 경로 계산, edge 겹침, 가속, 단절 판정은 `sourceNodeId`(+ 로그 소유 서버 nodeId) 기준으로 수행한다.
+- `remoteIp`는 UI/플레이어 출력용 관측값이며, 추적 판정 키로 사용하지 않는다.
+- 로컬 액션(자기 서버 내부 발생)은 `sourceNodeId = 현재 서버 nodeId`, `remoteIp = 127.0.0.1`로 기록한다.
 - `dirty=false`면 `origin=null`
 - `dirty=true`가 되는 순간에만 원본을 1회 저장
 
@@ -305,4 +311,4 @@ LogStruct
 - [ ] `ports` 스키마(`portType/serviceId/exposure/banner`) 필드 유지
 - [ ] `daemons` 스키마(`OTP/firewall/connectionRateLimiter`) 필드 유지
 - [ ] VFS overlay 스키마: `overlayEntries` / `tombstones` / `dirDelta` 필드 유지
-- [ ] Logs: ringbuffer + origin 유지 규칙
+- [ ] Logs: ringbuffer + `sourceNodeId`(필수/비노출, 추적 판정 키) + `remoteIp`(표시 전용) + origin 유지 규칙

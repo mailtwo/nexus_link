@@ -293,6 +293,9 @@ internal sealed class LogSnapshotDto
 
     [Key(7)]
     public LogSnapshotDto? Origin { get; set; }
+
+    [Key(8)]
+    public string SourceNodeId { get; set; } = string.Empty;
 }
 
 [MessagePackObject(AllowPrivate = true)]

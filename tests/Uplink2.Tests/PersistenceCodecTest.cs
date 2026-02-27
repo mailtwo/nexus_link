@@ -86,6 +86,53 @@ public sealed class PersistenceCodecTest
         Assert.Contains("unsupported runtime value type", (string)args[2]!);
     }
 
+    /// <summary>Ensures log restore fails when sourceNodeId is missing.</summary>
+    [Fact]
+    public void TryBuildLogStruct_Fails_WhenSourceNodeIdIsMissing()
+    {
+        var snapshot = CreateInternalInstance("Uplink2.Runtime.Persistence.LogSnapshotDto");
+        SetPropertyValue(snapshot, "Id", 17);
+        SetPropertyValue(snapshot, "Time", 1234L);
+        SetPropertyValue(snapshot, "User", "guest");
+        SetPropertyValue(snapshot, "SourceNodeId", " ");
+        SetPropertyValue(snapshot, "RemoteIp", "10.0.1.20");
+        SetPropertyValue(snapshot, "ActionType", (int)LogActionType.Read);
+        SetPropertyValue(snapshot, "Action", "cat /etc/passwd");
+        SetPropertyValue(snapshot, "Dirty", false);
+        SetPropertyValue(snapshot, "Origin", null);
+
+        var restored = TryBuildLogStruct(snapshot, out var log, out var error);
+
+        Assert.False(restored);
+        Assert.Null(log);
+        Assert.Contains("sourceNodeId", error, StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures log snapshot capture/restore roundtrip keeps sourceNodeId.</summary>
+    [Fact]
+    public void LogSnapshot_RoundTrip_PreservesSourceNodeId()
+    {
+        var source = new LogStruct
+        {
+            Id = 9,
+            Time = 7777L,
+            User = "guest",
+            SourceNodeId = "node-1",
+            RemoteIp = "10.0.1.20",
+            ActionType = LogActionType.Execute,
+            Action = "miniscript /scripts/probe.ms",
+        };
+        var snapshot = CaptureLogSnapshot(source);
+
+        var restored = TryBuildLogStruct(snapshot, out var log, out var error);
+
+        Assert.True(restored, error);
+        Assert.NotNull(log);
+        Assert.Equal(source.SourceNodeId, log!.SourceNodeId);
+        Assert.Equal(source.RemoteIp, log.RemoteIp);
+        Assert.Equal(source.Action, log.Action);
+    }
+
     private static object CreateSaveHeader(ushort formatMajor, ushort formatMinor, uint flags)
     {
         var header = CreateInternalInstance("Uplink2.Runtime.Persistence.SaveFileHeader");
@@ -189,5 +236,32 @@ public sealed class PersistenceCodecTest
         var runtimeType = typeof(WorldRuntime).Assembly.GetType(fullTypeName);
         Assert.NotNull(runtimeType);
         return runtimeType!;
+    }
+
+    private static bool TryBuildLogStruct(object snapshot, out LogStruct? log, out string errorMessage)
+    {
+        var buildMethod = typeof(WorldRuntime).GetMethod(
+            "TryBuildLogStruct",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(buildMethod);
+
+        object?[] args = { snapshot, null, string.Empty, 0 };
+        var restored = (bool)buildMethod!.Invoke(null, args)!;
+
+        log = args[1] as LogStruct;
+        errorMessage = (string)args[2]!;
+        return restored;
+    }
+
+    private static object CaptureLogSnapshot(LogStruct log)
+    {
+        var captureMethod = typeof(WorldRuntime).GetMethod(
+            "CaptureLogSnapshot",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(captureMethod);
+
+        var snapshot = captureMethod!.Invoke(null, new object?[] { log, new HashSet<LogStruct>() });
+        Assert.NotNull(snapshot);
+        return snapshot!;
     }
 }

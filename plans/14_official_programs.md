@@ -1,4 +1,4 @@
-# 공식 제공 프로그램 (ExecutableHardcode) v0.2
+# 공식 제공 프로그램 (ExecutableHardcode / ExecutableScript) v0.2
 
 이 문서는 게임이 **공식 제공**하는 실행 파일(프로그램)과, 그 중 일부가 제공하는 “공식 툴/힌트 계약(Contract)”을 정의합니다.
 
@@ -307,8 +307,35 @@ miniscript <scriptPath> [args...]
 
 ---
 
-## 5) 추후 추가 예정
+### 4.3 `password_breaker` (SSH 비밀번호 브루트포스 시뮬레이터)
+- 권장 위치: `/opt/bin/password_breaker`
+- fileKind: `ExecutableScript`
+- 내용: `res://scenario_content/resources/text/executions/password_breaker.ms`
 
-### 5.1 `password_breaker`
-- SSH 비밀번호를 대상으로 한 “가상 brute-force” 도구
-- v0.2에서는 **언급만** 하고, 상세 동작/입력/출력/비용 모델은 별도 버전에서 정의합니다.
+#### 사용법
+```text
+password_breaker <num> <target> [userId]
+```
+- `num`: 최대 탐색 길이(정수, 1 이상)
+- `target`: 대상 host/ip
+- `userId` 생략 시 `"root"`를 기본값으로 사용합니다.
+
+#### 동작(현재 구현 기준)
+- 내부적으로 `ssh.connect(target, userId, passwd)`를 반복 시도하는 방식으로 동작합니다.
+- 후보 생성 규칙:
+  - 길이 `1..num` 범위를 순차 탐색합니다.
+  - 문자 집합은 스크립트 고정 alphabet(`0123456789)!@#$%^&*(`)을 사용합니다.
+- 성공 시 즉시 해당 세션을 `ssh.disconnect`로 정리하고, 찾은 비밀번호 문자열을 한 줄 출력한 뒤 종료합니다.
+- 인자 오류 시 `Error: invalid args` + `detail: ...`를 출력하고 도움말(`usage/desc/opts`)을 함께 출력한 뒤 종료합니다.
+- 탐색 실패(비밀번호 미발견) 시 `Error: password not found within the given max length.`를 출력하고 종료합니다.
+- 실행 시작 시 `num` 기준 예상 최대 소요 시간을 안내 출력할 수 있습니다(스크립트 메시지).
+
+#### 입력 검증(현재 구현 기준)
+- `argc < 2`이면 인자 오류 출력(`Error: invalid args` + 상세 + 도움말) 후 종료합니다.
+- `num`이 정수가 아니거나 `num < 1`이면 인자 오류 출력(`Error: invalid args` + 상세 + 도움말) 후 종료합니다.
+
+#### 부작용/연동 규칙
+- 이 프로그램의 각 시도는 `ssh.connect` 시도와 동일하게 취급됩니다.
+  - SSH 로그인 UI 트리거, 인증 실패 로그/trace, 레이트리밋/락아웃 규칙이 동일하게 적용됩니다.
+  - 관련 상세 계약은 `03_game_api_modules.md`/`07_ui_terminal_prototype_godot.md`/`13_multi_window_engine_contract_v1.md`를 따릅니다.
+    See DOCS_INDEX.md → 03, 07, 13.

@@ -12,6 +12,18 @@ trySshConnect = function (ip, userId, passwd)
     return true
 end function
 
+printHelp = function ()
+    print "usage: password_breaker <num> <target> [userId]"
+    print "desc: target 서버에 최대 num 길이로 패스워드 브루트포스 시뮬레이션을 수행합니다."
+    print "opts: -h, --help  도움말 출력"
+end function
+
+printInvalidArgs = function (detail)
+    print "Error: invalid args"
+    print "detail: " + detail
+    printHelp()
+end function
+
 printEstimatedMaxTime = function (targetLen)
     if targetLen >= 9 then
         print "[예상] 9자리 이상부터는 예상이 불가능할 정도로 오래걸림"
@@ -34,18 +46,29 @@ printEstimatedMaxTime = function (targetLen)
     end if
 end function
 
-if argc < 2 then
-	print "ERROR"
+helpRequested = false
+if argc < 1 then
+    helpRequested = true
+else if argv[0] == "-h" or argv[0] == "--help" then
+    helpRequested = true
+end if
+
+if helpRequested then
+    printHelp()
 else
-	n = floor(val(argv[0]))
+    if argc < 2 then
+        printInvalidArgs("num and target are required")
+    else
+	rawNum = argv[0]
+	n = floor(val(rawNum))
 	target = argv[1]
     if argc >= 3 then
         userId = argv[2]
     else
         userId = "root"
     end if
-	if n < 1 then
-		print "ERROR"
+	if str(n) != rawNum or n < 1 then
+        printInvalidArgs("num must be positive integer")
 	else
 		alphabet = "0123456789)!@#$%^&*("
         printEstimatedMaxTime(n)
@@ -81,7 +104,8 @@ else
 			length = length + 1
 		end while
         if result == null then
-            print "ERROR"
+            print "Error: password not found within the given max length."
         end if
 	end if
+    end if
 end if

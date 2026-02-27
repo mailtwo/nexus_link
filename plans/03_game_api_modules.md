@@ -4,9 +4,8 @@
 
 스코프(이번 버전):
 - 쉬움/중간/어려움(v0) 시나리오를 **클리어 가능**하게 만드는 최소 API 세트
-- 현재 노출 모듈: `term`, `fs`, `net`, `ssh`, `ftp`
-- 미노출(설계 보류): `time`
-- 의도적으로 제외(이번 파일에서 다루지 않음): `http/web/db/crypto/proc/...` 등
+- 현재 노출 모듈: `term`, `fs`, `net`, `ssh`, `ftp`, `time`, `http`, `web`, `proc`
+- 설계 보류 모듈: `db`, `crypto`
 
 핵심 원칙:
 - 유저는 **실제 OS/네트워크/디스크에 절대 접근하지 못한다.** 모든 API는 “가상 월드”만 조작한다.
@@ -159,10 +158,10 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 
 ### 0.11 intrinsic 호출 속도 제한(shared 100k)
 - 본 문서에서 정의하는 인게임 API intrinsic은 기본적으로 **인터프리터 단위 shared 버킷(초당 100,000회)** 제한 대상이다.
-- 현재 버전의 **제외 API group**은 `term`, `time`만이다.
-- 따라서 현재 포함 모듈 기준으로는 `fs`, `net`(`interfaces/scan/ports/banner` 포함), `ssh`, `ftp`가 shared 100k 제한 대상이다.
-- 추후 확장되는 API group(예: `http/web/db/crypto/proc` 등)도 **별도 제외 선언이 없으면** 동일하게 shared 100k 제한에 포함한다.
-- 제외 API group 목록은 향후 늘어날 수 있으나, 본 문서(v0.2) 기준 공식 제외 목록은 `term`, `time`만으로 본다.
+- 현재 버전의 **제외 API group**은 `term`만이다.
+- 따라서 현재 포함 모듈 기준으로는 `fs`, `net`(`interfaces/scan/ports/banner` 포함), `ssh`, `ftp`, `time`, `http`, `web`, `proc`가 shared 100k 제한 대상이다.
+- 추후 확장되는 API group(예: `db/crypto` 등)도 **별도 제외 선언이 없으면** 동일하게 shared 100k 제한에 포함한다.
+- 제외 API group 목록은 향후 늘어날 수 있으나, 본 문서(v0.2) 기준 공식 제외 목록은 `term`만으로 본다.
 
 ### 0.12 API 문서 파생/생성 규약
 - 본 문서(`03_game_api_modules.md`)는 intrinsic API 규약의 SSOT다. ResultMap 규약, 에러 코드, 시그니처/인자/반환/부작용 정의는 이 문서에서만 정의한다.
@@ -254,11 +253,16 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 
 ---
 
-## 2) time (현재 미노출)
+## 2) time
 
-- 현재 구현(v0.2)에서는 `time` 모듈을 인터프리터에 주입하지 않는다.
-- 따라서 `time.sleep`, `time.now`는 인게임 intrinsic API로 호출할 수 없다.
-- 대기/yield는 MiniScript 기본 intrinsic `wait`를 사용한다(게임 고유 intrinsic 아님).
+지원 함수(이번 버전): `sleep`
+
+### 2.1 `time.sleep(seconds)`
+- 목적: 스크립트 실행을 지정 시간만큼 대기(yield)시킨다.
+- 인자:
+  - `seconds: number` (0 이상)
+- 실패:
+  - `ERR_INVALID_ARGS`
 
 ---
 
@@ -266,10 +270,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 
 지원 함수(이번 버전): `list/read/write/delete/stat`
 
-> 파일 탐색은 `fs.list`를 조합해 플레이어(또는 스크립트)가 직접 수행한다. (`fs.find` intrinsic은 이번 버전에서 제외)
->
-> 주의: 여기서 제외되는 것은 **MiniScript intrinsic `fs.find`** 이다.  
-> VFS 내부 구현 보조 함수(`08_vfs_overlay_design_v0.md`의 `find`)와는 별개다.
+> 파일 탐색은 `fs.list`를 조합해 플레이어(또는 스크립트)가 직접 수행한다.
 
 공통 규칙:
 - 경로 문자열/정규화/병합 우선순위는 `08_vfs_overlay_design_v0.md`를 따른다.  
@@ -693,7 +694,6 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 이번 파일에서 제외했지만, 추후 아래 확장을 고려할 수 있다(상세 스펙은 별도 문서/버전에서 정의).
 
 - `ftp.list/stat/delete/rename/mkdir/rmdir` : FTP 작업 디렉토리/조작 커맨드군
-- `fs.find` (MiniScript intrinsic) : 대규모 파일 트리에서 패턴 탐색(현재는 `fs.list` 조합으로 대체)
 - `net.traceroute/route` : 라우팅/중계 퍼즐 확장
 - `ssh.whoami/session.tokens` : 계정/토큰 가시화(디버깅/퍼즐용)
 - hostname/DNS: `hostOrIp`에 hostname 지원 및 해석 규칙 추가
@@ -732,10 +732,9 @@ v1 탐색은 아래 순서로 고정한다.
 2) 표준 라이브러리 탐색
    - 경로: `res://scenario_content/resources/text/stdlib` 하위 `.ms` 파일 재귀 스캔
 
-v1 제외 사항:
-- `.scripts_registry` 탐색 미포함
-- CWD 기반 탐색 미포함
-- `reload/importReload` 미포함
+alpha 구현 필요 사항 `[미구현]`:
+- `.scripts_registry` 탐색
+- `reload/importReload`
 
 ### 8.4 표준 라이브러리 탐색 규칙(v1)
 - 표준 라이브러리 루트 디렉터리가 없으면 빈 stdlib로 취급한다(엔진 초기화 실패로 보지 않음).
