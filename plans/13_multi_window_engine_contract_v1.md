@@ -1,6 +1,6 @@
 # 멀티 윈도우 시스템 & SSH 로그인 창(MVP) — 엔진 계약서
 
-- 문서 버전: v1.1
+- 문서 버전: v1.3
 - 대상 엔진: **Godot 4.6**
 - 타겟 플랫폼: **PC / Windows**
 - 문서 목적: Codex가 그대로 구현 가능한 수준의 **규칙/데이터/흐름**을 명문화합니다.
@@ -21,8 +21,12 @@
 
 ## 1. 용어 정의
 
-- **메인 창(Main Window)**: 게임의 주 UI. 본 게임에서는 **터미널 창**.
-- **서브 윈도우(Sub Window)**: 메인 창과 별개로 띄워지는 모든 앱/패널/창.
+- **메인 창(Main Window)**: 현재 OS에서 게임 대표로 노출되는 창. NATIVE_OS 모드에서는 `Primary Core Window`를 의미한다.
+- **코어 창(Core Window)**: 게임의 주 플레이 인터페이스 창. 알파 범위에서는 `TerminalWindow`와 `GuiMainWindow` 두 종류를 사용한다.
+- **Primary Core Window**: 현재 세션에서 대표 메인 창 역할을 가진 코어 창. NATIVE_OS 모드에서 Alt+Tab/작업표시줄의 대표 노출 대상을 의미한다.
+- **Secondary Window**: Primary Core Window가 아닌 나머지 게임 창. 다른 코어 창과 WindowKind 창을 모두 포함한다.
+- **서브 윈도우(Sub Window)**: WindowKind 기반 기능 창(예: `SSH_LOGIN`). 코어 창과 구분되는 계약 단위.
+- **Host Window (Reserved)**: 베타 범위에서 검토할 분리형 메인 호스트 창. 알파에서는 구현하지 않으며, Host-ready 경계만 선반영한다.
 - **윈도우 종류(WindowKind)**: 서브 윈도우의 타입(예: `SSH_LOGIN`). 각 Kind는 "단일 인스턴스/지오메트리/리사이즈 정책"의 단위.
 - **지오메트리(Geometry)**: 위치(Position) + 크기(Size) + (선택) 최대화 상태.
 - **네이티브 OS 윈도우 모드(NATIVE_OS)**: 서브 윈도우가 **Windows OS 윈도우**로 생성되는 모드(= OS 프레임 유지).
@@ -43,7 +47,7 @@
   - **Network Topology viewer**
   - **월드 맵 및 네트워크 트레이싱창**
   - **프로세서 목록**
-  - **코딩 에디터 윈도우**
+- 코딩 에디터 윈도우는 알파 범위에서 제외하고 추후 구현한다(§12 참조).
 
 ### 2.2 전역 제약 (MUST)
 
@@ -57,6 +61,8 @@
 2) 단일 인스턴스  
 - WindowKind마다 **동시에 1개만** 존재한다.
 - 동일 Kind에 대한 "열기"가 다시 요청되면: 기존 창을 전면/포커스 처리하고 내용을 갱신한다.
+- 위 제약은 "창 인스턴스 수"에만 적용한다.
+- 창 내부의 논리 항목(예: 파일 전송 작업 목록, 에디터 탭 문서)은 여러 개를 허용한다.
 
 3) 지오메트리 기억  
 - 각 WindowKind는 모드별로 지오메트리를 저장/복원한다.
@@ -98,15 +104,33 @@
 - WindowKind 별로 `autoFocus=true/false`를 정의한다.
 - `autoFocus=false`인 창은 새로 열렸을 때 해당 창으로 포커스가 이동하지 않는다.
 - `autoFocus=true`인 창은 새로 열렸을 때 해당 창으로 포커스가 이동한다.
-- `autoFocus=false` 구현은 Best effort로 하고 "열기 직후 다음 프레임에 메인 창으로 포커스 복귀" 등의 Fail-safe 처리를 한다.
+- `autoFocus=false` 구현은 Best effort로 하고 "열기 직후 다음 프레임에 Primary Core Window로 포커스 복귀" 등의 Fail-safe 처리를 한다.
 - Passthrough 창은 autoFocus 설정과 무관하게 포커스를 갖지 않는다 (autoFocus는 Exclusive 창에만 적용)
 
 7) 포커스 입력 전달 정책 (Focus Mode)
 - 모든 서브 창은 아래 두 포커스 모드 중 하나를 가질 수 있다.
-- Exclusive: 서브 창이 포커스를 가지면 키보드 입력을 해당 창이 독점하고, 메인 창에는 전달하지 않음.
-- Passthrough: 서브 창이 화면에 떠 있어도 키보드 입력은 서브 창에 전달되지 않고 항상 메인 창에만 전달됨.
+- Exclusive: 서브 창이 포커스를 가지면 키보드 입력을 해당 창이 독점하고, Primary Core Window에는 전달하지 않음.
+- Passthrough: 서브 창이 화면에 떠 있어도 키보드 입력은 서브 창에 전달되지 않고 항상 Primary Core Window에만 전달됨.
 - SSH Login 서브 창은 Passthrough 포커스 모드를 가진다.
 - Passthrough 창에서 클립보드 복사가 필요한 경우, 키보드 단축키가 아닌 UI 요소(버튼, 컨텍스트 메뉴 등)를 통해 제공한다 (MAY)
+
+8) 알파 코어 창 / Primary 승격 정책 (MUST)
+- 알파 기간에는 `TerminalWindow`와 `GuiMainWindow`를 코어 창으로 운영한다.
+- NATIVE_OS 모드에서는 코어 창 중 정확히 1개만 Primary Core Window여야 한다.
+- 게임 실행 중 코어 창은 최소 1개 이상 항상 존재해야 한다.
+- 코어 창 승격 트리거:
+  - 사용자가 터미널/GUI 메인 창을 전면화하도록 명시 요청한 경우(열기/포커스/전환 명령), 대상 코어 창을 Primary로 승격한다.
+  - 현재 Primary 코어 창이 닫히거나 숨겨지고 다른 코어 창이 살아 있으면, 남은 코어 창을 즉시 Primary로 승격한다.
+- Fail-safe: 예외 상황으로 코어 창이 모두 닫히면 `TerminalWindow`를 재오픈하고 Primary로 승격한다.
+
+9) Secondary 창 노출 억제 정책 (MUST)
+- Primary Core Window를 제외한 모든 Secondary Window(다른 코어 창 + WindowKind 창)는 작업표시줄/Alt+Tab 노출 억제를 시도해야 한다.
+- 구현은 `transient(primary)` + 플랫폼별 확장 스타일 조합을 사용한다.
+- 플랫폼/드라이버 제약으로 완전 억제가 실패할 수 있으므로 Best effort로 취급하고, 폴백 정책은 §4.2를 따른다.
+
+10) 베타용 Host Window 분리 준비 (MUST)
+- 알파에서는 1x1/오프스크린 Host Window를 구현하지 않는다.
+- 대신, 추후 베타에서 Host Window로 무중단 이행할 수 있도록 Host-ready 경계를 §8.5에 정의하고 현재 구현에 적용한다.
 
 ---
 
@@ -116,13 +140,13 @@
 - `WindowingMode.NATIVE_OS`
 - `WindowingMode.VIRTUAL_DESKTOP`
 
-### 3.2 메인 창 화면 모드(Display Mode) 제한 (MUST)
+### 3.2 메인 창(Primary Core Window) 화면 모드(Display Mode) 제한 (MUST)
 
 #### A) NATIVE_OS 모드
-- 메인 창은 **창모드만 허용**한다.
+- Primary Core Window는 **창모드만 허용**한다.
   - 허용: `WINDOW_MODE_WINDOWED`, `WINDOW_MODE_MAXIMIZED` (둘 다 "창모드"로 간주)
   - 금지: `WINDOW_MODE_FULLSCREEN`, `WINDOW_MODE_EXCLUSIVE_FULLSCREEN`
-- 메인 창 및 모든 서브 윈도우(WindowKind)는 **OS 기본 프레임(타이틀바/테두리)을 유지**해야 한다.
+- Primary/Secondary 게임 창은 **OS 기본 프레임(타이틀바/테두리)을 유지**해야 한다.
   - 즉, `borderless`는 금지(= false 유지).
   - DesktopOverlay는 이 제약에서 제외된다(§15 참조).
 
@@ -137,7 +161,7 @@
 - 가상 윈도우의 타이틀바/버튼/리사이즈 핸들 역시 **게임이 직접 그린다(커스텀 크롬)**.
 
 ### 3.3 Fullscreen 계열 강제 규칙 (MUST)
-- 사용자가 **Fullscreen/Exclusive/Borderless Fullscreen** 계열을 선택하거나, 메인 창이 해당 상태가 되면:
+- 사용자가 **Fullscreen/Exclusive/Borderless Fullscreen** 계열을 선택하거나, Primary Core Window가 해당 상태가 되면:
   - 시스템은 반드시 `WindowingMode.VIRTUAL_DESKTOP`로 강제 전환한다.
   - VIRTUAL_DESKTOP으로 전환될 때 활성화된 모든 DesktopOverlay는 자동으로 비활성화한다.
 - 반대로, `WindowingMode.NATIVE_OS`에서는 fullscreen 계열 옵션을 UI에서 비활성화(또는 선택 시 자동 전환)해야 한다.
@@ -149,21 +173,21 @@
 ## 4. 네이티브 OS 윈도우 모드 요구사항
 
 ### 4.1 종속(생명주기) 정책 (MUST)
-- 모든 서브 윈도우(WindowKind)는 메인 창에 **transient(종속)로 설정**한다.
+- 모든 Secondary Window(비-Primary 코어 창 + WindowKind 창)는 Primary Core Window에 **transient(종속)로 설정**한다.
   - 목적:
-    - 게임 종료 시 모든 서브 윈도우가 함께 닫힌다.
-    - (가능하다면) 작업표시줄에 서브 윈도우가 별도로 뜨는 현상을 줄인다.
+    - 게임 종료 시 모든 Secondary 창이 함께 닫힌다.
+    - (가능하다면) 작업표시줄/Alt+Tab에서 Secondary 창 노출을 줄인다.
 - DesktopOverlay 창은 transient 설정을 적용하지 않는다(§15.4 참조).
 
 ### 4.2 작업표시줄 억제는 Best effort (SHOULD)
-- 작업표시줄(아래 바)에 서브 윈도우가 별도로 나타나지 않도록 **최선을 다한다**.
-- 단, transient 동작은 플랫폼/환경에 따라 다를 수 있으므로 **완전 보장은 하지 않는다**.
+- 작업표시줄(아래 바) 및 Alt+Tab에 Secondary 창이 별도 엔트리로 나타나지 않도록 **최선을 다한다**.
+- 단, transient/확장 스타일 동작은 플랫폼/환경에 따라 다를 수 있으므로 **완전 보장은 하지 않는다**.
 - 폴백 정책(아래 중 하나 이상 MUST):
   1) 억제가 실패해도 그대로 허용(사용자 수용)
-  2) "서브 윈도우가 작업표시줄에 뜨면" 사용자에게 가상 데스크톱 모드 전환 옵션을 안내/제공
+  2) "Secondary 창이 작업표시줄/Alt+Tab에 뜨면" 사용자에게 가상 데스크톱 모드 전환 옵션을 안내/제공
 
 ### 4.3 위치 연동 없음 (MUST)
-- 메인 창을 이동해도 서브 윈도우는 **자동으로 따라 움직이지 않는다**.
+- Primary Core Window를 이동해도 Secondary 창은 **자동으로 따라 움직이지 않는다**.
 - 따라서 NATIVE_OS 모드의 지오메트리 저장/복원은 **스크린 절대 좌표 기반**으로 한다.
 - 좌표 복원 시 해당 좌표가 현재 활성화된 전체 스크린 영역(Screen Rect) 내부인지 검증하는 로직이 반드시 포함되어야 한다.
 
@@ -204,9 +228,9 @@
    - 드래그 이동 시작 시
    - 리사이즈 시작 시
 
-3) **터미널(메인 UI)과의 관계:**
-   - 터미널은 Z-order 스택에 참여하지 않으며, 항상 모든 서브 창의 **아래**에 위치한다.
-   - 서브 창이 없거나 서브 창 바깥 영역을 클릭하면 터미널이 포커스를 받는다.
+3) **Primary Core Window와의 관계:**
+   - Primary Core Window는 서브 창 Z-order 스택 아래 레이어에 위치한다.
+   - 서브 창이 없거나 서브 창 바깥 영역을 클릭하면 Primary Core Window가 포커스를 받는다.
 
 **4) 포커스 연동:**
 
@@ -214,16 +238,16 @@
 
 - **Exclusive 창:**
   - 해당 창이 Z-order 최상위일 때 입력 포커스를 갖는다.
-  - 포커스를 가진 동안 키보드 입력은 해당 창이 독점하며, 터미널에는 전달하지 않는다.
-  - 서브 창 바깥 영역 클릭 시 포커스를 해제하고 터미널에 포커스를 반환한다. 이때 해당 창의 Z-order는 변경하지 않는다.
+  - 포커스를 가진 동안 키보드 입력은 해당 창이 독점하며, Primary Core Window에는 전달하지 않는다.
+  - 서브 창 바깥 영역 클릭 시 포커스를 해제하고 Primary Core Window에 포커스를 반환한다. 이때 해당 창의 Z-order는 변경하지 않는다.
 
 - **Passthrough 창:**
-  - 해당 창이 Z-order 최상위이더라도 입력 포커스를 갖지 않는다. 키보드 입력은 항상 터미널에 전달된다.
-  - 마우스 클릭에 의한 Z-order 전면화는 정상 동작하되, 포커스는 터미널에 유지한다.
+  - 해당 창이 Z-order 최상위이더라도 입력 포커스를 갖지 않는다. 키보드 입력은 항상 Primary Core Window에 전달된다.
+  - 마우스 클릭에 의한 Z-order 전면화는 정상 동작하되, 포커스는 Primary Core Window에 유지한다.
 
 - **Exclusive 창과 Passthrough 창이 동시에 열려 있는 경우:**
   - 키보드 포커스는 Z-order가 가장 높은 **Exclusive 창**이 갖는다. Passthrough 창은 Z-order 순위와 무관하게 포커스 대상에서 제외한다.
-  - Exclusive 창이 하나도 없으면 터미널이 포커스를 갖는다.
+  - Exclusive 창이 하나도 없으면 Primary Core Window가 포커스를 갖는다.
 
 5) **Z-order 저장:**
    - Z-order는 지오메트리에 포함하여 저장/복원하지 않는다. 모드 전환이나 게임 재시작 시 서브 창은 열린 순서대로 쌓인다.
@@ -258,16 +282,27 @@
 ### 7.1 MVP Kind
 - `SSH_LOGIN`
 
+> `TERMINAL`, `GUI_MAIN`은 WindowKind가 아니라 CoreWindowKind로 취급한다(§1, §2.2-8 참조).
+
 ### 7.2 Kind별 속성
 | WindowKind | Single Instance | Resizable | Auto Focus | Focus Mode | Default Size | Default Pos (Native) | Default Pos (Virtual)|
 |---|---:|---:|---:|---|---|---|---|
 | SSH_LOGIN | YES | NO (MVP) | NO | Passthrough | 520×240 | (예: 120,80) | (예: 120,80) |
 
-> 웹페이지 뷰어, 파일 전송 대기줄, Network Topology viewer, 월드 맵 및 네트워크 트레이싱창, 프로세서 목록, 코딩 에디터 윈도우 속성 추가가 필요함.
+> 웹페이지 뷰어, 파일 전송 대기줄, Network Topology viewer, 월드 맵 및 네트워크 트레이싱창, 프로세서 목록 속성 추가가 필요함(알파 범위).
+
+> 코딩 에디터 윈도우는 추후 구현 항목이며, 탭 기반 다중 문서 규칙은 §7.3을 따른다.
 
 > 알파 구현 목표 창들이 추가되면 이 테이블에 속성을 확장한다.
 
 > Godot의 Resource (tre) 파일로 각 Kind의 속성을 정의하는 것을 고려해본다.
+
+### 7.3 단일 창 내 다중 항목 패턴
+- `FILE_TRANSFER_QUEUE`는 WindowKind 인스턴스 1개 창만 유지하되, 창 내부에 `TransferJob` 항목을 여러 개 동시에 표시/갱신해야 한다 (MUST, 알파).
+- 여러 파일 전송이 동시에 발생해도 새 창을 추가로 만들지 않고, 기존 `FILE_TRANSFER_QUEUE` 창의 목록 항목을 추가/갱신한다 (MUST).
+- `open_window(FILE_TRANSFER_QUEUE)` 재호출은 "새 창 생성"이 아니라 "기존 창 전면화 + 목록 갱신"으로 처리한다 (MUST).
+- `CODE_EDITOR`는 추후 구현 시 동일 패턴을 따른다: 창 1개 + 탭 N개(파일별 문서/버퍼 전환) (SHOULD).
+- `CODE_EDITOR` 탭 정책은 알파 범위 밖이며, 구현 시점에 Kind 속성/상세 계약을 별도 확정한다.
 
 ---
 
@@ -275,8 +310,10 @@
 
 ### 8.1 책임 (MUST)
 - 현재 WindowingMode 관리 및 강제 규칙 적용(fullscreen 계열 → virtual 강제)
+- 코어 창(`TerminalWindow`, `GuiMainWindow`)의 Primary 승격/강등 관리
 - WindowKind 단일 인스턴스 보장
 - 모드별 지오메트리 저장/복원
+- Secondary 창 노출 억제 정책(transient/작업표시줄/Alt+Tab) 적용
 - 서브 윈도우 생성/닫기/포커스/전면화
 - 모드 전환 및 화면 모드 전환 시 안전한 재생성 절차 수행(§10 참조)
 - SSH 로그인 시도 이벤트 수신 → SSH 로그인 창 표시/갱신
@@ -285,6 +322,8 @@
 ### 8.2 공개 API (권장)
 - `set_windowing_mode(mode) -> void`
 - `set_main_window_display_mode(mode) -> void`
+- `set_primary_core_window(coreKind) -> void` (`TERMINAL` / `GUI_MAIN`)
+- `get_primary_core_window() -> CoreWindowKind`
 - `open_window(kind) -> void`
 - `close_window(kind) -> void`
 - `focus_window(kind) -> void`
@@ -304,6 +343,16 @@
 - Dictionary의 키/값 구성은 각 WindowKind가 자유롭게 정의한다. WindowManager는 내부 구조를 알지 않으며, 불투명(opaque) 데이터로 취급한다.
 - WindowManager는 §10.2의 모드 전환 절차에서 이 인터페이스를 통해 State를 획득/복원한다.
 - State가 없는 창(상태를 보존할 필요가 없는 경우)은 빈 Dictionary(`{}`)를 반환해도 된다.
+
+### 8.5 Host-ready 경계 (MUST)
+
+- 알파 구현에서 아래 경계를 반드시 지켜 베타의 Host Window 분리를 대비한다.
+- 창 역할(Primary/Secondary)과 창 종류(WindowKind/CoreWindowKind)를 분리한다.
+  - 코드에서 "`TerminalWindow`가 항상 메인"이라는 가정을 금지한다.
+- 지오메트리/상태 저장 키는 논리 식별자(WindowKind/CoreWindowKind) 기준으로 관리하고, HWND 같은 OS 핸들에 직접 의존하지 않는다.
+- 작업표시줄/Alt+Tab/transient/소유자 설정은 `PlatformWindowAdapter` 계층으로 격리하고, gameplay/UI 레이어에서 Win32 직접 호출을 금지한다.
+- 입력 라우팅 대상은 "현재 Primary Core Window"를 조회해 결정하며, 특정 창 이름 하드코딩을 금지한다.
+- 모드 전환/재생성 절차(§10)는 "Primary가 교체될 수 있음"을 전제로 작성한다.
 
 ---
 
@@ -387,19 +436,19 @@
 
 ---
 
-## 11.5 멀티 윈도우 구현 목표 목록 (중요도 순)
+## 11.5 멀티 윈도우 알파 구현 목표 목록 (중요도 순)
 1) 월드 맵 및 네트워크 트레이싱창
 2) Network Topology viewer
 3) 파일 전송 대기줄(큐/대역폭/실패/재시도)
 4) 웹페이지 뷰어(Godot CEF)
-5) 코딩 에디터 윈도우
-6) 프로세서 목록
+5) 프로세서 목록
 
 ---
 
 ## 12. (추후) 멀티 윈도우 옵션 목록 (중요도 순)
 1) 유출된 CCTV 모니터링
 2) 패킷 스니핑 창
+3) 코딩 에디터 윈도우(탭 기반 다중 문서)
 
 ---
 
@@ -416,14 +465,15 @@
 - 가상 모드 진입 시 WINDOWED → embed 설정 → MAXIMIZED → 서브 윈도우 생성 순서가 지켜진다.
 
 ### 13.2 네이티브 OS 모드 (§3.2A, §4)
-- 메인 창이 WINDOWED / MAXIMIZED에서 동작한다.
+- Primary Core Window가 WINDOWED / MAXIMIZED에서 동작한다.
 - FULLSCREEN / EXCLUSIVE_FULLSCREEN 진입 시 자동으로 VIRTUAL_DESKTOP으로 전환된다.
 - 서브 윈도우(WindowKind)는 OS 프레임(타이틀바/테두리)을 유지한다. borderless가 아니다.
 - 모든 서브 윈도우의 최소화 버튼이 비활성화되어 있다.
 - resizable=false 창의 최대화 버튼이 비활성화되어 있다.
-- 메인 창을 이동해도 서브 윈도우는 따라 움직이지 않는다.
-- 작업표시줄 억제는 best effort이며, 실패 시 폴백 정책이 동작한다.
-- 서브 윈도우는 메인 창에 transient으로 종속되어, 게임 종료 시 함께 닫힌다.
+- Primary Core Window를 이동해도 Secondary 창은 따라 움직이지 않는다.
+- TerminalWindow / GuiMainWindow 중 정확히 하나만 Primary Core Window이며, 전면 요청 시 대상 창으로 승격된다.
+- 작업표시줄/Alt+Tab 억제는 best effort이며, 실패 시 폴백 정책이 동작한다.
+- Secondary 창은 Primary Core Window에 transient으로 종속되어, 게임 종료 시 함께 닫힌다.
 
 ### 13.3 가상 데스크톱 모드 (§3.2B, §5)
 - 메인 창이 MAXIMIZED 이상 상태를 유지한다. WINDOWED는 금지된다.
@@ -436,28 +486,28 @@
 ### 13.4 Z-order 및 전면화 (§5.2)
 - 서브 창 내부(콘텐츠, 타이틀바, 리사이즈 핸들)를 마우스 클릭하면 해당 창이 Z-order 최상위로 올라간다.
 - `open_window(kind)` 호출로 기존 창이 전면화된다.
-- 터미널은 항상 모든 서브 창 아래에 위치한다.
-- 서브 창 바깥 영역 클릭 시 터미널이 포커스를 받되, 서브 창의 Z-order는 변경되지 않는다.
+- Primary Core Window는 모든 서브 창 아래에 위치한다.
+- 서브 창 바깥 영역 클릭 시 Primary Core Window가 포커스를 받되, 서브 창의 Z-order는 변경되지 않는다.
 - Z-order는 저장/복원 대상이 아니다. 재시작 시 서브 창은 열린 순서대로 쌓인다.
 
 ### 13.5 Focus Mode (§2.2-7, §4.5, §5.2-4)
 
 **Passthrough 창:**
-- VIRTUAL_DESKTOP: Passthrough 창이 Z-order 최상위여도 키보드 입력이 터미널에 전달된다. 서브 창에는 키보드 입력이 전달되지 않는다.
-- NATIVE_OS: Passthrough 창(`unfocusable=true`)의 드래그/닫기 조작이 메인 창의 포커스를 뺏지 않는다.
+- VIRTUAL_DESKTOP: Passthrough 창이 Z-order 최상위여도 키보드 입력이 Primary Core Window에 전달된다. 서브 창에는 키보드 입력이 전달되지 않는다.
+- NATIVE_OS: Passthrough 창(`unfocusable=true`)의 드래그/닫기 조작이 Primary Core Window의 포커스를 뺏지 않는다.
 - NATIVE_OS: unfocusable이 정상 동작하지 않는 환경에서는 해당 창이 exclusive로 격상되어 동작한다. 포커스 되돌리기(줄다리기)는 발생하지 않는다.
 
 **Exclusive 창:**
-- Exclusive 창이 포커스를 가진 동안 키보드 입력이 해당 창에 독점되고 터미널에 전달되지 않는다.
-- 서브 창 바깥 클릭 시 포커스가 터미널로 반환된다.
+- Exclusive 창이 포커스를 가진 동안 키보드 입력이 해당 창에 독점되고 Primary Core Window에 전달되지 않는다.
+- 서브 창 바깥 클릭 시 포커스가 Primary Core Window로 반환된다.
 
 **혼합 상황:**
 - Exclusive 창과 Passthrough 창이 동시에 열려 있을 때, Passthrough 창이 Z-order 최상위여도 키보드 포커스는 Z-order가 가장 높은 Exclusive 창이 갖는다.
-- Exclusive 창이 하나도 없으면 터미널이 포커스를 갖는다.
+- Exclusive 창이 하나도 없으면 Primary Core Window가 포커스를 갖는다.
 
 ### 13.6 자동 포커싱 (§2.2-6)
 - autoFocus=true 창은 열릴 때 포커스가 해당 창으로 이동한다.
-- autoFocus=false 창은 열릴 때 포커스가 이동하지 않는다 (best effort). Fail-safe로 다음 프레임에 메인 창으로 포커스가 복귀한다.
+- autoFocus=false 창은 열릴 때 포커스가 이동하지 않는다 (best effort). Fail-safe로 다음 프레임에 Primary Core Window로 포커스가 복귀한다.
 
 ### 13.7 지오메트리 저장/복원 (§2.2-3, §6)
 
@@ -480,27 +530,33 @@
 - 새로운 시도 이벤트 수신 시 기존 필드 내용이 즉시 덮어쓰이고 타이머가 리셋된다.
 - 마지막 시도 이후 3초간 추가 이벤트가 없으면 자동으로 닫힌다.
 - 마우스 버튼이 창 내부에서 눌린 상태이면 닫힘이 유예된다. 버튼을 뗀 후 마우스가 창 밖으로 나가면 닫힌다.
-- SSH_LOGIN은 Passthrough 모드이며, 창이 떠 있는 동안 터미널 입력이 방해받지 않는다.
-- SSH_LOGIN은 autoFocus=false이며, 열릴 때 터미널 포커스를 뺏지 않는다.
+- SSH_LOGIN은 Passthrough 모드이며, 창이 떠 있는 동안 Primary Core Window 입력이 방해받지 않는다.
+- SSH_LOGIN은 autoFocus=false이며, 열릴 때 Primary Core Window 포커스를 뺏지 않는다.
 
 ### 13.9 단일 인스턴스 (§2.2-2)
 - 이미 열려 있는 Kind에 대해 `open_window`를 재호출하면 새 창이 생기지 않고, 기존 창이 전면화/포커스되며 내용이 갱신된다.
 
-### 13.10 EXCLUSIVE_FULLSCREEN 제약 (§11)
+### 13.10 파일 전송 대기줄 다중 항목 (§2.2-2, §7.3)
+- `FILE_TRANSFER_QUEUE` 창은 동시에 1개만 존재한다.
+- 파일 전송 작업이 여러 개일 때, 창 내부 목록에 여러 `TransferJob` 항목이 동시에 표시된다.
+- `open_window(FILE_TRANSFER_QUEUE)`를 반복 호출해도 새 창은 생기지 않고, 기존 창만 전면화/갱신된다.
+- `CODE_EDITOR` 탭 기반 다중 문서 정책은 추후 구현 범위이며, 본 알파 수용 기준에서 제외된다.
+
+### 13.11 EXCLUSIVE_FULLSCREEN 제약 (§11)
 - EXCLUSIVE_FULLSCREEN 상태에서 OS 윈도우 호출(네이티브 파일 다이얼로그 등)이 발생하지 않는다.
 - 필요한 경우 인게임 UI로 대체되거나, EXCLUSIVE 해제 후 호출된다.
 
-### 13.11 State 직렬화 (§8.4)
+### 13.12 State 직렬화 (§8.4)
 - 모든 WindowKind가 `serialize_state()` / `restore_state()`를 구현한다.
 - State가 없는 창은 빈 Dictionary를 반환하며, 복원 시 에러가 발생하지 않는다.
 - 모드 전환 전후로 State가 정확히 보존된다 (SSH_LOGIN: host, user, masked password, 타이머 잔여 시간).
 
-### 13.12 DesktopOverlay (§15)
+### 13.13 DesktopOverlay (§15)
 - NATIVE_OS 모드에서만 DesktopOverlay를 활성화할 수 있다.
 - VIRTUAL_DESKTOP 모드에서 DesktopOverlay 활성화 시도는 무시된다.
 - 모니터당 독립적으로 켜고 끌 수 있다.
 - 활성화된 DesktopOverlay는 항상 해당 모니터의 모든 게임 창 아래에 위치한다(Z-order 최하단).
-- DesktopOverlay는 포커스를 받지 않으며, 클릭 시 메인 터미널 창으로 포커스가 전달된다.
+- DesktopOverlay는 포커스를 받지 않으며, 클릭 시 Primary Core Window로 포커스가 전달된다.
 - 연결이 끊어진 모니터의 DesktopOverlay는 자동 비활성화된다. 재연결 시 저장된 활성 상태가 복원된다.
 - NATIVE_OS → VIRTUAL_DESKTOP 전환 시 모든 DesktopOverlay가 비활성화된다.
 - 게임 종료 시 모든 DesktopOverlay가 함께 닫힌다.
@@ -573,9 +629,9 @@
 
 ### 15.6 클릭 처리 (MUST)
 
-- DesktopOverlay 영역을 클릭하면 포커스가 메인 터미널 창으로 전달된다.
+- DesktopOverlay 영역을 클릭하면 포커스가 Primary Core Window로 전달된다.
 - `FLAG_NO_FOCUS` 설정으로 인해 클릭이 OS 레벨에서 DesktopOverlay에 흡수되지 않고 하위 창(또는 바탕화면)으로 통과되는 경우, 별도 처리 없이 그대로 허용한다.
-  - 단, 클릭이 게임 외부 창(실제 바탕화면이나 다른 앱)으로 전달되지 않도록 주의한다. 문제가 발생하면 마우스 이벤트를 명시적으로 캡처해 메인 창으로 전달하는 방식으로 보완한다(SHOULD).
+  - 단, 클릭이 게임 외부 창(실제 바탕화면이나 다른 앱)으로 전달되지 않도록 주의한다. 문제가 발생하면 마우스 이벤트를 명시적으로 캡처해 Primary Core Window로 전달하는 방식으로 보완한다(SHOULD).
 
 ### 15.7 구현 참고 (Win32 P/Invoke)
 
