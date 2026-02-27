@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/terminal_scene.gd" id="1_h7q7u"]
 [ext_resource type="CodeHighlighter" path="res://scenes/MiniscriptHighlighter.tres" id="2_q8j0n"]
+[ext_resource type="Theme" path="res://scenes/terminal_theme.tres" id="3_m8x1a"]
 
 [node name="TerminalScene" type="Control"]
 layout_mode = 3
@@ -10,6 +11,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+theme = ExtResource("3_m8x1a")
 script = ExtResource("1_h7q7u")
 
 [node name="Background" type="ColorRect" parent="."]
