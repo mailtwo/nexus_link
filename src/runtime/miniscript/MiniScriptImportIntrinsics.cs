@@ -241,7 +241,7 @@ internal static class MiniScriptImportIntrinsics
 
         var normalizedScriptPath = BaseFileSystem.NormalizePath("/", scriptPath);
         var scriptDirectory = GetParentPath(normalizedScriptPath);
-        if (!state.ExecutionContext!.World.TryRunViaIntrinsicQueue(
+        if (!state.ExecutionContext!.World.TryRunViaWorldLock(
                 () =>
                 {
                     foreach (var candidate in EnumerateImportCandidates(importName))

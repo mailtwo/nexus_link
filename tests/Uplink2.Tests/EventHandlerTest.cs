@@ -308,7 +308,7 @@ public sealed class EventHandlerTest
 
     private static WorldRuntime CreateWorldStub()
     {
-        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        var world = CreateUninitializedWorldRuntime();
         SetField(world, "<ScenarioFlags>k__BackingField", new Dictionary<string, object>(StringComparer.Ordinal));
 
         var terminalLineType = RequireRuntimeType("Uplink2.Runtime.Events.TerminalEventLine");
@@ -472,6 +472,13 @@ public sealed class EventHandlerTest
             BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         field!.SetValue(target, value);
+    }
+
+    private static WorldRuntime CreateUninitializedWorldRuntime()
+    {
+        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        SetField(world, "_worldStateLock", new object());
+        return world;
     }
 
     private static IReadOnlyList<object> ToObjectList(object value)

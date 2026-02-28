@@ -32,6 +32,9 @@ public partial class WorldRuntime : Node
     private const string LowercaseAlphaNumericAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
     private static string[] dictionaryPasswordPool = Array.Empty<string>();
 
+    /// <summary>Guards all mutable world state accessed from both the main thread and worker threads.</summary>
+    private readonly object _worldStateLock = new object();
+
     /// <summary>Blueprint YAML directory used when creating a fresh world.</summary>
     [Export]
     public string BlueprintDirectory { get; set; } = DefaultBlueprintDirectory;

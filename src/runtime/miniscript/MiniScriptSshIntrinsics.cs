@@ -444,7 +444,7 @@ internal static partial class MiniScriptSshIntrinsics
             }
 
             var executionContext = state.ExecutionContext;
-            if (!TryRunWorldAction(
+            if (!TryRunWorldActionViaQueue(
                     state,
                     () =>
                     {
@@ -642,6 +642,27 @@ internal static partial class MiniScriptSshIntrinsics
     }
 
     internal static bool TryRunWorldAction<T>(
+        SshModuleState state,
+        Func<T> action,
+        out T result,
+        out string error)
+    {
+        result = default!;
+        error = string.Empty;
+        if (state.ExecutionContext is null)
+        {
+            error = "execution context is unavailable.";
+            return false;
+        }
+
+        return state.ExecutionContext.World.TryRunViaWorldLock(action, out result, out error);
+    }
+
+    /// <summary>
+    /// Routes the action through the intrinsic queue (main-thread drain).
+    /// Use only for recursive operations like ssh.exec that invoke ExecuteSystemCall.
+    /// </summary>
+    internal static bool TryRunWorldActionViaQueue<T>(
         SshModuleState state,
         Func<T> action,
         out T result,

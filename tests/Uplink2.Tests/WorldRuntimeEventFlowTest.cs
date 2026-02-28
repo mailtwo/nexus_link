@@ -144,7 +144,7 @@ public sealed class WorldRuntimeEventFlowTest
     [Fact]
     public void ResolveStartupScenarios_TraversesCampaignTreeInOrder()
     {
-        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        var world = CreateUninitializedWorldRuntime();
         SetAutoProperty(world, "StartupScenarioId", string.Empty);
         SetAutoProperty(world, "StartupCampaignId", "gameCampaign");
 
@@ -200,7 +200,7 @@ public sealed class WorldRuntimeEventFlowTest
 
     private static WorldRuntime CreateEventWorldStub()
     {
-        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        var world = CreateUninitializedWorldRuntime();
         SetAutoProperty(world, "ServerList", new Dictionary<string, ServerNodeRuntime>(StringComparer.Ordinal));
         SetAutoProperty(world, "ProcessList", new Dictionary<int, ProcessStruct>());
         SetAutoProperty(world, "VisibleNets", new HashSet<string>(StringComparer.Ordinal));
@@ -316,6 +316,13 @@ public sealed class WorldRuntimeEventFlowTest
         var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         field!.SetValue(target, value);
+    }
+
+    private static WorldRuntime CreateUninitializedWorldRuntime()
+    {
+        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        SetField(world, "_worldStateLock", new object());
+        return world;
     }
 
     private static IReadOnlyList<MethodBase> ExtractCalledMethods(MethodInfo method)

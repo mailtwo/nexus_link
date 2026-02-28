@@ -35,7 +35,10 @@ public partial class WorldRuntime
     public override void _PhysicsProcess(double delta)
     {
         DrainIntrinsicQueueRequests();
-        WorldTick();
+        lock (_worldStateLock)
+        {
+            WorldTick();
+        }
     }
 
     /// <inheritdoc/>

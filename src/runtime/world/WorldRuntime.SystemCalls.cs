@@ -858,6 +858,33 @@ public partial class WorldRuntime
         return false;
     }
 
+    /// <summary>
+    /// Executes <paramref name="action"/> under the world state lock.
+    /// Use this for simple (non-recursive) intrinsic calls from worker threads
+    /// instead of the queue-based <see cref="TryRunViaIntrinsicQueue{T}"/>.
+    /// </summary>
+    internal bool TryRunViaWorldLock<T>(Func<T> action, out T result, out string error)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+
+        result = default!;
+        error = string.Empty;
+        try
+        {
+            lock (_worldStateLock)
+            {
+                result = action();
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+
     private bool IsWorldRuntimeThread()
     {
         return worldRuntimeThreadId <= 0 || System.Environment.CurrentManagedThreadId == worldRuntimeThreadId;

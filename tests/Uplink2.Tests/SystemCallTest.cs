@@ -7987,7 +7987,7 @@ public sealed class SystemCallTest
     [Fact]
     public void WorldSeed_Getter_Throws_DuringSystemInitializing()
     {
-        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        var world = CreateUninitializedWorldRuntime();
         world.WorldSeed = 123;
         SetWorldInitializationStage(world, "SystemInitializing");
 
@@ -7999,7 +7999,7 @@ public sealed class SystemCallTest
     [Fact]
     public void WorldSeed_Getter_Throws_DuringWorldBuilding()
     {
-        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        var world = CreateUninitializedWorldRuntime();
         world.WorldSeed = 123;
         SetWorldInitializationStage(world, "WorldBuilding");
 
@@ -8011,7 +8011,7 @@ public sealed class SystemCallTest
     [Fact]
     public void WorldSeed_Getter_Returns_WhenReady()
     {
-        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        var world = CreateUninitializedWorldRuntime();
         world.WorldSeed = 987654321;
         SetWorldInitializationStage(world, "Ready");
 
@@ -8022,7 +8022,7 @@ public sealed class SystemCallTest
     [Fact]
     public void BuildInitialWorldFromBlueprint_Throws_WhenSystemCallsAreNotInitialized()
     {
-        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        var world = CreateUninitializedWorldRuntime();
         var method = typeof(WorldRuntime).GetMethod(
             "BuildInitialWorldFromBlueprint",
             BindingFlags.Instance | BindingFlags.NonPublic);
@@ -8037,7 +8037,7 @@ public sealed class SystemCallTest
     [Fact]
     public void InitializeWorldSeedForWorldBuild_UsesPresetWhenNonZero()
     {
-        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        var world = CreateUninitializedWorldRuntime();
         world.WorldSeed = 42;
 
         var initializedSeed = InvokeInitializeWorldSeedForWorldBuild(world);
@@ -8050,7 +8050,7 @@ public sealed class SystemCallTest
     [Fact]
     public void InitializeWorldSeedForWorldBuild_GeneratesWhenZero()
     {
-        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        var world = CreateUninitializedWorldRuntime();
         world.WorldSeed = 0;
 
         var initializedSeed = InvokeInitializeWorldSeedForWorldBuild(world);
@@ -8063,7 +8063,7 @@ public sealed class SystemCallTest
     [Fact]
     public void ValidateWorldSeedForWorldBuild_Throws_WhenWorldSeedIsZero()
     {
-        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        var world = CreateUninitializedWorldRuntime();
         world.WorldSeed = 0;
 
         var validate = typeof(WorldRuntime).GetMethod(
@@ -8080,7 +8080,7 @@ public sealed class SystemCallTest
     [Fact]
     public void ValidateWorldSeedForWorldBuild_Allows_NonZeroWorldSeed()
     {
-        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        var world = CreateUninitializedWorldRuntime();
         world.WorldSeed = 42;
 
         var validate = typeof(WorldRuntime).GetMethod(
@@ -8700,7 +8700,7 @@ public sealed class SystemCallTest
     {
         Assert.NotEmpty(servers);
 
-        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        var world = CreateUninitializedWorldRuntime();
         SetAutoPropertyBackingField(world, "DebugOption", debugOption);
         SetAutoPropertyBackingField(world, "ScenarioFlags", new Dictionary<string, object>(StringComparer.Ordinal));
         world.WorldSeed = 1;
@@ -8889,6 +8889,13 @@ public sealed class SystemCallTest
         var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         field!.SetValue(target, value);
+    }
+
+    private static WorldRuntime CreateUninitializedWorldRuntime()
+    {
+        var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
+        SetPrivateField(world, "_worldStateLock", new object());
+        return world;
     }
 
     private static void SetWorldRuntimeThreadId(WorldRuntime world, int threadId)

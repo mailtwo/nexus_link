@@ -200,25 +200,28 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `Manual` 섹션은 Manual Markdown 문서를 노출한다.
   - `API` 섹션은 자동 생성 Reference 트리를 유지한다.
 
-### 0.13 요청 큐 실행 규약 (MUST)
-- 월드 상태를 읽거나 변경하는 intrinsic 본문은 월드 상태를 직접 변경하지 않고 **요청 큐**로 실행해야 한다.
-- 요청 큐는 월드 스레드에서 drain되어 처리되며, 요청은 **정확히 1회 실행되거나 취소**되어야 한다.
-- 비월드 스레드 호출은 응답을 대기하며, 대기 타임아웃 시 `ERR_INTERNAL_ERROR`를 반환한다.
-- 타임아웃 시점에 `Pending` 상태인 요청은 큐에서 제거되어 `Cancelled` 처리되며, 이후 실행되면 안 된다.
-- 월드 스레드 호출은 inline 실행을 허용한다.
+### 0.13 월드 상태 접근 규약 (MUST)
 
-큐 적용 범위(고정):
+- 월드 상태를 읽거나 변경하는 intrinsic 본문은 반드시 **월드 상태 락**(`_worldStateLock`)을 획득한 뒤 실행해야 한다.
+- 단순 intrinsic(fs/net/ftp/ssh.connect/ssh.disconnect/ssh.inspect/import 상대경로 읽기)은 워커 스레드에서 직접 `TryRunViaWorldLock`을 통해 실행한다.
+- 복합 intrinsic(ssh.exec, term.exec)은 `ExecuteSystemCall`을 재귀 호출하므로 **요청 큐** 경로(`TryRunViaIntrinsicQueue`)를 유지한다; 요청은 정확히 1회 실행되거나 취소된다.
+- 월드 틱(`WorldTick`)은 메인 스레드에서 `_worldStateLock`을 보유한 상태로 실행되어 이벤트 처리와 intrinsic 실행이 경쟁하지 않는다.
+- 큐 드레인(`DrainIntrinsicQueueRequests`)은 `_worldStateLock`을 보유하지 않고 실행된다; 큐 람다 내 중첩 intrinsic 호출은 개별 `TryRunViaWorldLock` 획득으로 처리한다.
+- 큐 경로의 타임아웃 시 `ERR_INTERNAL_ERROR`를 반환한다(기존과 동일).
 
-| API | 큐 적용 |
+접근 방식별 분류(고정):
+
+| API | 접근 방식 |
 |---|---|
-| `ssh.connect/disconnect/exec/inspect` | MUST |
-| `ftp.get/put` | MUST |
-| `fs.list/read/write/delete/stat` | MUST |
-| `net.interfaces/scan/ports/banner` | MUST |
-| `term.exec` | MUST |
-| `import` | MUST (상대경로 overlay read 경로) |
+| `fs.list/read/write/delete/stat` | 직접 락 (`TryRunViaWorldLock`) |
+| `net.interfaces/scan/ports/banner` | 직접 락 (`TryRunViaWorldLock`) |
+| `ftp.get/put` | 직접 락 (`TryRunViaWorldLock`) |
+| `ssh.connect/disconnect/inspect` | 직접 락 (`TryRunViaWorldLock`) |
+| `import` (상대경로 overlay read) | 직접 락 (`TryRunViaWorldLock`) |
+| `ssh.exec` | 요청 큐 (`TryRunViaIntrinsicQueue`) |
+| `term.exec` | 요청 큐 (`ExecuteSystemCall` 내부) |
 
-큐 적용 제외(고정):
+락 적용 제외(고정):
 - `term.print`, `term.warn`, `term.error`
 - `crypto.*`
 - `argv`, `argc`
