@@ -2278,6 +2278,8 @@ public sealed class SystemCallTest
         Assert.Equal("pw", (string?)GetPropertyValue(attempt, "Password"));
         Assert.Equal(2, (int)GetPropertyValue(attempt, "PasswordLength")!);
         Assert.Equal("ssh.connect", (string?)GetPropertyValue(attempt, "Via"));
+        Assert.True((bool)GetPropertyValue(attempt, "IsSuccess")!);
+        Assert.Equal("OK", (string?)GetPropertyValue(attempt, "ResultCode"));
         Assert.Empty(DrainSshLoginAttempts(harness.World));
     }
 
@@ -2340,9 +2342,9 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.Contains(result.Lines, static line => string.Equals(line, "r1ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "r1code=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r1code=ERR_AUTH_FAILED", StringComparison.Ordinal));
         Assert.Contains(result.Lines, static line => string.Equals(line, "r2ok=0", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, static line => string.Equals(line, "r2code=ERR_PERMISSION_DENIED", StringComparison.Ordinal));
+        Assert.Contains(result.Lines, static line => string.Equals(line, "r2code=ERR_RATE_LIMITED", StringComparison.Ordinal));
         Assert.Contains(
             result.Lines,
             static line => string.Equals(
@@ -4055,6 +4057,8 @@ public sealed class SystemCallTest
         Assert.Equal("pw", (string?)GetPropertyValue(attempt, "Password"));
         Assert.Equal(2, (int)GetPropertyValue(attempt, "PasswordLength")!);
         Assert.Equal("ssh.connect", (string?)GetPropertyValue(attempt, "Via"));
+        Assert.True((bool)GetPropertyValue(attempt, "IsSuccess")!);
+        Assert.Equal("OK", (string?)GetPropertyValue(attempt, "ResultCode"));
         Assert.Empty(DrainSshLoginAttempts(harness.World));
         var events = DrainQueuedGameEvents(harness.World);
         Assert.NotEmpty(events);
@@ -4106,9 +4110,9 @@ public sealed class SystemCallTest
         WaitForTerminalProgramStop(harness.World, "ts-ssh-async-rate");
         var outputLines = SnapshotTerminalEventLines(harness.World);
         Assert.Contains("r1ok=0", outputLines);
-        Assert.Contains("r1code=ERR_PERMISSION_DENIED", outputLines);
+        Assert.Contains("r1code=ERR_AUTH_FAILED", outputLines);
         Assert.Contains("r2ok=0", outputLines);
-        Assert.Contains("r2code=ERR_PERMISSION_DENIED", outputLines);
+        Assert.Contains("r2code=ERR_RATE_LIMITED", outputLines);
         Assert.Contains(
             "r2err=connectionRateLimiter daemon blocked this connection attempt.",
             outputLines);
@@ -6568,6 +6572,8 @@ public sealed class SystemCallTest
         Assert.Equal("pw", (string?)GetPropertyValue(attempt, "Password"));
         Assert.Equal(2, (int)GetPropertyValue(attempt, "PasswordLength")!);
         Assert.Equal("connect", (string?)GetPropertyValue(attempt, "Via"));
+        Assert.True((bool)GetPropertyValue(attempt, "IsSuccess")!);
+        Assert.Equal("OK", (string?)GetPropertyValue(attempt, "ResultCode"));
         Assert.True((long)GetPropertyValue(attempt, "RecordedAtMs")! >= 0);
         Assert.Empty(DrainSshLoginAttempts(harness.World));
     }
@@ -6588,6 +6594,8 @@ public sealed class SystemCallTest
         Assert.Equal("wrong", (string?)GetPropertyValue(attempt, "Password"));
         Assert.Equal(5, (int)GetPropertyValue(attempt, "PasswordLength")!);
         Assert.Equal("connect", (string?)GetPropertyValue(attempt, "Via"));
+        Assert.False((bool)GetPropertyValue(attempt, "IsSuccess")!);
+        Assert.Equal("ERR_AUTH_FAILED", (string?)GetPropertyValue(attempt, "ResultCode"));
     }
 
     /// <summary>Ensures connect resolves login target by userId while preserving internal session userKey.</summary>
@@ -6661,7 +6669,7 @@ public sealed class SystemCallTest
         var result = Execute(harness, "connect 10.0.1.20 guest wrong", terminalSessionId: "ts-authfail");
 
         Assert.False(result.Ok);
-        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Equal(SystemCallErrorCode.AuthFailed, result.Code);
         Assert.Single(result.Lines);
         Assert.Contains("Permission denied, please try again.", result.Lines[0], StringComparison.Ordinal);
     }
@@ -6682,11 +6690,11 @@ public sealed class SystemCallTest
 
         var first = Execute(harness, "connect 10.0.1.20 guest wrong", terminalSessionId: "ts-rate-threshold");
         Assert.False(first.Ok);
-        Assert.Equal(SystemCallErrorCode.PermissionDenied, first.Code);
+        Assert.Equal(SystemCallErrorCode.AuthFailed, first.Code);
 
         var blocked = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-rate-threshold");
         Assert.False(blocked.Ok);
-        Assert.Equal(SystemCallErrorCode.PermissionDenied, blocked.Code);
+        Assert.Equal(SystemCallErrorCode.RateLimited, blocked.Code);
         Assert.Single(blocked.Lines);
         Assert.Contains(
             "connectionRateLimiter daemon blocked this connection attempt.",
@@ -6714,7 +6722,7 @@ public sealed class SystemCallTest
         {
             var wrong = Execute(harness, "connect 10.0.1.20 guest wrong", terminalSessionId: "ts-rate-overload");
             Assert.False(wrong.Ok);
-            Assert.Equal(SystemCallErrorCode.PermissionDenied, wrong.Code);
+            Assert.Equal(SystemCallErrorCode.AuthFailed, wrong.Code);
             if (TryGetConnectionRateLimiterOverloadedUntilMs(harness.World, remote.NodeId, out var overloadedUntilMs) &&
                 overloadedUntilMs > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
             {
@@ -6842,7 +6850,7 @@ public sealed class SystemCallTest
         var result = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-exposure");
 
         Assert.False(result.Ok);
-        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Equal(SystemCallErrorCode.NetDenied, result.Code);
         Assert.Contains("port exposure denied", result.Lines[0], StringComparison.Ordinal);
     }
 
@@ -6857,7 +6865,7 @@ public sealed class SystemCallTest
         var result = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-authmode");
 
         Assert.False(result.Ok);
-        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Equal(SystemCallErrorCode.AuthFailed, result.Code);
         Assert.Contains("not supported", result.Lines[0], StringComparison.Ordinal);
     }
 
@@ -6909,7 +6917,7 @@ public sealed class SystemCallTest
         var result = Execute(harness, $"connect 10.0.1.20 guest {invalidCode}", terminalSessionId: "ts-authmode-otp-fail");
 
         Assert.False(result.Ok);
-        Assert.Equal(SystemCallErrorCode.PermissionDenied, result.Code);
+        Assert.Equal(SystemCallErrorCode.AuthFailed, result.Code);
         Assert.Contains("Permission denied", result.Lines[0], StringComparison.Ordinal);
     }
 

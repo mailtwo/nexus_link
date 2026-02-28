@@ -239,6 +239,8 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - 성공: `{ ok:1, code:"OK", err:null }`
   - 실패(인자 오류): `{ ok:0, code:"ERR_INVALID_ARGS", err:string }`
   - 현재 구현은 `printed`/`cost`/`trace` payload를 추가하지 않는다.
+- 실패 코드 상세(현재 구현):
+  - `ERR_INVALID_ARGS`: `text`가 문자열(`string`)이 아닐 때.
 
 ### 1.2 `term.warn(text)` / `term.error(text)`
 - 목적: 경고/에러 로그를 표준 오류로 출력
@@ -255,6 +257,8 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - 성공: `{ ok:1, code:"OK", err:null }`
   - 실패(인자 오류): `{ ok:0, code:"ERR_INVALID_ARGS", err:string }`
   - 현재 구현은 `printed`/`cost`/`trace` payload를 추가하지 않는다.
+- 실패 코드 상세(현재 구현):
+  - `ERR_INVALID_ARGS`: `text`가 문자열(`string`)이 아닐 때.
 
 ### 1.3 `term.exec(cmd, opts?)`
 - 목적: 현재 실행 컨텍스트(현재 node/user/cwd)에서 로컬 명령 실행 (`ssh.exec`의 로컬 버전)
@@ -275,8 +279,11 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - 비동기 즉시 실패(파싱/스케줄 실패): `{ ok:0, code:"ERR_*", err:string, stdout:null, exitCode:null, jobId:null }`
 - 해석 규칙:
   - `opts.async=1`일 때 `ok/code`는 "명령 완료"가 아니라 "비동기 작업 스케줄 성공" 의미다
-- 실패 코드 예시:
-  - `ERR_INVALID_ARGS`, `ERR_PERMISSION_DENIED`, `ERR_TOO_LARGE`, `ERR_NOT_FOUND`, `ERR_UNKNOWN_COMMAND`, `ERR_INTERNAL_ERROR`
+- 실패 코드 상세(현재 구현):
+  - `ERR_INVALID_ARGS`: `cmd` 누락/공백, `opts` 타입 오류, `opts` 지원 키 외 전달, `opts.async`(0/1 아님), `opts.maxBytes`(음수/비정수/범위 오류).
+  - `ERR_TOO_LARGE`: 동기 실행에서 `stdout` UTF-8 바이트 수가 `opts.maxBytes`를 초과할 때.
+  - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입, intrinsic queue 실행 실패.
+  - `ERR_PERMISSION_DENIED`/`ERR_NOT_FOUND`/`ERR_UNKNOWN_COMMAND` 등: system call 실행 또는 async 스케줄 실패 코드를 그대로 전달.
 
 ---
 
@@ -318,7 +325,11 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 반환(최상위 필드):
   - `entries: List<{ name, entryKind: "File"|"Dir" }>`
 - 실패:
-  - `ERR_NOT_FOUND`, `ERR_NOT_DIRECTORY`, `ERR_PERMISSION_DENIED`, `ERR_INVALID_ARGS`
+  - `ERR_INVALID_ARGS`: `path` 누락/공백, 인자 위치 오류, `sessionOrRoute` 구조/세션 해석 실패.
+  - `ERR_PERMISSION_DENIED`: 대상 endpoint 사용자에 `read` 권한이 없을 때.
+  - `ERR_NOT_FOUND`: 정규화된 `path` 엔트리가 없을 때.
+  - `ERR_NOT_DIRECTORY`: `path`가 디렉토리가 아닐 때.
+  - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입 또는 intrinsic queue 실패.
 
 ### 3.2 `fs.read([sessionOrRoute], path, opts?)`
 - 목적: 텍스트 파일 읽기
@@ -343,7 +354,13 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 반환(최상위 필드):
   - `{ text: string }`
 - 실패:
-  - `ERR_NOT_FOUND`, `ERR_IS_DIRECTORY`, `ERR_NOT_TEXT_FILE`, `ERR_PERMISSION_DENIED`, `ERR_TOO_LARGE`, `ERR_INVALID_ARGS`
+  - `ERR_INVALID_ARGS`: 인자/오버로드/`opts` 형식 오류(`maxBytes` 외 키, 타입 오류 포함), `sessionOrRoute` 해석 실패.
+  - `ERR_PERMISSION_DENIED`: 대상 endpoint 사용자에 `read` 권한이 없을 때.
+  - `ERR_NOT_FOUND`: 대상 경로가 없거나 파일 텍스트 읽기 실패 시.
+  - `ERR_IS_DIRECTORY`: 대상이 파일이 아닌 디렉토리일 때.
+  - `ERR_NOT_TEXT_FILE`: 파일이지만 `fileKind != Text`일 때.
+  - `ERR_TOO_LARGE`: `entry.size > opts.maxBytes`일 때.
+  - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입 또는 intrinsic queue 실패.
 
 ### 3.3 `fs.write([sessionOrRoute], path, text, opts?)`
 - 목적: 텍스트 파일 쓰기/생성
@@ -374,7 +391,13 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 반환(최상위 필드):
   - `{ written: int /*chars*/, path: string }`
 - 실패:
-  - `ERR_INVALID_ARGS`, `ERR_ALREADY_EXISTS`, `ERR_IS_DIRECTORY`, `ERR_NOT_DIRECTORY`, `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`
+  - `ERR_INVALID_ARGS`: 인자/`opts` 형식 오류, `sessionOrRoute` 해석 실패, 루트/경로 정규화 후 쓰기 단계 `InvalidOperationException`.
+  - `ERR_PERMISSION_DENIED`: 대상 endpoint 사용자에 `write` 권한이 없을 때.
+  - `ERR_ALREADY_EXISTS`: 대상 파일이 이미 있고 `overwrite=false`일 때.
+  - `ERR_IS_DIRECTORY`: 대상 경로가 디렉토리일 때.
+  - `ERR_NOT_FOUND`: 부모 경로가 없고 `createParents=false`일 때.
+  - `ERR_NOT_DIRECTORY`: 부모 경로 일부가 디렉토리가 아닐 때.
+  - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입 또는 intrinsic queue 실패.
 
 ### 3.4 `fs.delete([sessionOrRoute], path)`
 - 목적: 파일/디렉토리 삭제
@@ -396,7 +419,11 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 반환(최상위 필드):
   - 성공 시 `{ deleted: 1 }`
 - 실패:
-  - `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`, `ERR_NOT_EMPTY`(rmdir 조건 불일치 시), `ERR_INVALID_ARGS`
+  - `ERR_INVALID_ARGS`: 인자 형식 오류, `sessionOrRoute` 해석 실패, 루트(`/`) 삭제 요청, tombstone 처리 예외.
+  - `ERR_PERMISSION_DENIED`: 대상 endpoint 사용자에 `write` 권한이 없을 때.
+  - `ERR_NOT_FOUND`: 대상 경로가 없을 때.
+  - `ERR_NOT_EMPTY`: 비어 있지 않은 디렉토리를 삭제하려 할 때.
+  - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입 또는 intrinsic queue 실패.
 
 ### 3.5 `fs.stat([sessionOrRoute], path)`
 - 목적: 메타 조회
@@ -413,7 +440,10 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - 파일: `{ entryKind:"File", fileKind:string, size:number }`
   - 디렉토리: `{ entryKind:"Dir", fileKind:null, size:null }`
 - 실패:
-  - `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`, `ERR_INVALID_ARGS`
+  - `ERR_INVALID_ARGS`: 인자 형식 오류 또는 `sessionOrRoute` 해석 실패.
+  - `ERR_PERMISSION_DENIED`: 대상 endpoint 사용자에 `read` 권한이 없을 때.
+  - `ERR_NOT_FOUND`: 대상 경로가 없을 때.
+  - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입 또는 intrinsic queue 실패.
 
 ---
 
@@ -433,7 +463,9 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 반환(최상위 필드):
   - `{ interfaces: List<{ netId:string, localIp:string }> }`
 - 실패:
-  - `ERR_PERMISSION_DENIED`, `ERR_INVALID_ARGS`
+  - `ERR_INVALID_ARGS`: `sessionOrRoute` 타입/구조 오류 또는 endpoint 해석 실패.
+  - `ERR_PERMISSION_DENIED`: 대상 endpoint 사용자에 `execute` 권한이 없을 때.
+  - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입 또는 intrinsic queue 실패.
 
 ### 4.2 `net.scan([sessionOrRoute], netId=null)`
 - 목적: endpoint 노드의 비-internet 인터페이스 기준 이웃 스캔
@@ -456,7 +488,10 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 반환(최상위 필드):
   - `{ interfaces: List<{ netId:string, localIp:string, neighbors: List<string> }>, ips: List<string> }`
 - 실패:
-  - `ERR_PERMISSION_DENIED`, `ERR_INVALID_ARGS`, `ERR_NOT_FOUND`(지정 netId 미존재)
+  - `ERR_INVALID_ARGS`: 인자 형식 오류(`net.scan("lan")` 포함), `sessionOrRoute`/endpoint 해석 실패.
+  - `ERR_PERMISSION_DENIED`: 대상 endpoint 사용자에 `execute` 권한이 없을 때.
+  - `ERR_NOT_FOUND`: 지정 `netId`가 스캔 가능한 인터페이스 집합에 없을 때.
+  - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입 또는 intrinsic queue 실패.
 
 > `scan` 시스템콜 출력 포맷/UX는 터미널 문서가 SSOT다.  
 > See DOCS_INDEX.md → 07 (`07_ui_terminal_prototype_godot.md`).
@@ -476,7 +511,10 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 반환(최상위 필드, 권장):
   - `{ ports: List<{ port:int, portType:string, exposure:string }> }`
 - 실패:
-  - `ERR_NOT_FOUND`, `ERR_INVALID_ARGS`
+  - `ERR_INVALID_ARGS`: 인자/`opts` 형식 오류(현재 빈 맵만 허용), `sessionOrRoute`/endpoint 해석 실패.
+  - `ERR_NOT_FOUND`: `hostOrIp` 해석 실패 또는 대상 서버 offline.
+  - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입 또는 intrinsic queue 실패.
+  - 참고: exposure 거부 포트는 현재 구현에서 실패시키지 않고 결과 목록에서 제외한다.
 
 ### 4.4 `net.banner([sessionOrRoute], hostOrIp, port)`
 - 목적: 서비스 배너/버전 단서 조회
@@ -493,7 +531,11 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 반환(최상위 필드):
   - `{ banner: string }` (없으면 빈 문자열 허용)
 - 실패:
-  - `ERR_NOT_FOUND`, `ERR_NET_DENIED`, `ERR_PORT_CLOSED`
+  - `ERR_INVALID_ARGS`: 인자 형식 오류 또는 `sessionOrRoute`/endpoint 해석 실패.
+  - `ERR_NOT_FOUND`: `hostOrIp` 해석 실패 또는 대상 서버 offline.
+  - `ERR_PORT_CLOSED`: 포트가 없거나 `portType==none`일 때.
+  - `ERR_NET_DENIED`: 포트 exposure 규칙 위반 시.
+  - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입 또는 intrinsic queue 실패.
 
 ---
 
@@ -514,7 +556,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - 인자 파싱 규칙:
     - `ssh.connect(host,user,pw,{session:x})` 허용 (4번째 인자 맵이면 `opts`로 해석)
     - `ssh.connect(host,user,pw,22,{session:x})` 허용
-    - `opts` 지원 키는 `session`이며, 다른 키는 `ERR_INVALID_ARGS`
+    - 현재 구현은 `opts.session`만 해석하며, 그 외 `opts` 키는 무시한다(에러 미반환)
 - 사전 조건:
   - target 서버의 `ports[port].portType == ssh` 이어야 한다.
   - `exposure` 판정을 통과해야 한다(0.6 규칙).
@@ -526,10 +568,12 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - 기본: `{ session: Session, route: null }`
   - 체인(`opts.session` 사용): `{ session: Session, route: SshRoute }`
 - 실패:
-  - `ERR_INVALID_ARGS`(포트/opts 형식 오류, 포트 타입 불일치 등)
-  - `ERR_NOT_FOUND`(host/user/port 미존재, offline 포함)
-  - `ERR_PERMISSION_DENIED`(exposure 거부, 인증 실패, connectionRateLimiter 차단)
-  - `ERR_INTERNAL_ERROR`
+  - `ERR_INVALID_ARGS`: 포트/인자 형식 오류, `opts.session` 구조/세션 해석 실패, route hop 상한(8) 초과, SSH가 아닌 포트 타입.
+  - `ERR_NOT_FOUND`: host 미존재/오프라인, user 미존재, 포트 미존재/미할당.
+  - `ERR_NET_DENIED`: 포트 exposure 규칙 위반.
+  - `ERR_AUTH_FAILED`: 계정 인증 실패(Static/Otp 불일치, 미지원 auth mode 포함).
+  - `ERR_RATE_LIMITED`: target의 `connectionRateLimiter`가 source IP를 차단.
+  - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입 또는 intrinsic queue 실패.
 - 부작용(필수):
   - 성공 시, 로그인 계정이 이미 보유한 `read/write/execute` 각각에 대해 `privilegeAcquire` 이벤트를 enqueue(중복 발행 금지).
   - `PrivilegeAcquireDto.via = "ssh.connect"`
@@ -550,6 +594,10 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `(sessionNodeId, sessionId)` 기준 dedupe 후 1회만 종료 시도한다.
   - 공유 hop이라도 route에 포함되면 종료 시도한다.
   - 구조가 유효하면 일부 hop 실패가 있어도 `ok=1` + `summary`로 보고한다(best-effort).
+- 실패:
+  - `ERR_INVALID_ARGS`: `sessionOrRoute` 타입/구조 오류(`kind`, session identity, route 구조 검증 실패).
+  - `ERR_INTERNAL_ERROR`: intrinsic queue 실행 실패.
+  - 참고: route 구조가 유효하면 개별 hop 미종료/무효 hop은 `summary.alreadyClosed`/`summary.invalid`로 집계하며 `ok=1`을 유지한다.
 
 ### 5.3 `ssh.exec(sessionOrRoute, cmd, opts?)`
 - 목적: 원격 호스트에서 커맨드 실행 + stdout 수집
@@ -573,8 +621,10 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `opts.async=1`일 때 `maxBytes`는 허용되지만 무시한다
   - `opts.async=1`일 때 `ok/code`는 "원격 명령 완료"가 아니라 "비동기 작업 스케줄 성공" 의미다
 - 실패:
-  - route 구조 검증 실패 시 `ERR_INVALID_ARGS`
-  - `ERR_INVALID_ARGS`, `ERR_PERMISSION_DENIED`, `ERR_NOT_FOUND`(프로그램/경로 없음), `ERR_UNKNOWN_COMMAND`, `ERR_TOO_LARGE`, `ERR_INTERNAL_ERROR`
+  - `ERR_INVALID_ARGS`: `sessionOrRoute`/`cmd`/`opts` 형식 오류, route/session 해석 실패.
+  - `ERR_TOO_LARGE`: 동기 실행에서 `stdout` UTF-8 바이트 수가 `opts.maxBytes`를 초과할 때.
+  - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입 또는 intrinsic queue 실패.
+  - `ERR_PERMISSION_DENIED`/`ERR_NOT_FOUND`/`ERR_UNKNOWN_COMMAND` 등: 원격 system call 실행 또는 async 스케줄 실패 코드를 그대로 전달.
 
 
 ### 5.4 `ssh.inspect(hostOrIp, userId, port=22, opts?)`
@@ -606,15 +656,15 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
     - `code="ERR_*"`
     - `err=<string>`
 - 실패(code):
-  - `ERR_INVALID_ARGS`
-  - `ERR_TOOL_MISSING`
-  - `ERR_PERMISSION_DENIED`
-  - `ERR_NOT_FOUND`
-  - `ERR_PORT_CLOSED`
-  - `ERR_NET_DENIED`
-  - `ERR_AUTH_FAILED`
-  - `ERR_RATE_LIMITED`
-  - `ERR_INTERNAL_ERROR`
+  - `ERR_INVALID_ARGS`: `hostOrIp/userId/port/opts` 형식 오류.
+  - `ERR_TOOL_MISSING`: preflight에서 `inspect` 실행 파일을 찾지 못했거나 형식(`ExecutableHardcode exec:inspect`)이 맞지 않을 때.
+  - `ERR_PERMISSION_DENIED`: 호출 사용자에게 `inspect` 실행을 위한 `read+execute` 권한이 없을 때.
+  - `ERR_NOT_FOUND`: 대상 host 미존재 또는 offline.
+  - `ERR_PORT_CLOSED`: 포트 미존재/미할당이거나 SSH 포트가 아닐 때.
+  - `ERR_NET_DENIED`: 포트 exposure 규칙 위반.
+  - `ERR_AUTH_FAILED`: 대상 사용자 미존재 또는 passwdInfo 구성 실패.
+  - `ERR_RATE_LIMITED`: inspect probe 공유 레이트리밋 초과.
+  - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입 또는 intrinsic queue 실패.
 
 
 ---
@@ -664,7 +714,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `target`의 포트 검증은 `TryValidatePortAccess` 결과를 그대로 따른다.
     - 포트 미존재/미할당: `ERR_NOT_FOUND`
     - 포트 타입 불일치(ftp 아님): `ERR_INVALID_ARGS`
-    - `source -> target` exposure 거부: `ERR_PERMISSION_DENIED`
+    - `source -> target` exposure 거부: `ERR_NET_DENIED`
 - 권한 조건(권장):
   - `Session` 모드: 원격 read + 로컬 write
   - `SshRoute` 모드: `last(read) + first(write)`
@@ -676,7 +726,13 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 반환(최상위 필드):
   - 현재 구현(동기): `{ savedTo: localPath, bytes?: int }`
 - 실패:
-  - `ERR_INVALID_ARGS`, `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`, `ERR_NOT_DIRECTORY`, `ERR_IS_DIRECTORY`
+  - `ERR_INVALID_ARGS`: `sessionOrRoute`/경로/`opts` 형식 오류, endpoint/세션 해석 실패, FTP가 아닌 포트 타입, 경로 처리/쓰기 단계 예외.
+  - `ERR_NOT_FOUND`: FTP 포트 미존재/미할당, 원격 소스 파일 없음, 목적지 부모 경로 없음.
+  - `ERR_NET_DENIED`: source->target exposure 규칙 위반.
+  - `ERR_PERMISSION_DENIED`: `last(read)` 또는 `first(write)` 권한 부족.
+  - `ERR_NOT_DIRECTORY`: 목적지 부모 경로가 디렉토리가 아닐 때.
+  - `ERR_IS_DIRECTORY`: 소스가 파일이 아니거나(디렉토리), 목적지 경로가 파일이 아닌 엔트리일 때.
+  - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입 또는 intrinsic queue 실패.
 
 ### 6.2 `ftp.put(sessionOrRoute, localPath, remotePath?, opts?)`
 - 목적: local endpoint → 원격 endpoint 업로드
@@ -704,7 +760,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `target`의 포트 검증은 `TryValidatePortAccess` 결과를 그대로 따른다.
     - 포트 미존재/미할당: `ERR_NOT_FOUND`
     - 포트 타입 불일치(ftp 아님): `ERR_INVALID_ARGS`
-    - `source -> target` exposure 거부: `ERR_PERMISSION_DENIED`
+    - `source -> target` exposure 거부: `ERR_NET_DENIED`
 - 권한 조건(권장):
   - `Session` 모드: 로컬 read + 원격 write
   - `SshRoute` 모드: `first(read) + last(write)`
@@ -712,7 +768,14 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `fileAcquire` 이벤트는 발행하지 않는다(기존 정책 유지).
 - 반환/실패:
   - `ftp.get`과 동일한 형식을 따른다.
-  - 실패 코드는 `ERR_INVALID_ARGS`, `ERR_NOT_FOUND`, `ERR_PERMISSION_DENIED`, `ERR_NOT_DIRECTORY`, `ERR_IS_DIRECTORY`를 사용한다.
+  - 실패 코드 상세(현재 구현):
+    - `ERR_INVALID_ARGS`: `sessionOrRoute`/경로/`opts` 형식 오류, endpoint/세션 해석 실패, FTP가 아닌 포트 타입, 경로 처리/쓰기 단계 예외.
+    - `ERR_NOT_FOUND`: FTP 포트 미존재/미할당, 로컬 소스 파일 없음, 원격 목적지 부모 경로 없음.
+    - `ERR_NET_DENIED`: source->target exposure 규칙 위반.
+    - `ERR_PERMISSION_DENIED`: `first(read)` 또는 `last(write)` 권한 부족.
+    - `ERR_NOT_DIRECTORY`: 목적지 부모 경로가 디렉토리가 아닐 때.
+    - `ERR_IS_DIRECTORY`: 소스가 파일이 아니거나(디렉토리), 목적지 경로가 파일이 아닌 엔트리일 때.
+    - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입 또는 intrinsic queue 실패.
 
 ---
 
@@ -744,6 +807,13 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 실패:
   - ResultMap이 아니라 **runtime error**를 발생시킨다.
   - runtime error 메시지에는 `ERR_*` code token을 포함해야 한다.
+  - 실패 코드 상세(현재 구현):
+    - `ERR_INVALID_ARGS`: `name/alias` 파싱 오류, host/절대경로 입력, stdlib root 탈출 경로.
+    - `ERR_NOT_FOUND`: 상대경로 + stdlib 탐색 모두 실패.
+    - `ERR_NOT_A_LIBRARY`: 파일 최상단 연속 `//` 주석 블록에 `@name` 계약 불충족.
+    - `ERR_IMPORT_CYCLE`: `loadingSet` 재진입 감지(순환 import).
+    - `ERR_IMPORT_AMBIGUOUS`: stdlib stem 매칭 결과가 2개 이상.
+    - `ERR_INTERNAL_ERROR`: 실행 컨텍스트/스크립트 경로/파일 읽기/큐 실행/인터프리터 초기화 등 내부 실패.
 
 ### 8.2 바인딩 규칙(v1)
 - `import("x")`

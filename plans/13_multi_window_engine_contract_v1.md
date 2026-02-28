@@ -397,6 +397,7 @@
 - Host: `hostname` (없으면 `ip`)
 - User ID: 가능하면 표시, 없으면 `-` 또는 `<unknown>`
 - Password: 실제 시도 비밀번호 원문을 표시한다.
+- Result: 접속 시도 결과(`success`/`failure`)와 결과 코드(`OK` 또는 `ERR_*`)를 함께 전달한다.
 
 비밀번호 노출 범위 정책:
 - 비밀번호 원문 표시는 SSH_LOGIN UI의 런타임 메모리 표시 범위로 한정한다.
@@ -416,6 +417,7 @@
 * **입력창 스타일:** 흰색 배경, 검은색 테두리, 내부 텍스트 좌측 정렬.
 * **실시간 갱신 로직:** 새로운 SSH 시도(`SshAuthAttempt`) 이벤트 수신 시, 기존 창의 모든 필드 내용을 즉시 덮어쓴다.
   * 이때 자동 닫힘 타이머(3초)는 초기화(Reset)된다.
+* **성공/실패 연출 효과(색상/애니메이션)는 알파 범위에서 제외**하고, 결과 메타데이터(`success/failure`, `OK/ERR_*`) 전달까지만 구현한다.
 
 ---
 
@@ -552,6 +554,7 @@
 ### 13.8 SSH_LOGIN (§9)
 - `ssh.connect` 호출 또는 SSH로 판별된 `connect` 시도 시 자동으로 창이 열린다.
 - Host, User, Password(원문)가 표시된다. 비밀번호가 null이면 Passwd 필드는 비어 있다.
+- 각 시도에 대한 결과(`success/failure`, `OK/ERR_*`) 정보가 SSH_LOGIN으로 전달된다.
 - SSH_LOGIN은 `Volatile=YES`이며, 자동 닫힘/유예/타이머 리셋 규칙은 §7.4를 따른다.
 - SSH_LOGIN은 Passthrough 모드이며, 창이 떠 있는 동안 Primary Core Window 입력이 방해받지 않는다.
 - SSH_LOGIN은 autoFocus=false이며, 열릴 때 Primary Core Window 포커스를 뺏지 않는다.

@@ -1515,13 +1515,20 @@ public partial class WorldRuntime
     }
 
     /// <summary>Queues one ssh-login attempt record for SSH_LOGIN window consumption.</summary>
-    internal void EnqueueSshLoginAttempt(string hostOrIp, string userId, string? password, string via)
+    internal void EnqueueSshLoginAttempt(
+        string hostOrIp,
+        string userId,
+        string? password,
+        string via,
+        bool isSuccess,
+        string resultCode)
     {
         EnsureSshLoginAttemptStorage();
         var normalizedHostOrIp = hostOrIp?.Trim() ?? string.Empty;
         var normalizedUserId = userId?.Trim() ?? string.Empty;
         var normalizedPassword = password ?? string.Empty;
         var normalizedVia = via?.Trim() ?? string.Empty;
+        var normalizedResultCode = resultCode?.Trim() ?? string.Empty;
         var passwordLength = Math.Max(0, normalizedPassword.Length);
         var recordedAtMs = System.Environment.TickCount64;
         var attempt = new SshLoginAttempt(
@@ -1530,6 +1537,8 @@ public partial class WorldRuntime
             normalizedPassword,
             passwordLength,
             normalizedVia,
+            isSuccess,
+            normalizedResultCode,
             recordedAtMs);
         lock (sshLoginAttemptsSync!)
         {
@@ -1604,7 +1613,6 @@ public partial class WorldRuntime
         out SystemCallResult failureResult)
     {
         openResult = null!;
-        EnqueueSshLoginAttempt(hostOrIp, userId, password, via);
         if (!TryValidateSshSessionOpen(
                 sourceServer,
                 hostOrIp,
@@ -1614,6 +1622,13 @@ public partial class WorldRuntime
                 out var validated,
                 out failureResult))
         {
+            EnqueueSshLoginAttempt(
+                hostOrIp,
+                userId,
+                password,
+                via,
+                isSuccess: false,
+                resultCode: SystemCallErrorCodeTokenMapper.ToApiToken(failureResult.Code));
             return false;
         }
 
@@ -1636,6 +1651,13 @@ public partial class WorldRuntime
             RemoteIp = validated.RemoteIp,
             HostOrIp = validated.HostOrIp,
         };
+        EnqueueSshLoginAttempt(
+            hostOrIp,
+            userId,
+            password,
+            via,
+            isSuccess: true,
+            resultCode: SystemCallErrorCodeTokenMapper.ToApiToken(SystemCallErrorCode.None));
         return true;
     }
 
@@ -1673,7 +1695,7 @@ public partial class WorldRuntime
         if (!IsConnectionRateLimiterAllowed(targetServer, remoteIp))
         {
             failureResult = SystemCallResultFactory.Failure(
-                SystemCallErrorCode.PermissionDenied,
+                SystemCallErrorCode.RateLimited,
                 ConnectionRateLimiterBlockedMessage);
             return false;
         }
@@ -1727,7 +1749,7 @@ public partial class WorldRuntime
 
         if (!IsPortExposureAllowed(sourceServer, targetServer, targetPort.Exposure))
         {
-            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.PermissionDenied, $"port exposure denied: {port}");
+            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.NetDenied, $"port exposure denied: {port}");
             return false;
         }
 
@@ -2047,7 +2069,7 @@ public partial class WorldRuntime
                 return true;
             }
 
-            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.PermissionDenied, "Permission denied, please try again.");
+            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.AuthFailed, "Permission denied, please try again.");
             return false;
         }
 
@@ -2058,12 +2080,12 @@ public partial class WorldRuntime
                 return true;
             }
 
-            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.PermissionDenied, "Permission denied, please try again.");
+            failureResult = SystemCallResultFactory.Failure(SystemCallErrorCode.AuthFailed, "Permission denied, please try again.");
             return false;
         }
 
         failureResult = SystemCallResultFactory.Failure(
-            SystemCallErrorCode.PermissionDenied,
+            SystemCallErrorCode.AuthFailed,
             $"authentication mode not supported: {targetUser.AuthMode}.");
         return false;
     }
@@ -2893,6 +2915,8 @@ public partial class WorldRuntime
         string Password,
         int PasswordLength,
         string Via,
+        bool IsSuccess,
+        string ResultCode,
         long RecordedAtMs);
 
     private readonly record struct ConnectionRateLimiterSettings(

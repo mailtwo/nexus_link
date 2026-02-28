@@ -188,6 +188,7 @@ TerminalScene (Control)
   - probe 간격은 Linux 기본 동작에 맞춰 1초이며, 각 probe 시점마다 대상 서버 상태를 재평가한다.
 - `connect [(-p|--port) <port>] <host|ip> <user> <password>`: 원격 서버에 SSH 접속하고 터미널 컨텍스트를 전환한다. 기본 포트는 `22`다.
   - 예시: `connect 10.0.1.20 guest guest`, `connect -p 2222 10.0.1.20 guest guest`
+  - 실패 코드 매핑은 `03_game_api_modules.md` §5.1을 따른다: exposure 거부 `ERR_NET_DENIED`, 인증 실패 `ERR_AUTH_FAILED`, connectionRateLimiter 차단 `ERR_RATE_LIMITED`.
 - `disconnect`: 현재 원격 SSH 세션을 종료하고 이전 컨텍스트(로컬 또는 이전 hop)로 복귀한다.
 - `known`: 플레이어가 파악한 public 호스트/IP 목록을 표 형식으로 출력한다.
 - `scan [netId]`: 인접 서버를 스캔해 인터페이스별 이웃을 출력한다. 실행 권한(`execute`)이 필요하다.

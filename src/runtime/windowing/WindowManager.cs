@@ -155,6 +155,8 @@ public sealed partial class WindowManager : Node
     private LineEdit? sshLoginUserField;
     private LineEdit? sshLoginPasswordField;
     private Uplink2.Runtime.WorldRuntime.SshLoginAttempt? lastSshLoginAttempt;
+    private bool sshLoginLastResultIsSuccess;
+    private string sshLoginLastResultCode = string.Empty;
     private bool sshLoginWindowRequestedVisible;
     private readonly WindowReactivationPolicy sshLoginReactivationPolicy = new(8);
 
@@ -451,9 +453,13 @@ public sealed partial class WindowManager : Node
 
         var hostText = string.IsNullOrWhiteSpace(attempt.HostOrIp) ? "<unknown>" : attempt.HostOrIp;
         var userText = string.IsNullOrWhiteSpace(attempt.UserId) ? "<unknown>" : attempt.UserId;
+        sshLoginLastResultIsSuccess = attempt.IsSuccess;
+        sshLoginLastResultCode = attempt.ResultCode ?? string.Empty;
         sshLoginHostLabel.Text = hostText;
         sshLoginUserField.Text = userText;
         sshLoginPasswordField.Text = attempt.Password;
+        sshLoginWindow?.SetMeta("ssh_login_last_result_is_success", sshLoginLastResultIsSuccess);
+        sshLoginWindow?.SetMeta("ssh_login_last_result_code", sshLoginLastResultCode);
     }
 
     private void ShowSshLoginWindow(bool forceVisibilityEdge)
