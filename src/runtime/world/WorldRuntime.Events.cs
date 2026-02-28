@@ -34,7 +34,14 @@ public partial class WorldRuntime
     /// <inheritdoc/>
     public override void _PhysicsProcess(double delta)
     {
+        DrainIntrinsicQueueRequests();
         WorldTick();
+    }
+
+    /// <inheritdoc/>
+    public override void _Process(double delta)
+    {
+        DrainIntrinsicQueueRequests();
     }
 
     /// <summary>Emits a privilege-acquire gameplay event when a new privilege is granted to a user.</summary>

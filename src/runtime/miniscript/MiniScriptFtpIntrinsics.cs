@@ -121,94 +121,104 @@ internal static class MiniScriptFtpIntrinsics
             }
 
             var executionContext = state.ExecutionContext;
-            if (!TryResolveFtpEndpoints(
+            if (!TryRunWorldAction(
                     state,
-                    executionContext,
-                    sessionOrRouteMap,
-                    out var firstEndpoint,
-                    out var lastEndpoint,
-                    out var endpointError))
-            {
-                return new Intrinsic.Result(CreateFtpFailureMap(SystemCallErrorCode.InvalidArgs, endpointError));
-            }
+                    () =>
+                    {
+                        if (!TryResolveFtpEndpoints(
+                                state,
+                                executionContext,
+                                sessionOrRouteMap,
+                                out var firstEndpoint,
+                                out var lastEndpoint,
+                                out var endpointError))
+                        {
+                            return CreateFtpFailureMap(SystemCallErrorCode.InvalidArgs, endpointError);
+                        }
 
-            if (!executionContext.World.TryValidatePortAccess(
-                    firstEndpoint.Server,
-                    lastEndpoint.Server,
-                    port,
-                    PortType.Ftp,
-                    out var portFailure))
-            {
-                return new Intrinsic.Result(CreateFtpFailureMap(portFailure.Code, ExtractErrorText(portFailure)));
-            }
+                        if (!executionContext.World.TryValidatePortAccess(
+                                firstEndpoint.Server,
+                                lastEndpoint.Server,
+                                port,
+                                PortType.Ftp,
+                                out var portFailure))
+                        {
+                            return CreateFtpFailureMap(portFailure.Code, ExtractErrorText(portFailure));
+                        }
 
-            if (!TryGetFtpEndpointUser(firstEndpoint, out var firstUser, out var firstUserError))
-            {
-                return new Intrinsic.Result(CreateFtpFailureMap(SystemCallErrorCode.InvalidArgs, firstUserError));
-            }
+                        if (!TryGetFtpEndpointUser(firstEndpoint, out var firstUser, out var firstUserError))
+                        {
+                            return CreateFtpFailureMap(SystemCallErrorCode.InvalidArgs, firstUserError);
+                        }
 
-            if (!TryGetFtpEndpointUser(lastEndpoint, out var lastUser, out var lastUserError))
-            {
-                return new Intrinsic.Result(CreateFtpFailureMap(SystemCallErrorCode.InvalidArgs, lastUserError));
-            }
+                        if (!TryGetFtpEndpointUser(lastEndpoint, out var lastUser, out var lastUserError))
+                        {
+                            return CreateFtpFailureMap(SystemCallErrorCode.InvalidArgs, lastUserError);
+                        }
 
-            if (!lastUser.Privilege.Read ||
-                !firstUser.Privilege.Write)
+                        if (!lastUser.Privilege.Read || !firstUser.Privilege.Write)
+                        {
+                            return CreateFtpFailureMap(
+                                SystemCallErrorCode.PermissionDenied,
+                                "permission denied: ftp get");
+                        }
+
+                        var remoteSourcePath = BaseFileSystem.NormalizePath(lastEndpoint.Cwd, remotePathInput);
+                        if (!TryReadSourceFile(lastEndpoint.Server, remoteSourcePath, out var sourceEntry, out var sourceContent, out var sourceFailure))
+                        {
+                            return CreateFtpFailureMap(sourceFailure.Code, ExtractErrorText(sourceFailure));
+                        }
+
+                        var sourceFileName = GetFileName(remoteSourcePath);
+                        if (string.IsNullOrWhiteSpace(sourceFileName))
+                        {
+                            return CreateFtpFailureMap(
+                                SystemCallErrorCode.InvalidArgs,
+                                $"invalid source path: {remotePathInput}");
+                        }
+
+                        if (!TryResolveDestinationPath(
+                                firstEndpoint.Server,
+                                firstEndpoint.Cwd,
+                                localPathInput,
+                                sourceFileName,
+                                out var localDestinationPath,
+                                out var destinationFailure))
+                        {
+                            return CreateFtpFailureMap(
+                                destinationFailure!.Code,
+                                ExtractErrorText(destinationFailure));
+                        }
+
+                        if (!TryWriteDestinationFile(firstEndpoint.Server, localDestinationPath, sourceContent, sourceEntry, out var writeFailure))
+                        {
+                            return CreateFtpFailureMap(
+                                writeFailure!.Code,
+                                ExtractErrorText(writeFailure));
+                        }
+
+                        executionContext.World.EmitFileAcquire(
+                            fromNodeId: lastEndpoint.NodeId,
+                            userKey: firstEndpoint.UserKey,
+                            fileName: sourceFileName,
+                            remotePath: remoteSourcePath,
+                            localPath: localDestinationPath,
+                            sizeBytes: ToOptionalInt(sourceEntry.Size),
+                            contentId: sourceEntry.ContentId,
+                            transferMethod: "ftp");
+
+                        return CreateFtpSuccessMap(localDestinationPath, ToOptionalInt(sourceEntry.Size));
+                    },
+                    out var getResult,
+                    out var queueError))
             {
                 return new Intrinsic.Result(
                     CreateFtpFailureMap(
-                        SystemCallErrorCode.PermissionDenied,
-                        "permission denied: ftp get"));
+                        SystemCallErrorCode.InternalError,
+                        queueError));
             }
 
-            var remoteSourcePath = BaseFileSystem.NormalizePath(lastEndpoint.Cwd, remotePathInput);
-            if (!TryReadSourceFile(lastEndpoint.Server, remoteSourcePath, out var sourceEntry, out var sourceContent, out var sourceFailure))
-            {
-                return new Intrinsic.Result(CreateFtpFailureMap(sourceFailure.Code, ExtractErrorText(sourceFailure)));
-            }
-
-            var sourceFileName = GetFileName(remoteSourcePath);
-            if (string.IsNullOrWhiteSpace(sourceFileName))
-            {
-                return new Intrinsic.Result(
-                    CreateFtpFailureMap(
-                        SystemCallErrorCode.InvalidArgs,
-                        $"invalid source path: {remotePathInput}"));
-            }
-
-            if (!TryResolveDestinationPath(
-                    firstEndpoint.Server,
-                    firstEndpoint.Cwd,
-                    localPathInput,
-                    sourceFileName,
-                    out var localDestinationPath,
-                    out var destinationFailure))
-            {
-                return new Intrinsic.Result(
-                    CreateFtpFailureMap(
-                        destinationFailure!.Code,
-                        ExtractErrorText(destinationFailure)));
-            }
-
-            if (!TryWriteDestinationFile(firstEndpoint.Server, localDestinationPath, sourceContent, sourceEntry, out var writeFailure))
-            {
-                return new Intrinsic.Result(
-                    CreateFtpFailureMap(
-                        writeFailure!.Code,
-                        ExtractErrorText(writeFailure)));
-            }
-
-            executionContext.World.EmitFileAcquire(
-                fromNodeId: lastEndpoint.NodeId,
-                userKey: firstEndpoint.UserKey,
-                fileName: sourceFileName,
-                remotePath: remoteSourcePath,
-                localPath: localDestinationPath,
-                sizeBytes: ToOptionalInt(sourceEntry.Size),
-                contentId: sourceEntry.ContentId,
-                transferMethod: "ftp");
-
-            return new Intrinsic.Result(CreateFtpSuccessMap(localDestinationPath, ToOptionalInt(sourceEntry.Size)));
+            return new Intrinsic.Result(getResult);
         };
     }
 
@@ -280,84 +290,94 @@ internal static class MiniScriptFtpIntrinsics
             }
 
             var executionContext = state.ExecutionContext;
-            if (!TryResolveFtpEndpoints(
+            if (!TryRunWorldAction(
                     state,
-                    executionContext,
-                    sessionOrRouteMap,
-                    out var firstEndpoint,
-                    out var lastEndpoint,
-                    out var endpointError))
-            {
-                return new Intrinsic.Result(CreateFtpFailureMap(SystemCallErrorCode.InvalidArgs, endpointError));
-            }
+                    () =>
+                    {
+                        if (!TryResolveFtpEndpoints(
+                                state,
+                                executionContext,
+                                sessionOrRouteMap,
+                                out var firstEndpoint,
+                                out var lastEndpoint,
+                                out var endpointError))
+                        {
+                            return CreateFtpFailureMap(SystemCallErrorCode.InvalidArgs, endpointError);
+                        }
 
-            if (!executionContext.World.TryValidatePortAccess(
-                    firstEndpoint.Server,
-                    lastEndpoint.Server,
-                    port,
-                    PortType.Ftp,
-                    out var portFailure))
-            {
-                return new Intrinsic.Result(CreateFtpFailureMap(portFailure.Code, ExtractErrorText(portFailure)));
-            }
+                        if (!executionContext.World.TryValidatePortAccess(
+                                firstEndpoint.Server,
+                                lastEndpoint.Server,
+                                port,
+                                PortType.Ftp,
+                                out var portFailure))
+                        {
+                            return CreateFtpFailureMap(portFailure.Code, ExtractErrorText(portFailure));
+                        }
 
-            if (!TryGetFtpEndpointUser(firstEndpoint, out var firstUser, out var firstUserError))
-            {
-                return new Intrinsic.Result(CreateFtpFailureMap(SystemCallErrorCode.InvalidArgs, firstUserError));
-            }
+                        if (!TryGetFtpEndpointUser(firstEndpoint, out var firstUser, out var firstUserError))
+                        {
+                            return CreateFtpFailureMap(SystemCallErrorCode.InvalidArgs, firstUserError);
+                        }
 
-            if (!TryGetFtpEndpointUser(lastEndpoint, out var lastUser, out var lastUserError))
-            {
-                return new Intrinsic.Result(CreateFtpFailureMap(SystemCallErrorCode.InvalidArgs, lastUserError));
-            }
+                        if (!TryGetFtpEndpointUser(lastEndpoint, out var lastUser, out var lastUserError))
+                        {
+                            return CreateFtpFailureMap(SystemCallErrorCode.InvalidArgs, lastUserError);
+                        }
 
-            if (!firstUser.Privilege.Read ||
-                !lastUser.Privilege.Write)
+                        if (!firstUser.Privilege.Read || !lastUser.Privilege.Write)
+                        {
+                            return CreateFtpFailureMap(
+                                SystemCallErrorCode.PermissionDenied,
+                                "permission denied: ftp put");
+                        }
+
+                        var localSourcePath = BaseFileSystem.NormalizePath(firstEndpoint.Cwd, localPathInput);
+                        if (!TryReadSourceFile(firstEndpoint.Server, localSourcePath, out var sourceEntry, out var sourceContent, out var sourceFailure))
+                        {
+                            return CreateFtpFailureMap(sourceFailure.Code, ExtractErrorText(sourceFailure));
+                        }
+
+                        var sourceFileName = GetFileName(localSourcePath);
+                        if (string.IsNullOrWhiteSpace(sourceFileName))
+                        {
+                            return CreateFtpFailureMap(
+                                SystemCallErrorCode.InvalidArgs,
+                                $"invalid source path: {localPathInput}");
+                        }
+
+                        if (!TryResolveDestinationPath(
+                                lastEndpoint.Server,
+                                lastEndpoint.Cwd,
+                                remotePathInput,
+                                sourceFileName,
+                                out var remoteDestinationPath,
+                                out var destinationFailure))
+                        {
+                            return CreateFtpFailureMap(
+                                destinationFailure!.Code,
+                                ExtractErrorText(destinationFailure));
+                        }
+
+                        if (!TryWriteDestinationFile(lastEndpoint.Server, remoteDestinationPath, sourceContent, sourceEntry, out var writeFailure))
+                        {
+                            return CreateFtpFailureMap(
+                                writeFailure!.Code,
+                                ExtractErrorText(writeFailure));
+                        }
+
+                        return CreateFtpSuccessMap(remoteDestinationPath, ToOptionalInt(sourceEntry.Size));
+                    },
+                    out var putResult,
+                    out var queueError))
             {
                 return new Intrinsic.Result(
                     CreateFtpFailureMap(
-                        SystemCallErrorCode.PermissionDenied,
-                        "permission denied: ftp put"));
+                        SystemCallErrorCode.InternalError,
+                        queueError));
             }
 
-            var localSourcePath = BaseFileSystem.NormalizePath(firstEndpoint.Cwd, localPathInput);
-            if (!TryReadSourceFile(firstEndpoint.Server, localSourcePath, out var sourceEntry, out var sourceContent, out var sourceFailure))
-            {
-                return new Intrinsic.Result(CreateFtpFailureMap(sourceFailure.Code, ExtractErrorText(sourceFailure)));
-            }
-
-            var sourceFileName = GetFileName(localSourcePath);
-            if (string.IsNullOrWhiteSpace(sourceFileName))
-            {
-                return new Intrinsic.Result(
-                    CreateFtpFailureMap(
-                        SystemCallErrorCode.InvalidArgs,
-                        $"invalid source path: {localPathInput}"));
-            }
-
-            if (!TryResolveDestinationPath(
-                    lastEndpoint.Server,
-                    lastEndpoint.Cwd,
-                    remotePathInput,
-                    sourceFileName,
-                    out var remoteDestinationPath,
-                    out var destinationFailure))
-            {
-                return new Intrinsic.Result(
-                    CreateFtpFailureMap(
-                        destinationFailure!.Code,
-                        ExtractErrorText(destinationFailure)));
-            }
-
-            if (!TryWriteDestinationFile(lastEndpoint.Server, remoteDestinationPath, sourceContent, sourceEntry, out var writeFailure))
-            {
-                return new Intrinsic.Result(
-                    CreateFtpFailureMap(
-                        writeFailure!.Code,
-                        ExtractErrorText(writeFailure)));
-            }
-
-            return new Intrinsic.Result(CreateFtpSuccessMap(remoteDestinationPath, ToOptionalInt(sourceEntry.Size)));
+            return new Intrinsic.Result(putResult);
         };
     }
 
@@ -675,66 +695,30 @@ internal static class MiniScriptFtpIntrinsics
             return false;
         }
 
-        if (state.Mode == MiniScriptSshExecutionMode.RealWorld)
-        {
-            if (!executionContext.World.TryResolveRemoteSession(sessionNodeId, sessionId, out var sessionServer, out var sessionConfig))
-            {
-                error = $"session not found: {sessionNodeId}/{sessionId}.";
-                return false;
-            }
-
-            var userKey = sessionConfig.UserKey?.Trim() ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(userKey))
-            {
-                error = $"session user is invalid: {sessionNodeId}/{sessionId}.";
-                return false;
-            }
-
-            if (!sessionServer.Users.ContainsKey(userKey))
-            {
-                error = $"session user not found: {sessionNodeId}/{userKey}.";
-                return false;
-            }
-
-            endpoint = new FtpEndpoint(
-                sessionServer,
-                sessionNodeId,
-                userKey,
-                BaseFileSystem.NormalizePath("/", sessionConfig.Cwd));
-            return true;
-        }
-
-        if (!state.TryResolveSandboxSession(sessionNodeId, sessionId, out var sandboxSession))
+        if (!executionContext.World.TryResolveRemoteSession(sessionNodeId, sessionId, out var sessionServer, out var sessionConfig))
         {
             error = $"session not found: {sessionNodeId}/{sessionId}.";
             return false;
         }
 
-        if (!executionContext.World.TryGetServer(sessionNodeId, out var sandboxServer))
+        var userKey = sessionConfig.UserKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(userKey))
         {
-            error = $"server not found: {sessionNodeId}.";
+            error = $"session user is invalid: {sessionNodeId}/{sessionId}.";
             return false;
         }
 
-        var sandboxUserKey = sandboxSession.UserKey?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(sandboxUserKey) &&
-            !executionContext.World.TryResolveUserKeyByUserId(sandboxServer, sandboxSession.UserId, out sandboxUserKey))
+        if (!sessionServer.Users.ContainsKey(userKey))
         {
-            error = $"session user not found: {sessionNodeId}/{sandboxSession.UserId}.";
-            return false;
-        }
-
-        if (!sandboxServer.Users.ContainsKey(sandboxUserKey))
-        {
-            error = $"session user not found: {sessionNodeId}/{sandboxUserKey}.";
+            error = $"session user not found: {sessionNodeId}/{userKey}.";
             return false;
         }
 
         endpoint = new FtpEndpoint(
-            sandboxServer,
+            sessionServer,
             sessionNodeId,
-            sandboxUserKey,
-            BaseFileSystem.NormalizePath("/", sandboxSession.Cwd));
+            userKey,
+            BaseFileSystem.NormalizePath("/", sessionConfig.Cwd));
         return true;
     }
 

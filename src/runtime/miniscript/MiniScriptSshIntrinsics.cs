@@ -166,106 +166,75 @@ internal static partial class MiniScriptSshIntrinsics
                         parseError));
             }
 
-            if (!TryResolveConnectSource(
+            if (!TryRunWorldAction(
                     state,
-                    executionContext,
-                    optsMap,
-                    out var sourceServer,
-                    out var parentSessions,
-                    out var routeRequested,
-                    out var sourceError))
+                    () =>
+                    {
+                        if (!TryResolveConnectSource(
+                                state,
+                                executionContext,
+                                optsMap,
+                                out var sourceServer,
+                                out var parentSessions,
+                                out var routeRequested,
+                                out var sourceError))
+                        {
+                            return CreateConnectFailureMap(
+                                SystemCallErrorCode.InvalidArgs,
+                                sourceError);
+                        }
+
+                        if (routeRequested && parentSessions.Count + 1 > MaxRouteHops)
+                        {
+                            return CreateConnectFailureMap(
+                                SystemCallErrorCode.InvalidArgs,
+                                $"route.hopCount exceeds max hops ({MaxRouteHops}).");
+                        }
+
+                        if (!TryResolveConnectSessionSourceMetadata(
+                                state,
+                                executionContext,
+                                routeRequested,
+                                parentSessions,
+                                out var connectSourceMetadata,
+                                out var connectSourceError))
+                        {
+                            return CreateConnectFailureMap(
+                                SystemCallErrorCode.InvalidArgs,
+                                connectSourceError);
+                        }
+
+                        if (!executionContext.World.TryOpenSshSession(
+                                sourceServer,
+                                hostOrIp,
+                                userId,
+                                password,
+                                port,
+                                via: "ssh.connect",
+                                out var openResult,
+                                out var failureResult))
+                        {
+                            return CreateConnectFailureMap(
+                                failureResult.Code,
+                                ExtractErrorText(failureResult));
+                        }
+
+                        var session = CreateSessionMap(openResult, connectSourceMetadata);
+                        var route = routeRequested
+                            ? CreateRouteMap(AppendRouteSession(parentSessions, session))
+                            : null;
+                        return CreateConnectSuccessMap(session, route);
+                    },
+                    out var connectResult,
+                    out var queueError))
             {
                 return new Intrinsic.Result(
                     CreateConnectFailureMap(
-                        SystemCallErrorCode.InvalidArgs,
-                        sourceError));
+                        SystemCallErrorCode.InternalError,
+                        queueError));
             }
 
-            if (routeRequested && parentSessions.Count + 1 > MaxRouteHops)
-            {
-                return new Intrinsic.Result(
-                    CreateConnectFailureMap(
-                        SystemCallErrorCode.InvalidArgs,
-                        $"route.hopCount exceeds max hops ({MaxRouteHops})."));
-            }
-
-            if (!TryResolveConnectSessionSourceMetadata(
-                    state,
-                    executionContext,
-                    routeRequested,
-                    parentSessions,
-                    out var connectSourceMetadata,
-                    out var connectSourceError))
-            {
-                return new Intrinsic.Result(
-                    CreateConnectFailureMap(
-                        SystemCallErrorCode.InvalidArgs,
-                        connectSourceError));
-            }
-
-            if (state.Mode == MiniScriptSshExecutionMode.RealWorld)
-            {
-                if (!executionContext.World.TryOpenSshSession(
-                        sourceServer,
-                        hostOrIp,
-                        userId,
-                        password,
-                        port,
-                        via: "ssh.connect",
-                        out var openResult,
-                        out var failureResult))
-                {
-                    return new Intrinsic.Result(CreateConnectFailureMap(failureResult.Code, ExtractErrorText(failureResult)));
-                }
-
-                var session = CreateSessionMap(openResult, connectSourceMetadata);
-                var route = routeRequested
-                    ? CreateRouteMap(AppendRouteSession(parentSessions, session))
-                    : null;
-                return new Intrinsic.Result(CreateConnectSuccessMap(session, route));
-            }
-
-            if (!executionContext.World.TryValidateSshSessionOpen(
-                    sourceServer,
-                    hostOrIp,
-                    userId,
-                    password,
-                    port,
-                    out var validated,
-                    out var sandboxFailure))
-            {
-                return new Intrinsic.Result(CreateConnectFailureMap(sandboxFailure.Code, ExtractErrorText(sandboxFailure)));
-            }
-
-            // Sandbox mode validates SSH routing/auth without creating persistent world sessions,
-            // but scenario logic still needs privilegeAcquire events on successful login.
-            executionContext.World.EmitPrivilegeAcquireForLogin(validated.TargetNodeId, validated.TargetUserKey, "ssh.connect");
-
-            var sandboxSessionId = state.RegisterSandboxSession(
-                validated.TargetNodeId,
-                validated.TargetUserKey,
-                validated.TargetUserId,
-                validated.HostOrIp,
-                validated.RemoteIp,
-                "/",
-                connectSourceMetadata.SourceNodeId,
-                connectSourceMetadata.SourceUserId,
-                connectSourceMetadata.SourceCwd);
-            var sandboxOpenResult = new WorldRuntime.SshSessionOpenResult
-            {
-                TargetServer = validated.TargetServer,
-                TargetNodeId = validated.TargetNodeId,
-                TargetUserKey = validated.TargetUserKey,
-                TargetUserId = validated.TargetUserId,
-                SessionId = sandboxSessionId,
-                RemoteIp = validated.RemoteIp,
-                HostOrIp = validated.HostOrIp,
-            };
-            var sandboxSession = CreateSessionMap(sandboxOpenResult, connectSourceMetadata);
-            var sandboxRoute = routeRequested
-                ? CreateRouteMap(AppendRouteSession(parentSessions, sandboxSession))
-                : null;
-            return new Intrinsic.Result(CreateConnectSuccessMap(sandboxSession, sandboxRoute));
+            return new Intrinsic.Result(connectResult);
         };
     }
 
@@ -331,9 +300,18 @@ internal static partial class MiniScriptSshIntrinsics
                     return new Intrinsic.Result(CreateDisconnectFailureMap(SystemCallErrorCode.InvalidArgs, readError));
                 }
 
-                var disconnected = state.Mode == MiniScriptSshExecutionMode.RealWorld
-                    ? executionContext.World.TryRemoveRemoteSession(sessionNodeId, sessionId)
-                    : state.TryRemoveSandboxSession(sessionNodeId, sessionId);
+                if (!TryRunWorldAction(
+                        state,
+                        () => executionContext.World.TryRemoveRemoteSession(sessionNodeId, sessionId),
+                        out var disconnected,
+                        out var queueError))
+                {
+                    return new Intrinsic.Result(
+                        CreateDisconnectFailureMap(
+                            SystemCallErrorCode.InternalError,
+                            queueError));
+                }
+
                 var summary = CreateDisconnectSummaryMap(
                     requested: 1,
                     closed: disconnected ? 1 : 0,
@@ -376,9 +354,18 @@ internal static partial class MiniScriptSshIntrinsics
                 }
 
                 requested++;
-                var removed = state.Mode == MiniScriptSshExecutionMode.RealWorld
-                    ? executionContext.World.TryRemoveRemoteSession(sessionNodeId, sessionId)
-                    : state.TryRemoveSandboxSession(sessionNodeId, sessionId);
+                if (!TryRunWorldAction(
+                        state,
+                        () => executionContext.World.TryRemoveRemoteSession(sessionNodeId, sessionId),
+                        out var removed,
+                        out var queueError))
+                {
+                    return new Intrinsic.Result(
+                        CreateDisconnectFailureMap(
+                            SystemCallErrorCode.InternalError,
+                            queueError));
+                }
+
                 if (removed)
                 {
                     closed++;
@@ -457,76 +444,89 @@ internal static partial class MiniScriptSshIntrinsics
             }
 
             var executionContext = state.ExecutionContext;
-            if (!TryResolveExecEndpoint(
+            if (!TryRunWorldAction(
                     state,
-                    executionContext,
-                    sessionOrRouteMap,
-                    out var endpoint,
-                    out var endpointUserId,
-                    out var endpointError))
-            {
-                return new Intrinsic.Result(CreateExecFailureMap(SystemCallErrorCode.InvalidArgs, endpointError));
-            }
+                    () =>
+                    {
+                        if (!TryResolveExecEndpoint(
+                                state,
+                                executionContext,
+                                sessionOrRouteMap,
+                                out var endpoint,
+                                out var endpointUserId,
+                                out var endpointError))
+                        {
+                            return CreateExecFailureMap(SystemCallErrorCode.InvalidArgs, endpointError);
+                        }
 
-            var temporaryTerminalSessionId = executionContext.World.AllocateTerminalSessionId();
-            var request = new SystemCallRequest
-            {
-                NodeId = endpoint.NodeId,
-                UserId = endpointUserId,
-                Cwd = endpoint.Cwd,
-                CommandLine = commandLine,
-                TerminalSessionId = temporaryTerminalSessionId,
-            };
-            if (asyncExecution)
-            {
-                if (!executionContext.World.TryStartAsyncExecJob(request, out var jobId, out var failureResult))
-                {
-                    executionContext.World.CleanupTerminalSessionConnections(temporaryTerminalSessionId);
-                    return new Intrinsic.Result(
-                        CreateExecFailureMap(
-                            failureResult.Code,
-                            ExtractErrorText(failureResult),
-                            asyncExecution: true));
-                }
+                        var temporaryTerminalSessionId = executionContext.World.AllocateTerminalSessionId();
+                        var request = new SystemCallRequest
+                        {
+                            NodeId = endpoint.NodeId,
+                            UserId = endpointUserId,
+                            Cwd = endpoint.Cwd,
+                            CommandLine = commandLine,
+                            TerminalSessionId = temporaryTerminalSessionId,
+                        };
+                        if (asyncExecution)
+                        {
+                            if (!executionContext.World.TryStartAsyncExecJob(request, out var jobId, out var failureResult))
+                            {
+                                executionContext.World.CleanupTerminalSessionConnections(temporaryTerminalSessionId);
+                                return CreateExecFailureMap(
+                                    failureResult.Code,
+                                    ExtractErrorText(failureResult),
+                                    asyncExecution: true);
+                            }
 
+                            return CreateExecSuccessMap(
+                                SystemCallErrorCode.None,
+                                stdout: string.Empty,
+                                asyncExecution: true,
+                                jobId: jobId);
+                        }
+
+                        SystemCallResult commandResult;
+                        try
+                        {
+                            commandResult = executionContext.World.ExecuteSystemCall(request);
+                        }
+                        finally
+                        {
+                            executionContext.World.CleanupTerminalSessionConnections(temporaryTerminalSessionId);
+                        }
+
+                        var stdout = JoinResultLines(commandResult);
+                        if (maxBytes.HasValue)
+                        {
+                            var stdoutBytes = Encoding.UTF8.GetByteCount(stdout);
+                            if (stdoutBytes > maxBytes.Value)
+                            {
+                                return CreateExecFailureMap(
+                                    SystemCallErrorCode.TooLarge,
+                                    $"stdout exceeds opts.maxBytes (max={maxBytes.Value}, actual={stdoutBytes}).");
+                            }
+                        }
+
+                        return commandResult.Ok
+                            ? CreateExecSuccessMap(commandResult.Code, stdout, asyncExecution: false, jobId: null)
+                            : CreateExecFailureMap(
+                                commandResult.Code,
+                                ExtractErrorText(commandResult),
+                                asyncExecution: false,
+                                stdout);
+                    },
+                    out var execResult,
+                    out var queueError))
+            {
                 return new Intrinsic.Result(
-                    CreateExecSuccessMap(
-                        SystemCallErrorCode.None,
-                        stdout: string.Empty,
-                        asyncExecution: true,
-                        jobId: jobId));
+                    CreateExecFailureMap(
+                        SystemCallErrorCode.InternalError,
+                        queueError,
+                        asyncExecution: asyncExecution));
             }
 
-            SystemCallResult commandResult;
-            try
-            {
-                commandResult = executionContext.World.ExecuteSystemCall(request);
-            }
-            finally
-            {
-                executionContext.World.CleanupTerminalSessionConnections(temporaryTerminalSessionId);
-            }
-
-            var stdout = JoinResultLines(commandResult);
-            if (maxBytes.HasValue)
-            {
-                var stdoutBytes = Encoding.UTF8.GetByteCount(stdout);
-                if (stdoutBytes > maxBytes.Value)
-                {
-                    return new Intrinsic.Result(
-                        CreateExecFailureMap(
-                            SystemCallErrorCode.TooLarge,
-                            $"stdout exceeds opts.maxBytes (max={maxBytes.Value}, actual={stdoutBytes})."));
-                }
-            }
-
-            return new Intrinsic.Result(commandResult.Ok
-                ? CreateExecSuccessMap(commandResult.Code, stdout, asyncExecution: false, jobId: null)
-                : CreateExecFailureMap(
-                    commandResult.Code,
-                    ExtractErrorText(commandResult),
-                    asyncExecution: false,
-                    stdout));
+            return new Intrinsic.Result(execResult);
         };
     }
 
@@ -590,26 +590,41 @@ internal static partial class MiniScriptSshIntrinsics
             }
 
             var executionContext = state.ExecutionContext;
-            if (!TryValidateInspectToolPreflight(
-                    executionContext,
-                    out var preflightErrorCode,
-                    out var preflightError))
+            if (!TryRunWorldAction(
+                    state,
+                    () =>
+                    {
+                        if (!TryValidateInspectToolPreflight(
+                                executionContext,
+                                out var preflightErrorCode,
+                                out var preflightError))
+                        {
+                            return CreateInspectFailureMap(preflightErrorCode, preflightError);
+                        }
+
+                        if (!executionContext.World.TryRunInspectProbe(
+                                executionContext.Server,
+                                hostOrIp,
+                                userId,
+                                port,
+                                out var inspectResult,
+                                out var failureResult))
+                        {
+                            return CreateInspectFailureMap(failureResult.Code, ExtractErrorText(failureResult));
+                        }
+
+                        return CreateInspectSuccessMap(inspectResult);
+                    },
+                    out var inspectMap,
+                    out var queueError))
             {
-                return new Intrinsic.Result(CreateInspectFailureMap(preflightErrorCode, preflightError));
+                return new Intrinsic.Result(
+                    CreateInspectFailureMap(
+                        SystemCallErrorCode.InternalError,
+                        queueError));
             }
 
-            if (!executionContext.World.TryRunInspectProbe(
-                    executionContext.Server,
-                    hostOrIp,
-                    userId,
-                    port,
-                    out var inspectResult,
-                    out var failureResult))
-            {
-                return new Intrinsic.Result(CreateInspectFailureMap(failureResult.Code, ExtractErrorText(failureResult)));
-            }
-
-            return new Intrinsic.Result(CreateInspectSuccessMap(inspectResult));
+            return new Intrinsic.Result(inspectMap);
         };
     }
 
@@ -624,6 +639,23 @@ internal static partial class MiniScriptSshIntrinsics
 
         state = sshState;
         return true;
+    }
+
+    internal static bool TryRunWorldAction<T>(
+        SshModuleState state,
+        Func<T> action,
+        out T result,
+        out string error)
+    {
+        result = default!;
+        error = string.Empty;
+        if (state.ExecutionContext is null)
+        {
+            error = "execution context is unavailable.";
+            return false;
+        }
+
+        return state.ExecutionContext.World.TryRunViaIntrinsicQueue(action, out result, out error);
     }
 
     private static bool TryParseConnectArguments(
@@ -1234,69 +1266,29 @@ internal static partial class MiniScriptSshIntrinsics
             canonicalSourceUserId,
             canonicalSourceEndpoint.Cwd);
 
-        if (state.Mode == MiniScriptSshExecutionMode.RealWorld)
-        {
-            if (!executionContext.World.TryResolveRemoteSession(
-                    sessionNodeId,
-                    sessionId,
-                    out var sessionServer,
-                    out var sessionConfig))
-            {
-                error = $"session not found: {sessionNodeId}/{sessionId}.";
-                return false;
-            }
-
-            var userId = executionContext.World.ResolvePromptUser(sessionServer, sessionConfig.UserKey);
-            var hostOrIp = TryReadOptionalString(inputSessionMap, "hostOrIp", out var hostHint) &&
-                           !string.IsNullOrWhiteSpace(hostHint)
-                ? hostHint!
-                : (string.IsNullOrWhiteSpace(sessionConfig.RemoteIp) ? sessionNodeId : sessionConfig.RemoteIp);
-            var remoteIp = string.IsNullOrWhiteSpace(sessionConfig.RemoteIp) ? "127.0.0.1" : sessionConfig.RemoteIp;
-            canonicalSession = CreateSessionMap(
+        if (!executionContext.World.TryResolveRemoteSession(
                 sessionNodeId,
                 sessionId,
-                userId,
-                hostOrIp,
-                remoteIp,
-                canonicalSourceMetadata);
-            return true;
-        }
-
-        if (!state.TryResolveSandboxSession(sessionNodeId, sessionId, out var sandboxSession))
+                out var sessionServer,
+                out var sessionConfig))
         {
             error = $"session not found: {sessionNodeId}/{sessionId}.";
             return false;
         }
 
-        var sandboxSourceMetadata = new SessionSourceMetadata(
-            sandboxSession.SourceNodeId,
-            sandboxSession.SourceUserId,
-            sandboxSession.SourceCwd);
-        if (!TryResolveSessionSourceFtpEndpoint(executionContext, sandboxSourceMetadata, out var sandboxSourceEndpoint, out var sandboxSourceError))
-        {
-            error = sandboxSourceError;
-            return false;
-        }
-
-        var sandboxSourceUserId = executionContext.World.ResolvePromptUser(
-            sandboxSourceEndpoint.Server,
-            sandboxSourceEndpoint.UserKey);
-        if (string.IsNullOrWhiteSpace(sandboxSourceUserId))
-        {
-            error = $"source session user not found: {sandboxSourceEndpoint.NodeId}/{sandboxSourceEndpoint.UserKey}.";
-            return false;
-        }
-
+        var userId = executionContext.World.ResolvePromptUser(sessionServer, sessionConfig.UserKey);
+        var hostOrIp = TryReadOptionalString(inputSessionMap, "hostOrIp", out var hostHint) &&
+                       !string.IsNullOrWhiteSpace(hostHint)
+            ? hostHint!
+            : (string.IsNullOrWhiteSpace(sessionConfig.RemoteIp) ? sessionNodeId : sessionConfig.RemoteIp);
+        var remoteIp = string.IsNullOrWhiteSpace(sessionConfig.RemoteIp) ? "127.0.0.1" : sessionConfig.RemoteIp;
         canonicalSession = CreateSessionMap(
-            sandboxSession.SessionNodeId,
-            sandboxSession.SessionId,
-            sandboxSession.UserId,
-            sandboxSession.HostOrIp,
-            sandboxSession.RemoteIp,
-            new SessionSourceMetadata(
-                sandboxSourceEndpoint.NodeId,
-                sandboxSourceUserId,
-                sandboxSourceEndpoint.Cwd));
+            sessionNodeId,
+            sessionId,
+            userId,
+            hostOrIp,
+            remoteIp,
+            canonicalSourceMetadata);
         return true;
     }
 
@@ -2149,9 +2141,6 @@ internal static partial class MiniScriptSshIntrinsics
 
     internal sealed class SshModuleState
     {
-        private readonly Dictionary<int, SandboxSessionSnapshot> sandboxSessionsById = new();
-        private int nextSandboxSessionId = 1;
-
         internal SshModuleState(SystemCallExecutionContext? executionContext, MiniScriptSshExecutionMode mode)
         {
             ExecutionContext = executionContext;
@@ -2161,76 +2150,7 @@ internal static partial class MiniScriptSshIntrinsics
         internal SystemCallExecutionContext? ExecutionContext { get; }
 
         internal MiniScriptSshExecutionMode Mode { get; }
-
-        internal int RegisterSandboxSession(
-            string sessionNodeId,
-            string userKey,
-            string userId,
-            string hostOrIp,
-            string remoteIp,
-            string cwd,
-            string sourceNodeId,
-            string sourceUserId,
-            string sourceCwd)
-        {
-            var sessionId = nextSandboxSessionId++;
-            sandboxSessionsById[sessionId] = new SandboxSessionSnapshot(
-                sessionNodeId,
-                sessionId,
-                userKey,
-                userId,
-                hostOrIp,
-                remoteIp,
-                cwd,
-                sourceNodeId,
-                sourceUserId,
-                sourceCwd);
-            return sessionId;
-        }
-
-        internal bool TryRemoveSandboxSession(string sessionNodeId, int sessionId)
-        {
-            if (!TryResolveSandboxSession(sessionNodeId, sessionId, out _))
-            {
-                return false;
-            }
-
-            sandboxSessionsById.Remove(sessionId);
-            return true;
-        }
-
-        internal bool TryResolveSandboxSession(
-            string sessionNodeId,
-            int sessionId,
-            out SandboxSessionSnapshot sandboxSession)
-        {
-            sandboxSession = default;
-            if (!sandboxSessionsById.TryGetValue(sessionId, out var storedSession))
-            {
-                return false;
-            }
-
-            if (!string.Equals(storedSession.SessionNodeId, sessionNodeId, StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            sandboxSession = storedSession;
-            return true;
-        }
     }
-
-    internal readonly record struct SandboxSessionSnapshot(
-        string SessionNodeId,
-        int SessionId,
-        string UserKey,
-        string UserId,
-        string HostOrIp,
-        string RemoteIp,
-        string Cwd,
-        string SourceNodeId,
-        string SourceUserId,
-        string SourceCwd);
 }
 
 

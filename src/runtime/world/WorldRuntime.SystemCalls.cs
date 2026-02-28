@@ -2,6 +2,7 @@ using Godot;
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
@@ -26,8 +27,15 @@ public partial class WorldRuntime
     private const string InspectUnknownAlphabet = "???";
     private const int OtpTokenDigits = 6;
     private const int InspectProbeRateLimitPerSecond = 100000;
+    private const int IntrinsicQueueWaitTimeoutMs = 5000;
+    private const int IntrinsicQueueMaxRequestsPerDrain = 512;
+    private const int IntrinsicQueueTailYieldBudgetMs = 8;
     private const string ConnectionRateLimiterBlockedMessage =
         "connectionRateLimiter daemon blocked this connection attempt.";
+    private Queue<SshLoginAttempt>? sshLoginAttempts = new();
+    private object? sshLoginAttemptsSync = new();
+    private LinkedList<IntrinsicQueueRequest>? intrinsicQueueRequests = new();
+    private object? intrinsicQueueSync = new();
 
     private Dictionary<string, Stack<TerminalConnectionFrame>>? terminalConnectionFramesBySessionId =
         new(StringComparer.Ordinal);
@@ -47,6 +55,7 @@ public partial class WorldRuntime
     private object? asyncExecJobSync = new();
     private object? connectionRateLimiterSync = new();
     private object? inspectProbeRateLimiterSync = new();
+    private int worldRuntimeThreadId;
 
     /// <summary>Initializes system-call modules and command dispatch processor.</summary>
     private void InitializeSystemCalls()
@@ -79,7 +88,25 @@ public partial class WorldRuntime
                 "system call processor is not initialized.");
         }
 
-        return systemCallProcessor.Execute(request);
+        if (IsWorldRuntimeThread())
+        {
+            return ExecuteSystemCallCore(request);
+        }
+
+        var queuedRequest = CloneSystemCallRequest(request);
+        if (TryRunViaIntrinsicQueue(
+                () => ExecuteSystemCallCore(queuedRequest),
+                out var queuedResult,
+                out var queueError))
+        {
+            return queuedResult;
+        }
+
+        return SystemCallResultFactory.Failure(
+            SystemCallErrorCode.InternalError,
+            string.IsNullOrWhiteSpace(queueError)
+                ? "failed to execute system call via intrinsic queue."
+                : queueError);
     }
 
     /// <summary>Queues terminal command execution as a background job and returns an issued job id on success.</summary>
@@ -736,6 +763,227 @@ public partial class WorldRuntime
         };
     }
 
+    private SystemCallResult ExecuteSystemCallCore(SystemCallRequest request)
+    {
+        return systemCallProcessor.Execute(request);
+    }
+
+    internal void CaptureWorldRuntimeThread()
+    {
+        worldRuntimeThreadId = System.Environment.CurrentManagedThreadId;
+    }
+
+    internal bool TryRunViaIntrinsicQueue<T>(Func<T> action, out T result, out string error)
+    {
+        if (action is null)
+        {
+            throw new ArgumentNullException(nameof(action));
+        }
+
+        result = default!;
+        error = string.Empty;
+        if (IsWorldRuntimeThread())
+        {
+            try
+            {
+                result = action();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        EnsureIntrinsicQueueStorage();
+        var queueSync = GetIntrinsicQueueSync();
+        var request = new IntrinsicQueueRequest(() => action()!);
+        lock (queueSync)
+        {
+            request.Node = intrinsicQueueRequests!.AddLast(request);
+        }
+
+        if (!request.CompletionEvent.Wait(IntrinsicQueueWaitTimeoutMs))
+        {
+            var wasCancelled = false;
+            lock (queueSync)
+            {
+                if (request.State == IntrinsicQueueRequestState.Pending &&
+                    request.Node?.List is not null)
+                {
+                    request.Node.List.Remove(request.Node);
+                    request.Node = null;
+                    request.State = IntrinsicQueueRequestState.Cancelled;
+                    wasCancelled = true;
+                }
+            }
+
+            if (wasCancelled)
+            {
+                request.CompletionEvent.Set();
+                error = $"intrinsic request queue timeout ({IntrinsicQueueWaitTimeoutMs}ms).";
+                return false;
+            }
+
+            error = $"intrinsic request queue timeout while request was already executing ({IntrinsicQueueWaitTimeoutMs}ms).";
+            return false;
+        }
+
+        if (request.State == IntrinsicQueueRequestState.Cancelled)
+        {
+            error = "intrinsic request was cancelled.";
+            return false;
+        }
+
+        if (request.Exception is not null)
+        {
+            error = request.Exception.Message;
+            return false;
+        }
+
+        if (request.Result is T typedResult)
+        {
+            result = typedResult;
+            return true;
+        }
+
+        if (request.Result is null)
+        {
+            result = default!;
+            return true;
+        }
+
+        error = "intrinsic request queue returned an unexpected result type.";
+        return false;
+    }
+
+    private bool IsWorldRuntimeThread()
+    {
+        return worldRuntimeThreadId <= 0 || System.Environment.CurrentManagedThreadId == worldRuntimeThreadId;
+    }
+
+    private void DrainIntrinsicQueueRequests()
+    {
+        EnsureIntrinsicQueueStorage();
+        var queueSync = GetIntrinsicQueueSync();
+        var processed = 0;
+        var processedAny = false;
+        var tailDeadlineTimestamp = 0L;
+        while (processed < IntrinsicQueueMaxRequestsPerDrain)
+        {
+            IntrinsicQueueRequest? request = null;
+            lock (queueSync)
+            {
+                while (intrinsicQueueRequests!.Count > 0)
+                {
+                    var node = intrinsicQueueRequests.First!;
+                    intrinsicQueueRequests.RemoveFirst();
+                    request = node.Value;
+                    request.Node = null;
+                    if (request.State != IntrinsicQueueRequestState.Pending)
+                    {
+                        request = null;
+                        continue;
+                    }
+
+                    request.State = IntrinsicQueueRequestState.Executing;
+                    break;
+                }
+            }
+
+            if (request is null)
+            {
+                if (!processedAny)
+                {
+                    break;
+                }
+
+                if (Stopwatch.GetTimestamp() >= tailDeadlineTimestamp)
+                {
+                    break;
+                }
+
+                Thread.Yield();
+                continue;
+            }
+
+            processedAny = true;
+            var timestampNow = Stopwatch.GetTimestamp();
+            tailDeadlineTimestamp = timestampNow + (long)(Stopwatch.Frequency * (IntrinsicQueueTailYieldBudgetMs / 1000.0));
+            processed++;
+            try
+            {
+                var executionResult = request.Work();
+                lock (queueSync)
+                {
+                    if (request.State != IntrinsicQueueRequestState.Cancelled)
+                    {
+                        request.Result = executionResult;
+                        request.Exception = null;
+                        request.State = IntrinsicQueueRequestState.Completed;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                lock (queueSync)
+                {
+                    if (request.State != IntrinsicQueueRequestState.Cancelled)
+                    {
+                        request.Exception = ex;
+                        request.State = IntrinsicQueueRequestState.Completed;
+                    }
+                }
+            }
+            finally
+            {
+                request.CompletionEvent.Set();
+            }
+        }
+    }
+
+    private void CancelPendingIntrinsicQueueRequests()
+    {
+        EnsureIntrinsicQueueStorage();
+        List<IntrinsicQueueRequest>? cancelledRequests = null;
+        var queueSync = GetIntrinsicQueueSync();
+        lock (queueSync)
+        {
+            if (intrinsicQueueRequests!.Count == 0)
+            {
+                return;
+            }
+
+            var node = intrinsicQueueRequests.First;
+            while (node is not null)
+            {
+                var next = node.Next;
+                var request = node.Value;
+                if (request.State == IntrinsicQueueRequestState.Pending)
+                {
+                    intrinsicQueueRequests.Remove(node);
+                    request.Node = null;
+                    request.State = IntrinsicQueueRequestState.Cancelled;
+                    cancelledRequests ??= new List<IntrinsicQueueRequest>();
+                    cancelledRequests.Add(request);
+                }
+
+                node = next;
+            }
+        }
+
+        if (cancelledRequests is null)
+        {
+            return;
+        }
+
+        foreach (var request in cancelledRequests)
+        {
+            request.CompletionEvent.Set();
+        }
+    }
+
     private void RunAsyncExecJob(AsyncExecJobState state)
     {
         try
@@ -1266,6 +1514,85 @@ public partial class WorldRuntime
         return true;
     }
 
+    /// <summary>Queues one ssh-login attempt record for SSH_LOGIN window consumption.</summary>
+    internal void EnqueueSshLoginAttempt(string hostOrIp, string userId, string? password, string via)
+    {
+        EnsureSshLoginAttemptStorage();
+        var normalizedHostOrIp = hostOrIp?.Trim() ?? string.Empty;
+        var normalizedUserId = userId?.Trim() ?? string.Empty;
+        var normalizedPassword = password ?? string.Empty;
+        var normalizedVia = via?.Trim() ?? string.Empty;
+        var passwordLength = Math.Max(0, normalizedPassword.Length);
+        var recordedAtMs = System.Environment.TickCount64;
+        var attempt = new SshLoginAttempt(
+            normalizedHostOrIp,
+            normalizedUserId,
+            normalizedPassword,
+            passwordLength,
+            normalizedVia,
+            recordedAtMs);
+        lock (sshLoginAttemptsSync!)
+        {
+            sshLoginAttempts!.Enqueue(attempt);
+        }
+    }
+
+    /// <summary>Drains queued ssh-login attempts as an immutable snapshot list.</summary>
+    internal IReadOnlyList<SshLoginAttempt> DrainSshLoginAttempts()
+    {
+        EnsureSshLoginAttemptStorage();
+        lock (sshLoginAttemptsSync!)
+        {
+            if (sshLoginAttempts!.Count == 0)
+            {
+                return Array.Empty<SshLoginAttempt>();
+            }
+
+            var drained = new List<SshLoginAttempt>(sshLoginAttempts.Count);
+            while (sshLoginAttempts.Count > 0)
+            {
+                drained.Add(sshLoginAttempts.Dequeue());
+            }
+
+            return drained;
+        }
+    }
+
+    /// <summary>Drains all queued SSH-login attempts and returns only the most recent attempt.</summary>
+    internal bool TryDrainLatestSshLoginAttempt(out SshLoginAttempt latestAttempt)
+    {
+        latestAttempt = default;
+        EnsureSshLoginAttemptStorage();
+        lock (sshLoginAttemptsSync!)
+        {
+            if (sshLoginAttempts!.Count == 0)
+            {
+                return false;
+            }
+
+            latestAttempt = sshLoginAttempts.Dequeue();
+            while (sshLoginAttempts.Count > 0)
+            {
+                latestAttempt = sshLoginAttempts.Dequeue();
+            }
+
+            return true;
+        }
+    }
+
+    private void EnsureSshLoginAttemptStorage()
+    {
+        if (sshLoginAttemptsSync is null)
+        {
+            Interlocked.CompareExchange(ref sshLoginAttemptsSync, new object(), comparand: null);
+        }
+
+        lock (sshLoginAttemptsSync!)
+        {
+            sshLoginAttempts ??= new Queue<SshLoginAttempt>();
+        }
+    }
+
     internal bool TryOpenSshSession(
         ServerNodeRuntime sourceServer,
         string hostOrIp,
@@ -1277,6 +1604,7 @@ public partial class WorldRuntime
         out SystemCallResult failureResult)
     {
         openResult = null!;
+        EnqueueSshLoginAttempt(hostOrIp, userId, password, via);
         if (!TryValidateSshSessionOpen(
                 sourceServer,
                 hostOrIp,
@@ -2252,6 +2580,7 @@ public partial class WorldRuntime
 
     internal void ResetTerminalSessionState()
     {
+        CancelPendingIntrinsicQueueRequests();
         EnsureTerminalConnectionStorage();
         ResetTerminalProgramExecutionState();
         ResetAsyncExecJobState();
@@ -2309,6 +2638,19 @@ public partial class WorldRuntime
         return state;
     }
 
+    private object GetIntrinsicQueueSync()
+    {
+        var sync = intrinsicQueueSync;
+        if (sync is not null)
+        {
+            return sync;
+        }
+
+        var created = new object();
+        var existing = Interlocked.CompareExchange(ref intrinsicQueueSync, created, null);
+        return existing ?? created;
+    }
+
     private object GetAsyncExecJobSync()
     {
         var sync = asyncExecJobSync;
@@ -2352,6 +2694,12 @@ public partial class WorldRuntime
     {
         connectionRateLimiterStatesByNodeId ??= new Dictionary<string, ConnectionRateLimiterState>(StringComparer.Ordinal);
         _ = GetConnectionRateLimiterSync();
+    }
+
+    private void EnsureIntrinsicQueueStorage()
+    {
+        intrinsicQueueRequests ??= new LinkedList<IntrinsicQueueRequest>();
+        _ = GetIntrinsicQueueSync();
     }
 
     private void EnsureAsyncExecJobStorage()
@@ -2539,6 +2887,14 @@ public partial class WorldRuntime
         internal string? Alphabet { get; init; }
     }
 
+    internal readonly record struct SshLoginAttempt(
+        string HostOrIp,
+        string UserId,
+        string Password,
+        int PasswordLength,
+        string Via,
+        long RecordedAtMs);
+
     private readonly record struct ConnectionRateLimiterSettings(
         long MonitorMs,
         int Threshold,
@@ -2557,5 +2913,33 @@ public partial class WorldRuntime
         internal int RateCheckedInWindow { get; set; }
 
         internal long OverloadedUntilMs { get; set; }
+    }
+
+    private enum IntrinsicQueueRequestState
+    {
+        Pending = 0,
+        Executing,
+        Completed,
+        Cancelled,
+    }
+
+    private sealed class IntrinsicQueueRequest
+    {
+        internal IntrinsicQueueRequest(Func<object?> work)
+        {
+            Work = work ?? throw new ArgumentNullException(nameof(work));
+        }
+
+        internal Func<object?> Work { get; }
+
+        internal IntrinsicQueueRequestState State { get; set; } = IntrinsicQueueRequestState.Pending;
+
+        internal object? Result { get; set; }
+
+        internal Exception? Exception { get; set; }
+
+        internal LinkedListNode<IntrinsicQueueRequest>? Node { get; set; }
+
+        internal ManualResetEventSlim CompletionEvent { get; } = new(initialState: false);
     }
 }

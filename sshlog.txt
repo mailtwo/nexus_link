@@ -1,0 +1,10 @@
+[SSH_LOGIN_DIAG] t=6536 Attempt received (sample): count=1, host='easy_server', user='root', passwordLength=3, via='ssh.connect'.
+[SSH_LOGIN_DIAG] t=6544 Created SSH_LOGIN window instance.
+[SSH_LOGIN_DIAG] t=6545 Show begin: visible=False, mode=Windowed, requested=True.
+[SSH_LOGIN_DIAG] t=6550 Show end: visible=True, mode=Windowed.
+[SSH_LOGIN_DIAG] t=6550 state(origin=show_end) requested=True, hasWindow=True, visible=True, sshMode=Windowed, rootMode=Windowed, mainDisplayMode=Windowed, embed=False, rootPos=(704, 366), rootSize=(1152, 648), sshPos=(120, 80), sshSize=(520, 240), wasMinimized=False, retryFrames=0, nextForceEdge=False
+[SSH_LOGIN_DIAG] t=7193 Attempt received (sample): count=50, host='easy_server', user='root', passwordLength=4, via='ssh.connect'.
+[SSH_LOGIN_DIAG] t=7773 Attempt received (sample): count=100, host='easy_server', user='root', passwordLength=4, via='ssh.connect'.
+[SSH_LOGIN_DIAG] t=8313 Attempt received (sample): count=150, host='easy_server', user='root', passwordLength=4, via='ssh.connect'.
+[SSH_LOGIN_DIAG] t=8897 Attempt received (sample): count=200, host='easy_server', user='root', passwordLength=5, via='ssh.connect'.
+[SSH_LOGIN_DIAG] t=9449 Attempt received (sample): count=250, host='easy_server', user='root', passwordLength=5, via='ssh.connect'.

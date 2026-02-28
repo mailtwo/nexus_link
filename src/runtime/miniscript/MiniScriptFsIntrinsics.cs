@@ -111,52 +111,67 @@ internal static class MiniScriptFsIntrinsics
             }
 
             var executionContext = state.ExecutionContext;
-            if (!TryResolveFsEndpoint(
+            if (!TryRunWorldAction(
                     state,
-                    executionContext,
-                    sessionOrRouteMap,
-                    out var endpoint,
-                    out var endpointUser,
-                    out var endpointError))
+                    () =>
+                    {
+                        if (!TryResolveFsEndpoint(
+                                state,
+                                executionContext,
+                                sessionOrRouteMap,
+                                out var endpoint,
+                                out var endpointUser,
+                                out var endpointError))
+                        {
+                            return CreateFsFailureMap(SystemCallErrorCode.InvalidArgs, endpointError);
+                        }
+
+                        if (!endpointUser.Privilege.Read)
+                        {
+                            return CreateFsFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: fs.list");
+                        }
+
+                        var targetPath = BaseFileSystem.NormalizePath(endpoint.Cwd, pathInput);
+                        if (!endpoint.Server.DiskOverlay.TryResolveEntry(targetPath, out var entry))
+                        {
+                            return CreateFsFailureMap(SystemCallResultFactory.NotFound(targetPath));
+                        }
+
+                        if (entry.EntryKind != VfsEntryKind.Dir)
+                        {
+                            return CreateFsFailureMap(SystemCallResultFactory.NotDirectory(targetPath));
+                        }
+
+                        var children = endpoint.Server.DiskOverlay.ListChildren(targetPath);
+                        var entries = new ValList();
+                        foreach (var childName in children)
+                        {
+                            var childPath = targetPath == "/" ? "/" + childName : targetPath + "/" + childName;
+                            var childKind = endpoint.Server.DiskOverlay.TryResolveEntry(childPath, out var childEntry) &&
+                                            childEntry.EntryKind == VfsEntryKind.Dir
+                                ? "Dir"
+                                : "File";
+                            entries.values.Add(new ValMap
+                            {
+                                ["name"] = new ValString(childName),
+                                ["entryKind"] = new ValString(childKind),
+                            });
+                        }
+
+                        var result = CreateFsSuccessMap();
+                        result["entries"] = entries;
+                        return result;
+                    },
+                    out var listResult,
+                    out var queueError))
             {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallErrorCode.InvalidArgs, endpointError));
+                return new Intrinsic.Result(
+                    CreateFsFailureMap(
+                        SystemCallErrorCode.InternalError,
+                        queueError));
             }
 
-            if (!endpointUser.Privilege.Read)
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: fs.list"));
-            }
-
-            var targetPath = BaseFileSystem.NormalizePath(endpoint.Cwd, pathInput);
-            if (!endpoint.Server.DiskOverlay.TryResolveEntry(targetPath, out var entry))
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallResultFactory.NotFound(targetPath)));
-            }
-
-            if (entry.EntryKind != VfsEntryKind.Dir)
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallResultFactory.NotDirectory(targetPath)));
-            }
-
-            var children = endpoint.Server.DiskOverlay.ListChildren(targetPath);
-            var entries = new ValList();
-            foreach (var childName in children)
-            {
-                var childPath = targetPath == "/" ? "/" + childName : targetPath + "/" + childName;
-                var childKind = endpoint.Server.DiskOverlay.TryResolveEntry(childPath, out var childEntry) &&
-                                childEntry.EntryKind == VfsEntryKind.Dir
-                    ? "Dir"
-                    : "File";
-                entries.values.Add(new ValMap
-                {
-                    ["name"] = new ValString(childName),
-                    ["entryKind"] = new ValString(childKind),
-                });
-            }
-
-            var result = CreateFsSuccessMap();
-            result["entries"] = entries;
-            return new Intrinsic.Result(result);
+            return new Intrinsic.Result(listResult);
         };
     }
 
@@ -211,51 +226,66 @@ internal static class MiniScriptFsIntrinsics
             }
 
             var executionContext = state.ExecutionContext;
-            if (!TryResolveFsEndpoint(
+            if (!TryRunWorldAction(
                     state,
-                    executionContext,
-                    sessionOrRouteMap,
-                    out var endpoint,
-                    out var endpointUser,
-                    out var endpointError))
+                    () =>
+                    {
+                        if (!TryResolveFsEndpoint(
+                                state,
+                                executionContext,
+                                sessionOrRouteMap,
+                                out var endpoint,
+                                out var endpointUser,
+                                out var endpointError))
+                        {
+                            return CreateFsFailureMap(SystemCallErrorCode.InvalidArgs, endpointError);
+                        }
+
+                        if (!endpointUser.Privilege.Read)
+                        {
+                            return CreateFsFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: fs.read");
+                        }
+
+                        var targetPath = BaseFileSystem.NormalizePath(endpoint.Cwd, pathInput);
+                        if (!endpoint.Server.DiskOverlay.TryResolveEntry(targetPath, out var entry))
+                        {
+                            return CreateFsFailureMap(SystemCallResultFactory.NotFound(targetPath));
+                        }
+
+                        if (entry.EntryKind != VfsEntryKind.File)
+                        {
+                            return CreateFsFailureMap(SystemCallResultFactory.IsDirectory(targetPath));
+                        }
+
+                        if (entry.FileKind != VfsFileKind.Text)
+                        {
+                            return CreateFsFailureMap(SystemCallResultFactory.NotTextFile(targetPath));
+                        }
+
+                        if (maxBytes.HasValue && entry.Size > maxBytes.Value)
+                        {
+                            return CreateFsFailureMap(SystemCallResultFactory.TooLarge(targetPath, maxBytes.Value, entry.Size));
+                        }
+
+                        if (!endpoint.Server.DiskOverlay.TryReadFileText(targetPath, out var text))
+                        {
+                            return CreateFsFailureMap(SystemCallResultFactory.NotFound(targetPath));
+                        }
+
+                        var result = CreateFsSuccessMap();
+                        result["text"] = new ValString(text);
+                        return result;
+                    },
+                    out var readResult,
+                    out var queueError))
             {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallErrorCode.InvalidArgs, endpointError));
+                return new Intrinsic.Result(
+                    CreateFsFailureMap(
+                        SystemCallErrorCode.InternalError,
+                        queueError));
             }
 
-            if (!endpointUser.Privilege.Read)
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: fs.read"));
-            }
-
-            var targetPath = BaseFileSystem.NormalizePath(endpoint.Cwd, pathInput);
-            if (!endpoint.Server.DiskOverlay.TryResolveEntry(targetPath, out var entry))
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallResultFactory.NotFound(targetPath)));
-            }
-
-            if (entry.EntryKind != VfsEntryKind.File)
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallResultFactory.IsDirectory(targetPath)));
-            }
-
-            if (entry.FileKind != VfsFileKind.Text)
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallResultFactory.NotTextFile(targetPath)));
-            }
-
-            if (maxBytes.HasValue && entry.Size > maxBytes.Value)
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallResultFactory.TooLarge(targetPath, maxBytes.Value, entry.Size)));
-            }
-
-            if (!endpoint.Server.DiskOverlay.TryReadFileText(targetPath, out var text))
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallResultFactory.NotFound(targetPath)));
-            }
-
-            var result = CreateFsSuccessMap();
-            result["text"] = new ValString(text);
-            return new Intrinsic.Result(result);
+            return new Intrinsic.Result(readResult);
         };
     }
 
@@ -320,73 +350,84 @@ internal static class MiniScriptFsIntrinsics
             }
 
             var executionContext = state.ExecutionContext;
-            if (!TryResolveFsEndpoint(
+            if (!TryRunWorldAction(
                     state,
-                    executionContext,
-                    sessionOrRouteMap,
-                    out var endpoint,
-                    out var endpointUser,
-                    out var endpointError))
+                    () =>
+                    {
+                        if (!TryResolveFsEndpoint(
+                                state,
+                                executionContext,
+                                sessionOrRouteMap,
+                                out var endpoint,
+                                out var endpointUser,
+                                out var endpointError))
+                        {
+                            return CreateFsFailureMap(SystemCallErrorCode.InvalidArgs, endpointError);
+                        }
+
+                        if (!endpointUser.Privilege.Write)
+                        {
+                            return CreateFsFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: fs.write");
+                        }
+
+                        var targetPath = BaseFileSystem.NormalizePath(endpoint.Cwd, pathInput);
+                        if (endpoint.Server.DiskOverlay.TryResolveEntry(targetPath, out var existingEntry))
+                        {
+                            if (existingEntry.EntryKind == VfsEntryKind.Dir)
+                            {
+                                return CreateFsFailureMap(SystemCallResultFactory.IsDirectory(targetPath));
+                            }
+
+                            if (!overwrite)
+                            {
+                                return CreateFsFailureMap(SystemCallResultFactory.AlreadyExists(targetPath));
+                            }
+                        }
+
+                        if (!TryEnsureFsParentDirectories(
+                                endpoint.Server,
+                                targetPath,
+                                createParents,
+                                applyChanges: true,
+                                out var parentFailure))
+                        {
+                            return CreateFsFailureMap(parentFailure);
+                        }
+
+                        try
+                        {
+                            endpoint.Server.DiskOverlay.WriteFile(targetPath, text, cwd: "/", fileKind: VfsFileKind.Text);
+                            var hasResolvedWrittenEntry = endpoint.Server.DiskOverlay.TryResolveEntry(targetPath, out var writtenEntry);
+                            executionContext.World.EmitFileAcquire(
+                                fromNodeId: endpoint.NodeId,
+                                userKey: endpoint.UserKey,
+                                fileName: targetPath,
+                                remotePath: null,
+                                localPath: targetPath,
+                                sizeBytes: hasResolvedWrittenEntry ? ToOptionalInt(writtenEntry.Size) : null,
+                                contentId: hasResolvedWrittenEntry ? writtenEntry.ContentId : null,
+                                transferMethod: "fs.write");
+                        }
+                        catch (InvalidOperationException ex)
+                        {
+                            return CreateFsFailureMap(SystemCallErrorCode.InvalidArgs, ex.Message);
+                        }
+
+                        var result = CreateFsSuccessMap();
+                        result["written"] = new ValNumber(text.Length);
+                        result["path"] = new ValString(targetPath);
+                        return result;
+                    },
+                    out var writeResult,
+                    out var queueError))
             {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallErrorCode.InvalidArgs, endpointError));
+                return new Intrinsic.Result(
+                    CreateFsFailureMap(
+                        SystemCallErrorCode.InternalError,
+                        queueError));
             }
 
-            if (!endpointUser.Privilege.Write)
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: fs.write"));
-            }
-
-            var targetPath = BaseFileSystem.NormalizePath(endpoint.Cwd, pathInput);
-            if (endpoint.Server.DiskOverlay.TryResolveEntry(targetPath, out var existingEntry))
-            {
-                if (existingEntry.EntryKind == VfsEntryKind.Dir)
-                {
-                    return new Intrinsic.Result(CreateFsFailureMap(SystemCallResultFactory.IsDirectory(targetPath)));
-                }
-
-                if (!overwrite)
-                {
-                    return new Intrinsic.Result(CreateFsFailureMap(SystemCallResultFactory.AlreadyExists(targetPath)));
-                }
-            }
-
-            var applyChanges = state.Mode == MiniScriptSshExecutionMode.RealWorld;
-            if (!TryEnsureFsParentDirectories(
-                    endpoint.Server,
-                    targetPath,
-                    createParents,
-                    applyChanges,
-                    out var parentFailure))
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(parentFailure));
-            }
-
-            if (applyChanges)
-            {
-                try
-                {
-                    endpoint.Server.DiskOverlay.WriteFile(targetPath, text, cwd: "/", fileKind: VfsFileKind.Text);
-                    var hasResolvedWrittenEntry = endpoint.Server.DiskOverlay.TryResolveEntry(targetPath, out var writtenEntry);
-                    executionContext.World.EmitFileAcquire(
-                        fromNodeId: endpoint.NodeId,
-                        userKey: endpoint.UserKey,
-                        fileName: targetPath,
-                        remotePath: null,
-                        localPath: targetPath,
-                        sizeBytes: hasResolvedWrittenEntry ? ToOptionalInt(writtenEntry.Size) : null,
-                        contentId: hasResolvedWrittenEntry ? writtenEntry.ContentId : null,
-                        transferMethod: "fs.write");
-                }
-                catch (InvalidOperationException ex)
-                {
-                    return new Intrinsic.Result(CreateFsFailureMap(SystemCallErrorCode.InvalidArgs, ex.Message));
-                }
-            }
-
-            var result = CreateFsSuccessMap();
-            result["written"] = new ValNumber(text.Length);
-            result["path"] = new ValString(targetPath);
-            return new Intrinsic.Result(result);
+            return new Intrinsic.Result(writeResult);
         };
     }
 
@@ -438,59 +479,69 @@ internal static class MiniScriptFsIntrinsics
             }
 
             var executionContext = state.ExecutionContext;
-            if (!TryResolveFsEndpoint(
+            if (!TryRunWorldAction(
                     state,
-                    executionContext,
-                    sessionOrRouteMap,
-                    out var endpoint,
-                    out var endpointUser,
-                    out var endpointError))
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallErrorCode.InvalidArgs, endpointError));
-            }
+                    () =>
+                    {
+                        if (!TryResolveFsEndpoint(
+                                state,
+                                executionContext,
+                                sessionOrRouteMap,
+                                out var endpoint,
+                                out var endpointUser,
+                                out var endpointError))
+                        {
+                            return CreateFsFailureMap(SystemCallErrorCode.InvalidArgs, endpointError);
+                        }
 
-            if (!endpointUser.Privilege.Write)
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: fs.delete"));
-            }
+                        if (!endpointUser.Privilege.Write)
+                        {
+                            return CreateFsFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: fs.delete");
+                        }
 
-            var targetPath = BaseFileSystem.NormalizePath(endpoint.Cwd, pathInput);
-            if (targetPath == "/")
+                        var targetPath = BaseFileSystem.NormalizePath(endpoint.Cwd, pathInput);
+                        if (targetPath == "/")
+                        {
+                            return CreateFsFailureMap(
+                                SystemCallErrorCode.InvalidArgs,
+                                "fs.delete cannot remove root directory.");
+                        }
+
+                        if (!endpoint.Server.DiskOverlay.TryResolveEntry(targetPath, out var entry))
+                        {
+                            return CreateFsFailureMap(SystemCallResultFactory.NotFound(targetPath));
+                        }
+
+                        if (entry.EntryKind == VfsEntryKind.Dir && endpoint.Server.DiskOverlay.ListChildren(targetPath).Count != 0)
+                        {
+                            return CreateFsFailureMap(
+                                SystemCallErrorCode.NotEmpty,
+                                "directory not empty: " + targetPath);
+                        }
+
+                        try
+                        {
+                            endpoint.Server.DiskOverlay.AddTombstone(targetPath);
+                        }
+                        catch (InvalidOperationException ex)
+                        {
+                            return CreateFsFailureMap(SystemCallErrorCode.InvalidArgs, ex.Message);
+                        }
+
+                        var result = CreateFsSuccessMap();
+                        result["deleted"] = ValNumber.one;
+                        return result;
+                    },
+                    out var deleteResult,
+                    out var queueError))
             {
                 return new Intrinsic.Result(
                     CreateFsFailureMap(
-                        SystemCallErrorCode.InvalidArgs,
-                        "fs.delete cannot remove root directory."));
+                        SystemCallErrorCode.InternalError,
+                        queueError));
             }
 
-            if (!endpoint.Server.DiskOverlay.TryResolveEntry(targetPath, out var entry))
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallResultFactory.NotFound(targetPath)));
-            }
-
-            if (entry.EntryKind == VfsEntryKind.Dir && endpoint.Server.DiskOverlay.ListChildren(targetPath).Count != 0)
-            {
-                return new Intrinsic.Result(
-                    CreateFsFailureMap(
-                        SystemCallErrorCode.NotEmpty,
-                        "directory not empty: " + targetPath));
-            }
-
-            if (state.Mode == MiniScriptSshExecutionMode.RealWorld)
-            {
-                try
-                {
-                    endpoint.Server.DiskOverlay.AddTombstone(targetPath);
-                }
-                catch (InvalidOperationException ex)
-                {
-                    return new Intrinsic.Result(CreateFsFailureMap(SystemCallErrorCode.InvalidArgs, ex.Message));
-                }
-            }
-
-            var result = CreateFsSuccessMap();
-            result["deleted"] = ValNumber.one;
-            return new Intrinsic.Result(result);
+            return new Intrinsic.Result(deleteResult);
         };
     }
 
@@ -542,42 +593,57 @@ internal static class MiniScriptFsIntrinsics
             }
 
             var executionContext = state.ExecutionContext;
-            if (!TryResolveFsEndpoint(
+            if (!TryRunWorldAction(
                     state,
-                    executionContext,
-                    sessionOrRouteMap,
-                    out var endpoint,
-                    out var endpointUser,
-                    out var endpointError))
+                    () =>
+                    {
+                        if (!TryResolveFsEndpoint(
+                                state,
+                                executionContext,
+                                sessionOrRouteMap,
+                                out var endpoint,
+                                out var endpointUser,
+                                out var endpointError))
+                        {
+                            return CreateFsFailureMap(SystemCallErrorCode.InvalidArgs, endpointError);
+                        }
+
+                        if (!endpointUser.Privilege.Read)
+                        {
+                            return CreateFsFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: fs.stat");
+                        }
+
+                        var targetPath = BaseFileSystem.NormalizePath(endpoint.Cwd, pathInput);
+                        if (!endpoint.Server.DiskOverlay.TryResolveEntry(targetPath, out var entry))
+                        {
+                            return CreateFsFailureMap(SystemCallResultFactory.NotFound(targetPath));
+                        }
+
+                        var result = CreateFsSuccessMap();
+                        result["entryKind"] = new ValString(entry.EntryKind == VfsEntryKind.Dir ? "Dir" : "File");
+                        if (entry.EntryKind == VfsEntryKind.File)
+                        {
+                            result["fileKind"] = new ValString((entry.FileKind ?? VfsFileKind.Text).ToString());
+                            result["size"] = new ValNumber(entry.Size);
+                        }
+                        else
+                        {
+                            result["fileKind"] = (Value)null!;
+                            result["size"] = (Value)null!;
+                        }
+
+                        return result;
+                    },
+                    out var statResult,
+                    out var queueError))
             {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallErrorCode.InvalidArgs, endpointError));
+                return new Intrinsic.Result(
+                    CreateFsFailureMap(
+                        SystemCallErrorCode.InternalError,
+                        queueError));
             }
 
-            if (!endpointUser.Privilege.Read)
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: fs.stat"));
-            }
-
-            var targetPath = BaseFileSystem.NormalizePath(endpoint.Cwd, pathInput);
-            if (!endpoint.Server.DiskOverlay.TryResolveEntry(targetPath, out var entry))
-            {
-                return new Intrinsic.Result(CreateFsFailureMap(SystemCallResultFactory.NotFound(targetPath)));
-            }
-
-            var result = CreateFsSuccessMap();
-            result["entryKind"] = new ValString(entry.EntryKind == VfsEntryKind.Dir ? "Dir" : "File");
-            if (entry.EntryKind == VfsEntryKind.File)
-            {
-                result["fileKind"] = new ValString((entry.FileKind ?? VfsFileKind.Text).ToString());
-                result["size"] = new ValNumber(entry.Size);
-            }
-            else
-            {
-                result["fileKind"] = (Value)null!;
-                result["size"] = (Value)null!;
-            }
-
-            return new Intrinsic.Result(result);
+            return new Intrinsic.Result(statResult);
         };
     }
 

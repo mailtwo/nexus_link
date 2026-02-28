@@ -94,9 +94,11 @@
 - `resizable=false`인 창은 사용자가 크기 변경을 할 수 없어야 한다.
 
 5) 버튼 정책(기능 기준)  
-- 최소화 기능은 제공하지 않는다(= 버튼 비활성화 또는 숨김 처리).
-  - NATIVE_OS 모드에선 버튼 비활성화 처리를 한다.
-  - VIRTUAL_DESKTOP 모드에선 버튼을 그리지 않는 것으로 숨김 처리를 한다.
+- Primary Core Window는 최소화 기능을 허용한다.
+- Secondary(WindowKind) 창의 최소화 허용 여부는 `Minimizable` 플래그로 정의한다.
+- 알파 구현에서는 서브창 최소화 기능을 구현하지 않는다.
+  - NATIVE_OS 모드에선 서브창 최소화 버튼을 비활성화 처리한다.
+  - VIRTUAL_DESKTOP 모드에선 서브창 최소화 버튼을 그리지 않는 것으로 숨김 처리한다.
 - 최대화 기능은 `resizable=true`인 창에서만 제공한다.
 - 닫기 기능은 모든 창에서 제공한다.
 
@@ -193,7 +195,8 @@
 
 ### 4.4 버튼/리사이즈 정책 구현 (MUST)
 - OS 프레임을 유지하되, 버튼 기능은 아래처럼 제어한다("없음"은 "비활성화"로 해석).
-  - 모든 창: 최소화 버튼 비활성화
+  - Primary Core Window: 최소화 버튼 활성화(허용)
+  - Secondary(WindowKind): `Minimizable` 플래그 기준으로 제어하되, 알파에서는 비활성화
   - resizable=false 창: 최대화 버튼 비활성화
   - resizable=true 창: 최대화 버튼 활성화(허용)
 - 닫기 버튼은 OS 기본 동작을 사용하되, Godot의 `close_requested`를 반드시 처리한다(자동으로 닫히지 않을 수 있음).
@@ -213,7 +216,8 @@
 ### 5.2 커스텀 크롬 및 Z-order 관리 (MUST)
 
 **타이틀바 / 버튼:**
-- 최소화 버튼은 제공하지 않는다.
+- Secondary(WindowKind)의 최소화 버튼은 `Minimizable=true`인 창에만 제공할 수 있다.
+- 단, 알파 구현에서는 `Minimizable=true`인 창도 최소화 버튼을 표시하지 않는다.
 - 최대화 버튼은 resizable=true인 창에만 제공한다.
 - 닫기 버튼은 모든 창에 제공한다.
 - 드래그(이동), 리사이즈(허용 창만)는 게임이 직접 구현한다.
@@ -279,21 +283,33 @@
 
 ## 7. WindowKind 레지스트리
 
-### 7.1 MVP Kind
+### 7.1 알파 WindowKind
 - `SSH_LOGIN`
+- `WORLD_MAP_TRACE`
+- `NETWORK_TOPOLOGY`
+- `FILE_TRANSFER_QUEUE`
+- `WEB_VIEWER`
+- `PROCESS_LIST`
 
 > `TERMINAL`, `GUI_MAIN`은 WindowKind가 아니라 CoreWindowKind로 취급한다(§1, §2.2-8 참조).
 
 ### 7.2 Kind별 속성
-| WindowKind | Single Instance | Resizable | Auto Focus | Focus Mode | Default Size | Default Pos (Native) | Default Pos (Virtual)|
-|---|---:|---:|---:|---|---|---|---|
-| SSH_LOGIN | YES | NO (MVP) | NO | Passthrough | 520×240 | (예: 120,80) | (예: 120,80) |
+| WindowKind | Single Instance | Resizable | Auto Focus | Focus Mode | Volatile | Minimizable | Default Size | Default Pos (Native) | Default Pos (Virtual)|
+|---|---:|---:|---:|---|---:|---:|---|---|---|
+| SSH_LOGIN | YES | NO | NO | Passthrough | YES | NO | 520×240 | 120,80 | 120,80 |
+| FILE_TRANSFER_QUEUE | YES | NO | NO | Passthrough | YES | NO | 520×240 | 120,80 | 120,80 |
+| WEB_VIEWER | YES | YES | YES | Exclusive | NO | YES | 520×240 | 120,80 | 120,80 |
+| CODE_EDITOR (Reserved/Future) | YES | TBD | TBD | TBD | NO | YES | TBD | TBD | TBD |
 
-> 웹페이지 뷰어, 파일 전송 대기줄, Network Topology viewer, 월드 맵 및 네트워크 트레이싱창, 프로세서 목록 속성 추가가 필요함(알파 범위).
+> 웹페이지 뷰어, Network Topology viewer, 월드 맵 및 네트워크 트레이싱창, 프로세서 목록 속성은 알파 범위에서 추가 확정이 필요하다.
 
 > 코딩 에디터 윈도우는 추후 구현 항목이며, 탭 기반 다중 문서 규칙은 §7.3을 따른다.
 
 > 알파 구현 목표 창들이 추가되면 이 테이블에 속성을 확장한다.
+
+> TBD 항목은 알파 구현 시점에 확정한다.
+
+> `WEB_VIEWER`, `CODE_EDITOR`는 `Minimizable=YES`를 계약상 예약하지만, 알파 구현에서는 최소화 버튼/동작을 비활성화한다.
 
 > Godot의 Resource (tre) 파일로 각 Kind의 속성을 정의하는 것을 고려해본다.
 
@@ -303,6 +319,18 @@
 - `open_window(FILE_TRANSFER_QUEUE)` 재호출은 "새 창 생성"이 아니라 "기존 창 전면화 + 목록 갱신"으로 처리한다 (MUST).
 - `CODE_EDITOR`는 추후 구현 시 동일 패턴을 따른다: 창 1개 + 탭 N개(파일별 문서/버퍼 전환) (SHOULD).
 - `CODE_EDITOR` 탭 정책은 알파 범위 밖이며, 구현 시점에 Kind 속성/상세 계약을 별도 확정한다.
+
+### 7.4 Volatile 자동 닫힘 정책 (MUST)
+- `Volatile=YES`인 WindowKind는 마지막 업데이트 시점 기준으로 **3초 무업데이트** 상태가 되면 자동 닫힘 대상이 된다.
+- 새 업데이트가 들어오면 닫힘 데드라인은 **마지막 업데이트 시점 + 3초**로 갱신한다.
+- 창 내부에서 마우스 버튼 다운 상태이면, 데드라인이 지나도 자동 닫힘을 유예한다.
+- 마우스 버튼 업 이후 커서가 창 밖으로 나가면 유예를 해제한다.
+- 모드 전환 중 경과 시간은 Volatile 자동 닫힘 타이머에서 차감하지 않는다.
+- Kind별 업데이트 소스:
+  - `SSH_LOGIN`: `ssh.connect` 또는 `connect` 시도 이벤트.
+  - `FILE_TRANSFER_QUEUE`: 전송 목록 업데이트(추가/진행률/상태 변화).
+- `FILE_TRANSFER_QUEUE`는 추가로 아래 조건을 만족할 때만 닫힌다:
+  - `3초 무업데이트`이면서 `활성 전송 작업 수=0`.
 
 ---
 
@@ -368,20 +396,16 @@
 각 시도(attempt)에 대해 아래를 표시한다.
 - Host: `hostname` (없으면 `ip`)
 - User ID: 가능하면 표시, 없으면 `-` 또는 `<unknown>`
-- Password: **마스킹 처리**로만 표시 (`***` 등)
+- Password: 실제 시도 비밀번호 원문을 표시한다.
 
-비밀번호 정책:
-- 실제 비밀번호 문자열은 UI/로그에 절대 노출하지 않는다.
-- 표시는 길이 기반: `"*" * len(password)`
-  - 비밀번호 길이는 노출되어도 된다.
-  - 비밀번호가 제공되지 않을 경우 (null) 아무것도 표시하지 않는다.
+비밀번호 노출 범위 정책:
+- 비밀번호 원문 표시는 SSH_LOGIN UI의 런타임 메모리 표시 범위로 한정한다.
+- 게임 이벤트 payload 및 로그에는 비밀번호 원문을 기록하지 않는다.
+- save/load 영속 데이터에는 비밀번호 원문을 저장하지 않는다.
+- 비밀번호가 제공되지 않을 경우 (null) 빈 문자열로 표시한다.
 
 ### 9.3 자동 닫힘 (MUST)
-- SSH_LOGIN 창이 나타난 이후 **3초간** 대기한다.
-- 마지막 시도 이후 3초 동안 새로운 ssh/connect 이벤트가 없으면 자동으로 닫힌다.
-- 3초 내 새 시도가 들어오면 닫힘 데드라인을 **마지막 시도 시점 + 3초**로 갱신한다.
-- 마우스가 해당 창 안을 클릭(버튼 다운)하고 있을 경우 닫힘 데드라인이 넘어도 마우스가 버튼을 뗀 상태에서 창 밖으로 나갈 때까지 닫힘을 유예한다. (마우스가 창을 계속 나가지 않는다면 영원히 닫히지 않아도 됨)
-- 전환 중 경과 시간은 타이머에서 차감하지 않는다.
+- SSH_LOGIN은 `Volatile=YES` 창이며, 자동 닫힘 규칙은 §7.4를 따른다.
 
 ### 9.4 UI 레이아웃(권장)
 * **윈도우 타이틀바:** `SSH Login` 표시.
@@ -461,14 +485,15 @@
   - 서브 윈도우의 State가 `serialize_state()` / `restore_state()`를 통해 보존된다 (예: SSH_LOGIN의 표시 데이터, 타이머 잔여 시간).
   - 활성화된 DesktopOverlay가 전환 전에 비활성화된다.
 - VIRTUAL_DESKTOP → NATIVE_OS 전환 시에도 동일하게 동작하고, 저장된 DesktopOverlay 상태가 복원된다.
-- 전환 중 경과 시간이 SSH_LOGIN 자동 닫힘 타이머에서 차감되지 않는다.
+- 전환 중 경과 시간이 Volatile 창 자동 닫힘 타이머에서 차감되지 않는다.
 - 가상 모드 진입 시 WINDOWED → embed 설정 → MAXIMIZED → 서브 윈도우 생성 순서가 지켜진다.
 
 ### 13.2 네이티브 OS 모드 (§3.2A, §4)
 - Primary Core Window가 WINDOWED / MAXIMIZED에서 동작한다.
 - FULLSCREEN / EXCLUSIVE_FULLSCREEN 진입 시 자동으로 VIRTUAL_DESKTOP으로 전환된다.
 - 서브 윈도우(WindowKind)는 OS 프레임(타이틀바/테두리)을 유지한다. borderless가 아니다.
-- 모든 서브 윈도우의 최소화 버튼이 비활성화되어 있다.
+- Primary Core Window는 최소화 버튼이 활성화되어 있다.
+- 알파 구현에서 모든 서브 윈도우(WindowKind)의 최소화 버튼은 비활성화되어 있다.
 - resizable=false 창의 최대화 버튼이 비활성화되어 있다.
 - Primary Core Window를 이동해도 Secondary 창은 따라 움직이지 않는다.
 - TerminalWindow / GuiMainWindow 중 정확히 하나만 Primary Core Window이며, 전면 요청 시 대상 창으로 승격된다.
@@ -480,7 +505,7 @@
 - unmaximize 발생 시 즉시 MAXIMIZED로 복귀한다.
 - 에뮬레이티드 배경이 표시된다.
 - 가상 윈도우들은 커스텀 타이틀바 / 닫기 버튼 / (resizable=true 시) 최대화 버튼으로 동작한다.
-- 최소화 버튼은 표시되지 않는다.
+- 알파 구현에서 최소화 버튼은 표시되지 않는다.
 - usable rect 변경(모니터 전환, 해상도 변경 등) 시 서브 창이 메인 창 밖으로 벗어나지 않도록 클램핑된다. 클램핑 시 크기는 유지되고 위치만 조정된다.
 
 ### 13.4 Z-order 및 전면화 (§5.2)
@@ -526,10 +551,8 @@
 
 ### 13.8 SSH_LOGIN (§9)
 - `ssh.connect` 호출 또는 SSH로 판별된 `connect` 시도 시 자동으로 창이 열린다.
-- Host, User, Password(마스킹)가 표시된다. 비밀번호가 null이면 Passwd 필드는 비어 있다.
-- 새로운 시도 이벤트 수신 시 기존 필드 내용이 즉시 덮어쓰이고 타이머가 리셋된다.
-- 마지막 시도 이후 3초간 추가 이벤트가 없으면 자동으로 닫힌다.
-- 마우스 버튼이 창 내부에서 눌린 상태이면 닫힘이 유예된다. 버튼을 뗀 후 마우스가 창 밖으로 나가면 닫힌다.
+- Host, User, Password(원문)가 표시된다. 비밀번호가 null이면 Passwd 필드는 비어 있다.
+- SSH_LOGIN은 `Volatile=YES`이며, 자동 닫힘/유예/타이머 리셋 규칙은 §7.4를 따른다.
 - SSH_LOGIN은 Passthrough 모드이며, 창이 떠 있는 동안 Primary Core Window 입력이 방해받지 않는다.
 - SSH_LOGIN은 autoFocus=false이며, 열릴 때 Primary Core Window 포커스를 뺏지 않는다.
 
@@ -540,6 +563,8 @@
 - `FILE_TRANSFER_QUEUE` 창은 동시에 1개만 존재한다.
 - 파일 전송 작업이 여러 개일 때, 창 내부 목록에 여러 `TransferJob` 항목이 동시에 표시된다.
 - `open_window(FILE_TRANSFER_QUEUE)`를 반복 호출해도 새 창은 생기지 않고, 기존 창만 전면화/갱신된다.
+- `FILE_TRANSFER_QUEUE`는 `Volatile=YES`이며, 업데이트가 없고 활성 전송 작업 수가 0이면 3초 후 자동으로 닫힌다.
+- `FILE_TRANSFER_QUEUE`에서 전송 목록 업데이트(추가/진행률/상태 변화)가 발생하면 자동 닫힘 데드라인이 리셋된다.
 - `CODE_EDITOR` 탭 기반 다중 문서 정책은 추후 구현 범위이며, 본 알파 수용 기준에서 제외된다.
 
 ### 13.11 EXCLUSIVE_FULLSCREEN 제약 (§11)
@@ -549,7 +574,9 @@
 ### 13.12 State 직렬화 (§8.4)
 - 모든 WindowKind가 `serialize_state()` / `restore_state()`를 구현한다.
 - State가 없는 창은 빈 Dictionary를 반환하며, 복원 시 에러가 발생하지 않는다.
-- 모드 전환 전후로 State가 정확히 보존된다 (SSH_LOGIN: host, user, masked password, 타이머 잔여 시간).
+- 모드 전환 전후로 State가 정확히 보존된다 (SSH_LOGIN: host, user, password, 타이머 잔여 시간).
+- SSH_LOGIN 비밀번호 원문은 같은 프로세스 내 모드 전환/창 재생성에서만 복원 가능하며, save/load 영속 복원 대상이 아니다.
+- 모드 전환 전후로 Volatile 창의 자동 닫힘 상태도 보존된다 (예: FILE_TRANSFER_QUEUE의 타이머 잔여 시간, 활성 전송 작업 수).
 
 ### 13.13 DesktopOverlay (§15)
 - NATIVE_OS 모드에서만 DesktopOverlay를 활성화할 수 있다.

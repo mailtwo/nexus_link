@@ -1,6 +1,6 @@
-# 샌드박스 API 모듈 설계 (프로토타입 v0.2)
+# 게임 API 모듈 설계 (RealWorld 요청 큐 기반, 프로토타입 v0.2)
 
-이 문서는 유저 MiniScript 프로그램이 접근할 **샌드박스(intrinsic) API 표면**을 정의한다.
+이 문서는 유저 MiniScript 프로그램이 접근할 **intrinsic API 표면**을 정의한다.
 
 스코프(이번 버전):
 - 쉬움/중간/어려움(v0) 시나리오를 **클리어 가능**하게 만드는 최소 API 세트
@@ -8,7 +8,7 @@
 - 설계 보류 모듈: `db`, `crypto`
 
 핵심 원칙:
-- 유저는 **실제 OS/네트워크/디스크에 절대 접근하지 못한다.** 모든 API는 “가상 월드”만 조작한다.
+- 유저는 **실제 OS/네트워크/디스크에 절대 접근하지 못한다.** 모든 API는 “가상 월드 RealWorld 상태”만 조작한다.
 - API는 “실제 해킹 페이로드”가 아니라, **전략·추론·리소스 관리**에 맞춘 추상화 계층이다.
 - 모든 API는 **권한 검사 + 비용(cost) + 탐지(trace) + (필요 시) 이벤트 enqueue** 규약을 따른다.
 
@@ -200,6 +200,33 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `Manual` 섹션은 Manual Markdown 문서를 노출한다.
   - `API` 섹션은 자동 생성 Reference 트리를 유지한다.
 
+### 0.13 요청 큐 실행 규약 (MUST)
+- 월드 상태를 읽거나 변경하는 intrinsic 본문은 월드 상태를 직접 변경하지 않고 **요청 큐**로 실행해야 한다.
+- 요청 큐는 월드 스레드에서 drain되어 처리되며, 요청은 **정확히 1회 실행되거나 취소**되어야 한다.
+- 비월드 스레드 호출은 응답을 대기하며, 대기 타임아웃 시 `ERR_INTERNAL_ERROR`를 반환한다.
+- 타임아웃 시점에 `Pending` 상태인 요청은 큐에서 제거되어 `Cancelled` 처리되며, 이후 실행되면 안 된다.
+- 월드 스레드 호출은 inline 실행을 허용한다.
+
+큐 적용 범위(고정):
+
+| API | 큐 적용 |
+|---|---|
+| `ssh.connect/disconnect/exec/inspect` | MUST |
+| `ftp.get/put` | MUST |
+| `fs.list/read/write/delete/stat` | MUST |
+| `net.interfaces/scan/ports/banner` | MUST |
+| `term.exec` | MUST |
+| `import` | MUST (상대경로 overlay read 경로) |
+
+큐 적용 제외(고정):
+- `term.print`, `term.warn`, `term.error`
+- `crypto.*`
+- `argv`, `argc`
+
+### 0.14 `SandboxValidated` 호환 라벨
+- `MiniScriptSshExecutionMode.SandboxValidated`는 호환성 유지를 위한 라벨이다.
+- 본 문서 기준 동작 의미는 검증-only가 아니며, RealWorld 상태 반영을 허용한다.
+
 ---
 
 ## 1) term (터미널 출력/로컬 명령 실행)
@@ -343,7 +370,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
     - `createParents=false`면 `ERR_NOT_FOUND`/`ERR_NOT_DIRECTORY`
     - `createParents=true`면 필요한 디렉토리를 생성 후 진행
   - 쓰기는 overlay에 반영한다(기본/base는 직접 수정하지 않음)
-  - 성공 시(RealWorld 모드) `fileAcquire` 이벤트를 `transferMethod="fs.write"`로 enqueue한다
+  - 성공 시 `fileAcquire` 이벤트를 `transferMethod="fs.write"`로 enqueue한다
 - 반환(최상위 필드):
   - `{ written: int /*chars*/, path: string }`
 - 실패:

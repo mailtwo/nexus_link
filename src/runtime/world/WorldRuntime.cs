@@ -133,6 +133,7 @@ public partial class WorldRuntime : Node
     /// <summary>Initializes game systems, then builds initial world runtime from blueprints.</summary>
     public override void _Ready()
     {
+        CaptureWorldRuntimeThread();
         physicsTicksPerSecond = Math.Max(1, Engine.PhysicsTicksPerSecond);
         initializationStage = InitializationStage.SystemInitializing;
 

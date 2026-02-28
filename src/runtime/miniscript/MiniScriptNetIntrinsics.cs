@@ -104,26 +104,41 @@ internal static class MiniScriptNetIntrinsics
             }
 
             var executionContext = state.ExecutionContext;
-            if (!TryResolveFsEndpoint(
+            if (!TryRunWorldAction(
                     state,
-                    executionContext,
-                    sessionOrRouteMap,
-                    out var endpoint,
-                    out var endpointUser,
-                    out var endpointError))
+                    () =>
+                    {
+                        if (!TryResolveFsEndpoint(
+                                state,
+                                executionContext,
+                                sessionOrRouteMap,
+                                out var endpoint,
+                                out var endpointUser,
+                                out var endpointError))
+                        {
+                            return CreateNetFailureMap(SystemCallErrorCode.InvalidArgs, endpointError);
+                        }
+
+                        if (!endpointUser.Privilege.Execute)
+                        {
+                            return CreateNetFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: net.interfaces");
+                        }
+
+                        var interfaces = CollectEndpointInterfaces(endpoint.Server);
+                        var result = CreateNetSuccessMap();
+                        result["interfaces"] = interfaces;
+                        return result;
+                    },
+                    out var interfacesResult,
+                    out var queueError))
             {
-                return new Intrinsic.Result(CreateNetFailureMap(SystemCallErrorCode.InvalidArgs, endpointError));
+                return new Intrinsic.Result(
+                    CreateNetFailureMap(
+                        SystemCallErrorCode.InternalError,
+                        queueError));
             }
 
-            if (!endpointUser.Privilege.Execute)
-            {
-                return new Intrinsic.Result(CreateNetFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: net.interfaces"));
-            }
-
-            var interfaces = CollectEndpointInterfaces(endpoint.Server);
-            var result = CreateNetSuccessMap();
-            result["interfaces"] = interfaces;
-            return new Intrinsic.Result(result);
+            return new Intrinsic.Result(interfacesResult);
         };
     }
 
@@ -184,38 +199,53 @@ internal static class MiniScriptNetIntrinsics
             }
 
             var executionContext = state.ExecutionContext;
-            if (!TryResolveFsEndpoint(
+            if (!TryRunWorldAction(
                     state,
-                    executionContext,
-                    sessionOrRouteMap,
-                    out var endpoint,
-                    out var endpointUser,
-                    out var endpointError))
+                    () =>
+                    {
+                        if (!TryResolveFsEndpoint(
+                                state,
+                                executionContext,
+                                sessionOrRouteMap,
+                                out var endpoint,
+                                out var endpointUser,
+                                out var endpointError))
+                        {
+                            return CreateNetFailureMap(SystemCallErrorCode.InvalidArgs, endpointError);
+                        }
+
+                        if (!endpointUser.Privilege.Execute)
+                        {
+                            return CreateNetFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: net.scan");
+                        }
+
+                        if (!TryBuildNetScanData(
+                                executionContext.World,
+                                endpoint.Server,
+                                netIdFilter,
+                                out var interfaces,
+                                out var ips,
+                                out var scanErrorCode,
+                                out var scanErrorMessage))
+                        {
+                            return CreateNetFailureMap(scanErrorCode, scanErrorMessage);
+                        }
+
+                        var result = CreateNetSuccessMap();
+                        result["interfaces"] = interfaces;
+                        result["ips"] = ips;
+                        return result;
+                    },
+                    out var scanResult,
+                    out var queueError))
             {
-                return new Intrinsic.Result(CreateNetFailureMap(SystemCallErrorCode.InvalidArgs, endpointError));
+                return new Intrinsic.Result(
+                    CreateNetFailureMap(
+                        SystemCallErrorCode.InternalError,
+                        queueError));
             }
 
-            if (!endpointUser.Privilege.Execute)
-            {
-                return new Intrinsic.Result(CreateNetFailureMap(SystemCallErrorCode.PermissionDenied, "permission denied: net.scan"));
-            }
-
-            if (!TryBuildNetScanData(
-                    executionContext.World,
-                    endpoint.Server,
-                    netIdFilter,
-                    out var interfaces,
-                    out var ips,
-                    out var scanErrorCode,
-                    out var scanErrorMessage))
-            {
-                return new Intrinsic.Result(CreateNetFailureMap(scanErrorCode, scanErrorMessage));
-            }
-
-            var result = CreateNetSuccessMap();
-            result["interfaces"] = interfaces;
-            result["ips"] = ips;
-            return new Intrinsic.Result(result);
+            return new Intrinsic.Result(scanResult);
         };
     }
 
@@ -269,50 +299,65 @@ internal static class MiniScriptNetIntrinsics
             }
 
             var executionContext = state.ExecutionContext;
-            if (!TryResolveFsEndpoint(
+            if (!TryRunWorldAction(
                     state,
-                    executionContext,
-                    sessionOrRouteMap,
-                    out var endpoint,
-                    out _,
-                    out var endpointError))
+                    () =>
+                    {
+                        if (!TryResolveFsEndpoint(
+                                state,
+                                executionContext,
+                                sessionOrRouteMap,
+                                out var endpoint,
+                                out _,
+                                out var endpointError))
+                        {
+                            return CreateNetFailureMap(SystemCallErrorCode.InvalidArgs, endpointError);
+                        }
+
+                        if (!TryResolveNetTargetServer(executionContext, hostOrIp, out var targetServer, out var targetFailure))
+                        {
+                            return CreateNetFailureMap(targetFailure.Code, targetFailure.Message);
+                        }
+
+                        var sortedPorts = new List<int>(targetServer.Ports.Keys);
+                        sortedPorts.Sort();
+                        var ports = new ValList();
+                        foreach (var portNumber in sortedPorts)
+                        {
+                            if (!targetServer.Ports.TryGetValue(portNumber, out var portConfig) ||
+                                portConfig is null ||
+                                portConfig.PortType == PortType.None)
+                            {
+                                continue;
+                            }
+
+                            if (!IsNetPortExposureAllowed(endpoint.Server, targetServer, portConfig.Exposure))
+                            {
+                                continue;
+                            }
+
+                            ports.values.Add(new ValMap
+                            {
+                                ["port"] = new ValNumber(portNumber),
+                                ["portType"] = new ValString(ToPortTypeToken(portConfig.PortType)),
+                                ["exposure"] = new ValString(ToExposureToken(portConfig.Exposure)),
+                            });
+                        }
+
+                        var result = CreateNetSuccessMap();
+                        result["ports"] = ports;
+                        return result;
+                    },
+                    out var portsResult,
+                    out var queueError))
             {
-                return new Intrinsic.Result(CreateNetFailureMap(SystemCallErrorCode.InvalidArgs, endpointError));
+                return new Intrinsic.Result(
+                    CreateNetFailureMap(
+                        SystemCallErrorCode.InternalError,
+                        queueError));
             }
 
-            if (!TryResolveNetTargetServer(executionContext, hostOrIp, out var targetServer, out var targetFailure))
-            {
-                return new Intrinsic.Result(CreateNetFailureMap(targetFailure.Code, targetFailure.Message));
-            }
-
-            var sortedPorts = new List<int>(targetServer.Ports.Keys);
-            sortedPorts.Sort();
-            var ports = new ValList();
-            foreach (var portNumber in sortedPorts)
-            {
-                if (!targetServer.Ports.TryGetValue(portNumber, out var portConfig) ||
-                    portConfig is null ||
-                    portConfig.PortType == PortType.None)
-                {
-                    continue;
-                }
-
-                if (!IsNetPortExposureAllowed(endpoint.Server, targetServer, portConfig.Exposure))
-                {
-                    continue;
-                }
-
-                ports.values.Add(new ValMap
-                {
-                    ["port"] = new ValNumber(portNumber),
-                    ["portType"] = new ValString(ToPortTypeToken(portConfig.PortType)),
-                    ["exposure"] = new ValString(ToExposureToken(portConfig.Exposure)),
-                });
-            }
-
-            var result = CreateNetSuccessMap();
-            result["ports"] = ports;
-            return new Intrinsic.Result(result);
+            return new Intrinsic.Result(portsResult);
         };
     }
 
@@ -366,43 +411,56 @@ internal static class MiniScriptNetIntrinsics
             }
 
             var executionContext = state.ExecutionContext;
-            if (!TryResolveFsEndpoint(
+            if (!TryRunWorldAction(
                     state,
-                    executionContext,
-                    sessionOrRouteMap,
-                    out var endpoint,
-                    out _,
-                    out var endpointError))
-            {
-                return new Intrinsic.Result(CreateNetFailureMap(SystemCallErrorCode.InvalidArgs, endpointError));
-            }
+                    () =>
+                    {
+                        if (!TryResolveFsEndpoint(
+                                state,
+                                executionContext,
+                                sessionOrRouteMap,
+                                out var endpoint,
+                                out _,
+                                out var endpointError))
+                        {
+                            return CreateNetFailureMap(SystemCallErrorCode.InvalidArgs, endpointError);
+                        }
 
-            if (!TryResolveNetTargetServer(executionContext, hostOrIp, out var targetServer, out var targetFailure))
-            {
-                return new Intrinsic.Result(CreateNetFailureMap(targetFailure.Code, targetFailure.Message));
-            }
+                        if (!TryResolveNetTargetServer(executionContext, hostOrIp, out var targetServer, out var targetFailure))
+                        {
+                            return CreateNetFailureMap(targetFailure.Code, targetFailure.Message);
+                        }
 
-            if (!targetServer.Ports.TryGetValue(port, out var portConfig) ||
-                portConfig is null ||
-                portConfig.PortType == PortType.None)
+                        if (!targetServer.Ports.TryGetValue(port, out var portConfig) ||
+                            portConfig is null ||
+                            portConfig.PortType == PortType.None)
+                        {
+                            return CreateNetFailureMap(
+                                SystemCallErrorCode.PortClosed,
+                                $"port closed: {port}");
+                        }
+
+                        if (!IsNetPortExposureAllowed(endpoint.Server, targetServer, portConfig.Exposure))
+                        {
+                            return CreateNetFailureMap(
+                                SystemCallErrorCode.NetDenied,
+                                $"port exposure denied: {port}");
+                        }
+
+                        var result = CreateNetSuccessMap();
+                        result["banner"] = new ValString((portConfig.ServiceId ?? string.Empty).Trim());
+                        return result;
+                    },
+                    out var bannerResult,
+                    out var queueError))
             {
                 return new Intrinsic.Result(
                     CreateNetFailureMap(
-                        SystemCallErrorCode.PortClosed,
-                        $"port closed: {port}"));
+                        SystemCallErrorCode.InternalError,
+                        queueError));
             }
 
-            if (!IsNetPortExposureAllowed(endpoint.Server, targetServer, portConfig.Exposure))
-            {
-                return new Intrinsic.Result(
-                    CreateNetFailureMap(
-                        SystemCallErrorCode.NetDenied,
-                        $"port exposure denied: {port}"));
-            }
-
-            var result = CreateNetSuccessMap();
-            result["banner"] = new ValString((portConfig.ServiceId ?? string.Empty).Trim());
-            return new Intrinsic.Result(result);
+            return new Intrinsic.Result(bannerResult);
         };
     }
 

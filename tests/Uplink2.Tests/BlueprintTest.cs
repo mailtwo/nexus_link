@@ -367,14 +367,14 @@ public sealed class BlueprintTest
         Assert.Contains(
             calledMethods,
             static called => called is MethodInfo info &&
-                             info.DeclaringType == typeof(File) &&
-                             info.Name == nameof(File.ReadAllText) &&
-                             info.GetParameters().Length == 2);
+                             info.DeclaringType == typeof(WorldRuntime) &&
+                             info.Name == "ReadAllTextFromPath" &&
+                             info.GetParameters().Length == 1);
         Assert.Contains(
             calledMethods,
             static called => called is MethodInfo info &&
-                             info.DeclaringType == typeof(File) &&
-                             info.Name == nameof(File.ReadAllBytes) &&
+                             info.DeclaringType == typeof(WorldRuntime) &&
+                             info.Name == "ReadAllBytesFromPath" &&
                              info.GetParameters().Length == 1);
         Assert.Contains(
             calledMethods,

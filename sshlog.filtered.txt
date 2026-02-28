@@ -1,0 +1,271 @@
+﻿D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:3:[SSH_LOGIN_DIAG] t=7355 Show begin: visible=False, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:4:[SSH_LOGIN_DIAG] t=7360 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:5:[SSH_LOGIN_DIAG] t=7360 state(origin=show_end) requested=True, hasWindow=True, visible=True, sshMode=Windowed, rootMode=Windowed, mainDisplayMode=Windowed, embed=False, rootPos=(704, 366), rootSize=(1152, 648), sshPos=(120, 80), sshSize=(520, 240), wasMinimized=False, retryFrames=0
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:6:[SSH_LOGIN_DIAG] t=7391 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:7:[SSH_LOGIN_DIAG] t=7399 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:8:[SSH_LOGIN_DIAG] t=7426 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:9:[SSH_LOGIN_DIAG] t=7432 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:10:[SSH_LOGIN_DIAG] t=7461 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:11:[SSH_LOGIN_DIAG] t=7467 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:12:[SSH_LOGIN_DIAG] t=7498 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:13:[SSH_LOGIN_DIAG] t=7505 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:14:[SSH_LOGIN_DIAG] t=7532 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:15:[SSH_LOGIN_DIAG] t=7538 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:16:[SSH_LOGIN_DIAG] t=7566 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:17:[SSH_LOGIN_DIAG] t=7571 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:18:[SSH_LOGIN_DIAG] t=7596 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:19:[SSH_LOGIN_DIAG] t=7602 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:20:[SSH_LOGIN_DIAG] t=7628 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:21:[SSH_LOGIN_DIAG] t=7634 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:22:[SSH_LOGIN_DIAG] t=7659 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:23:[SSH_LOGIN_DIAG] t=7666 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:24:[SSH_LOGIN_DIAG] t=7691 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:25:[SSH_LOGIN_DIAG] t=7697 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:26:[SSH_LOGIN_DIAG] t=7728 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:27:[SSH_LOGIN_DIAG] t=7734 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:28:[SSH_LOGIN_DIAG] t=7762 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:29:[SSH_LOGIN_DIAG] t=7769 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:30:[SSH_LOGIN_DIAG] t=7795 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:31:[SSH_LOGIN_DIAG] t=7802 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:32:[SSH_LOGIN_DIAG] t=7826 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:33:[SSH_LOGIN_DIAG] t=7832 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:34:[SSH_LOGIN_DIAG] t=7856 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:35:[SSH_LOGIN_DIAG] t=7861 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:36:[SSH_LOGIN_DIAG] t=7880 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:37:[SSH_LOGIN_DIAG] t=7886 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:38:[SSH_LOGIN_DIAG] t=7913 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:39:[SSH_LOGIN_DIAG] t=7919 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:40:[SSH_LOGIN_DIAG] t=7947 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:41:[SSH_LOGIN_DIAG] t=7953 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:42:[SSH_LOGIN_DIAG] t=7979 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:43:[SSH_LOGIN_DIAG] t=7991 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:44:[SSH_LOGIN_DIAG] t=8016 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:45:[SSH_LOGIN_DIAG] t=8023 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:46:[SSH_LOGIN_DIAG] t=8049 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:47:[SSH_LOGIN_DIAG] t=8056 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:48:[SSH_LOGIN_DIAG] t=8082 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:49:[SSH_LOGIN_DIAG] t=8089 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:50:[SSH_LOGIN_DIAG] t=8113 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:51:[SSH_LOGIN_DIAG] t=8120 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:52:[SSH_LOGIN_DIAG] t=8149 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:53:[SSH_LOGIN_DIAG] t=8158 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:54:[SSH_LOGIN_DIAG] t=8181 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:55:[SSH_LOGIN_DIAG] t=8189 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:56:[SSH_LOGIN_DIAG] t=8213 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:57:[SSH_LOGIN_DIAG] t=8223 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:58:[SSH_LOGIN_DIAG] t=8247 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:59:[SSH_LOGIN_DIAG] t=8256 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:60:[SSH_LOGIN_DIAG] t=8280 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:61:[SSH_LOGIN_DIAG] t=8287 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:62:[SSH_LOGIN_DIAG] t=8310 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:63:[SSH_LOGIN_DIAG] t=8318 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:64:[SSH_LOGIN_DIAG] t=8344 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:65:[SSH_LOGIN_DIAG] t=8351 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:66:[SSH_LOGIN_DIAG] t=8377 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:67:[SSH_LOGIN_DIAG] t=8385 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:68:[SSH_LOGIN_DIAG] t=8409 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:69:[SSH_LOGIN_DIAG] t=8417 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:70:[SSH_LOGIN_DIAG] t=8439 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:71:[SSH_LOGIN_DIAG] t=8446 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:72:[SSH_LOGIN_DIAG] t=8463 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:73:[SSH_LOGIN_DIAG] t=8468 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:74:[SSH_LOGIN_DIAG] t=8493 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:75:[SSH_LOGIN_DIAG] t=8499 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:76:[SSH_LOGIN_DIAG] t=8522 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:77:[SSH_LOGIN_DIAG] t=8527 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:78:[SSH_LOGIN_DIAG] t=8558 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:79:[SSH_LOGIN_DIAG] t=8565 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:80:[SSH_LOGIN_DIAG] t=8590 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:81:[SSH_LOGIN_DIAG] t=8598 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:82:[SSH_LOGIN_DIAG] t=8622 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:83:[SSH_LOGIN_DIAG] t=8629 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:84:[SSH_LOGIN_DIAG] t=8653 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:85:[SSH_LOGIN_DIAG] t=8660 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:86:[SSH_LOGIN_DIAG] t=8683 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:87:[SSH_LOGIN_DIAG] t=8690 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:88:[SSH_LOGIN_DIAG] t=8708 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:89:[SSH_LOGIN_DIAG] t=8714 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:90:[SSH_LOGIN_DIAG] t=8737 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:91:[SSH_LOGIN_DIAG] t=8744 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:92:[SSH_LOGIN_DIAG] t=8769 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:93:[SSH_LOGIN_DIAG] t=8775 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:94:[SSH_LOGIN_DIAG] t=8796 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:95:[SSH_LOGIN_DIAG] t=8804 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:96:[SSH_LOGIN_DIAG] t=8820 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:97:[SSH_LOGIN_DIAG] t=8826 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:98:[SSH_LOGIN_DIAG] t=8850 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:99:[SSH_LOGIN_DIAG] t=8856 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:100:[SSH_LOGIN_DIAG] t=8875 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:101:[SSH_LOGIN_DIAG] t=8881 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:103:[SSH_LOGIN_DIAG] t=8904 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:104:[SSH_LOGIN_DIAG] t=8913 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:105:[SSH_LOGIN_DIAG] t=8923 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:106:[SSH_LOGIN_DIAG] t=8930 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:107:[SSH_LOGIN_DIAG] t=8949 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:108:[SSH_LOGIN_DIAG] t=8956 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:109:[SSH_LOGIN_DIAG] t=8975 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:110:[SSH_LOGIN_DIAG] t=8981 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:111:[SSH_LOGIN_DIAG] t=9005 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:112:[SSH_LOGIN_DIAG] t=9013 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:113:[SSH_LOGIN_DIAG] t=9030 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:114:[SSH_LOGIN_DIAG] t=9039 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:115:[SSH_LOGIN_DIAG] t=9062 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:116:[SSH_LOGIN_DIAG] t=9071 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:117:[SSH_LOGIN_DIAG] t=9089 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:118:[SSH_LOGIN_DIAG] t=9099 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:119:[SSH_LOGIN_DIAG] t=9124 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:120:[SSH_LOGIN_DIAG] t=9132 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:121:[SSH_LOGIN_DIAG] t=9154 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:122:[SSH_LOGIN_DIAG] t=9162 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:123:[SSH_LOGIN_DIAG] t=9185 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:124:[SSH_LOGIN_DIAG] t=9194 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:125:[SSH_LOGIN_DIAG] t=9218 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:126:[SSH_LOGIN_DIAG] t=9227 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:127:[SSH_LOGIN_DIAG] t=9250 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:128:[SSH_LOGIN_DIAG] t=9258 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:129:[SSH_LOGIN_DIAG] t=9285 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:130:[SSH_LOGIN_DIAG] t=9292 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:131:[SSH_LOGIN_DIAG] t=9317 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:132:[SSH_LOGIN_DIAG] t=9339 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:133:[SSH_LOGIN_DIAG] t=9374 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:134:[SSH_LOGIN_DIAG] t=9403 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:135:[SSH_LOGIN_DIAG] t=9444 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:136:[SSH_LOGIN_DIAG] t=9454 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:137:[SSH_LOGIN_DIAG] t=9488 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:138:[SSH_LOGIN_DIAG] t=9497 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:139:[SSH_LOGIN_DIAG] t=9530 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:140:[SSH_LOGIN_DIAG] t=9539 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:141:[SSH_LOGIN_DIAG] t=9566 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:142:[SSH_LOGIN_DIAG] t=9573 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:143:[SSH_LOGIN_DIAG] t=9597 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:144:[SSH_LOGIN_DIAG] t=9605 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:145:[SSH_LOGIN_DIAG] t=9630 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:146:[SSH_LOGIN_DIAG] t=9639 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:147:[SSH_LOGIN_DIAG] t=9664 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:148:[SSH_LOGIN_DIAG] t=9670 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:149:[SSH_LOGIN_DIAG] t=9694 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:150:[SSH_LOGIN_DIAG] t=9699 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:151:[SSH_LOGIN_DIAG] t=9722 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:152:[SSH_LOGIN_DIAG] t=9728 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:153:[SSH_LOGIN_DIAG] t=9753 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:154:[SSH_LOGIN_DIAG] t=9760 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:155:[SSH_LOGIN_DIAG] t=9783 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:156:[SSH_LOGIN_DIAG] t=9791 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:157:[SSH_LOGIN_DIAG] t=9816 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:158:[SSH_LOGIN_DIAG] t=9823 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:159:[SSH_LOGIN_DIAG] t=9848 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:160:[SSH_LOGIN_DIAG] t=9857 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:161:[SSH_LOGIN_DIAG] t=9875 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:162:[SSH_LOGIN_DIAG] t=9882 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:163:[SSH_LOGIN_DIAG] t=9893 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:164:[SSH_LOGIN_DIAG] t=9903 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:165:[SSH_LOGIN_DIAG] t=9921 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:166:[SSH_LOGIN_DIAG] t=9930 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:167:[SSH_LOGIN_DIAG] t=9952 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:168:[SSH_LOGIN_DIAG] t=9961 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:169:[SSH_LOGIN_DIAG] t=9984 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:170:[SSH_LOGIN_DIAG] t=9992 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:171:[SSH_LOGIN_DIAG] t=10008 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:172:[SSH_LOGIN_DIAG] t=10017 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:173:[SSH_LOGIN_DIAG] t=10040 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:174:[SSH_LOGIN_DIAG] t=10049 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:175:[SSH_LOGIN_DIAG] t=10074 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:176:[SSH_LOGIN_DIAG] t=10084 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:177:[SSH_LOGIN_DIAG] t=10100 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:178:[SSH_LOGIN_DIAG] t=10109 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:179:[SSH_LOGIN_DIAG] t=10134 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:180:[SSH_LOGIN_DIAG] t=10143 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:181:[SSH_LOGIN_DIAG] t=10167 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:182:[SSH_LOGIN_DIAG] t=10177 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:183:[SSH_LOGIN_DIAG] t=10202 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:184:[SSH_LOGIN_DIAG] t=10211 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:185:[SSH_LOGIN_DIAG] t=10232 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:186:[SSH_LOGIN_DIAG] t=10239 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:187:[SSH_LOGIN_DIAG] t=10261 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:188:[SSH_LOGIN_DIAG] t=10271 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:189:[SSH_LOGIN_DIAG] t=10295 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:190:[SSH_LOGIN_DIAG] t=10304 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:191:[SSH_LOGIN_DIAG] t=10328 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:192:[SSH_LOGIN_DIAG] t=10337 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:193:[SSH_LOGIN_DIAG] t=10360 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:194:[SSH_LOGIN_DIAG] t=10369 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:195:[SSH_LOGIN_DIAG] t=10392 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:196:[SSH_LOGIN_DIAG] t=10401 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:197:[SSH_LOGIN_DIAG] t=10424 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:198:[SSH_LOGIN_DIAG] t=10431 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:199:[SSH_LOGIN_DIAG] t=10454 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:200:[SSH_LOGIN_DIAG] t=10461 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:201:[SSH_LOGIN_DIAG] t=10482 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:202:[SSH_LOGIN_DIAG] t=10491 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:204:[SSH_LOGIN_DIAG] t=10513 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:205:[SSH_LOGIN_DIAG] t=10521 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:206:[SSH_LOGIN_DIAG] t=10538 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:207:[SSH_LOGIN_DIAG] t=10547 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:208:[SSH_LOGIN_DIAG] t=10569 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:209:[SSH_LOGIN_DIAG] t=10577 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:210:[SSH_LOGIN_DIAG] t=10600 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:211:[SSH_LOGIN_DIAG] t=10606 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:212:[SSH_LOGIN_DIAG] t=10630 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:213:[SSH_LOGIN_DIAG] t=10637 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:214:[SSH_LOGIN_DIAG] t=10663 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:215:[SSH_LOGIN_DIAG] t=10670 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:216:[SSH_LOGIN_DIAG] t=10694 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:217:[SSH_LOGIN_DIAG] t=10703 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:218:[SSH_LOGIN_DIAG] t=10727 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:219:[SSH_LOGIN_DIAG] t=10734 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:220:[SSH_LOGIN_DIAG] t=10758 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:221:[SSH_LOGIN_DIAG] t=10765 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:222:[SSH_LOGIN_DIAG] t=10780 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:223:[SSH_LOGIN_DIAG] t=10787 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:224:[SSH_LOGIN_DIAG] t=10811 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:225:[SSH_LOGIN_DIAG] t=10820 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:226:[SSH_LOGIN_DIAG] t=10854 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:227:[SSH_LOGIN_DIAG] t=10862 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:228:[SSH_LOGIN_DIAG] t=10885 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:229:[SSH_LOGIN_DIAG] t=10895 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:230:[SSH_LOGIN_DIAG] t=10921 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:231:[SSH_LOGIN_DIAG] t=10931 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:232:[SSH_LOGIN_DIAG] t=10956 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:233:[SSH_LOGIN_DIAG] t=10967 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:234:[SSH_LOGIN_DIAG] t=10990 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:235:[SSH_LOGIN_DIAG] t=10996 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:236:[SSH_LOGIN_DIAG] t=11021 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:237:[SSH_LOGIN_DIAG] t=11028 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:238:[SSH_LOGIN_DIAG] t=11052 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:239:[SSH_LOGIN_DIAG] t=11058 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:240:[SSH_LOGIN_DIAG] t=11081 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:241:[SSH_LOGIN_DIAG] t=11088 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:242:[SSH_LOGIN_DIAG] t=11104 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:243:[SSH_LOGIN_DIAG] t=11111 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:244:[SSH_LOGIN_DIAG] t=11132 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:245:[SSH_LOGIN_DIAG] t=11140 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:246:[SSH_LOGIN_DIAG] t=11164 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:247:[SSH_LOGIN_DIAG] t=11171 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:248:[SSH_LOGIN_DIAG] t=11194 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:249:[SSH_LOGIN_DIAG] t=11200 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:250:[SSH_LOGIN_DIAG] t=11222 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:251:[SSH_LOGIN_DIAG] t=11228 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:252:[SSH_LOGIN_DIAG] t=11249 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:253:[SSH_LOGIN_DIAG] t=11256 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:254:[SSH_LOGIN_DIAG] t=11272 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:255:[SSH_LOGIN_DIAG] t=11279 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:256:[SSH_LOGIN_DIAG] t=11300 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:257:[SSH_LOGIN_DIAG] t=11309 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:258:[SSH_LOGIN_DIAG] t=11332 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:259:[SSH_LOGIN_DIAG] t=11339 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:260:[SSH_LOGIN_DIAG] t=11357 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:261:[SSH_LOGIN_DIAG] t=11363 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:262:[SSH_LOGIN_DIAG] t=11384 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:263:[SSH_LOGIN_DIAG] t=11392 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:264:[SSH_LOGIN_DIAG] t=11415 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:265:[SSH_LOGIN_DIAG] t=11423 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:266:[SSH_LOGIN_DIAG] t=11440 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:267:[SSH_LOGIN_DIAG] t=11446 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:268:[SSH_LOGIN_DIAG] t=11469 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:269:[SSH_LOGIN_DIAG] t=11475 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:270:[SSH_LOGIN_DIAG] t=11497 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:271:[SSH_LOGIN_DIAG] t=11503 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:272:[SSH_LOGIN_DIAG] t=11520 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:273:[SSH_LOGIN_DIAG] t=11526 Show end: visible=True, mode=Windowed.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:274:[SSH_LOGIN_DIAG] t=11619 Show begin: visible=True, mode=Windowed, requested=True.
+D:\Users\redbl\Documents\GodotProjects\uplink-2\sshlog.txt:275:[SSH_LOGIN_DIAG] t=11627 Show end: visible=True, mode=Windowed.

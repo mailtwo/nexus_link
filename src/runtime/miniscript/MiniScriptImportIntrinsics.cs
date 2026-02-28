@@ -230,6 +230,7 @@ internal static class MiniScriptImportIntrinsics
         out ImportResolvedModule resolvedModule)
     {
         resolvedModule = default;
+        var resolvedCandidate = default(ImportResolvedModule);
         var scriptPath = state.CurrentScriptPath;
         if (string.IsNullOrWhiteSpace(scriptPath))
         {
@@ -240,36 +241,52 @@ internal static class MiniScriptImportIntrinsics
 
         var normalizedScriptPath = BaseFileSystem.NormalizePath("/", scriptPath);
         var scriptDirectory = GetParentPath(normalizedScriptPath);
-        foreach (var candidate in EnumerateImportCandidates(importName))
+        if (!state.ExecutionContext!.World.TryRunViaIntrinsicQueue(
+                () =>
+                {
+                    foreach (var candidate in EnumerateImportCandidates(importName))
+                    {
+                        var normalizedCandidatePath = BaseFileSystem.NormalizePath(scriptDirectory, candidate);
+                        attempts.Add(normalizedCandidatePath);
+                        if (!state.ExecutionContext.Server.DiskOverlay.TryResolveEntry(normalizedCandidatePath, out var entry) ||
+                            entry.EntryKind != VfsEntryKind.File)
+                        {
+                            continue;
+                        }
+
+                        if (entry.FileKind != VfsFileKind.Text && entry.FileKind != VfsFileKind.ExecutableScript)
+                        {
+                            continue;
+                        }
+
+                        if (!state.ExecutionContext.Server.DiskOverlay.TryReadFileText(normalizedCandidatePath, out var sourceText))
+                        {
+                            throw CreateImportRuntimeError(
+                                SystemCallErrorCode.InternalError,
+                                $"failed to read module source: {normalizedCandidatePath}");
+                        }
+
+                        resolvedCandidate = new ImportResolvedModule(
+                            normalizedCandidatePath,
+                            sourceText,
+                            GetFileStem(normalizedCandidatePath));
+                        return true;
+                    }
+
+                    return false;
+                },
+                out var found,
+                out var queueError))
         {
-            var normalizedCandidatePath = BaseFileSystem.NormalizePath(scriptDirectory, candidate);
-            attempts.Add(normalizedCandidatePath);
-            if (!state.ExecutionContext!.Server.DiskOverlay.TryResolveEntry(normalizedCandidatePath, out var entry) ||
-                entry.EntryKind != VfsEntryKind.File)
-            {
-                continue;
-            }
-
-            if (entry.FileKind != VfsFileKind.Text && entry.FileKind != VfsFileKind.ExecutableScript)
-            {
-                continue;
-            }
-
-            if (!state.ExecutionContext.Server.DiskOverlay.TryReadFileText(normalizedCandidatePath, out var sourceText))
-            {
-                throw CreateImportRuntimeError(
-                    SystemCallErrorCode.InternalError,
-                    $"failed to read module source: {normalizedCandidatePath}");
-            }
-
-            resolvedModule = new ImportResolvedModule(
-                normalizedCandidatePath,
-                sourceText,
-                GetFileStem(normalizedCandidatePath));
-            return true;
+            throw CreateImportRuntimeError(SystemCallErrorCode.InternalError, queueError);
         }
 
-        return false;
+        if (found)
+        {
+            resolvedModule = resolvedCandidate;
+        }
+
+        return found;
     }
 
     private static bool TryResolveStandardLibraryModule(

@@ -1323,6 +1323,7 @@ public partial class WorldRuntime
 
     private void EnsureSessionStateClearedForLoad()
     {
+        CancelPendingIntrinsicQueueRequests();
         ResetTerminalSessionState();
         foreach (var server in ServerList.Values)
         {

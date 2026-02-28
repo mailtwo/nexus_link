@@ -2251,6 +2251,36 @@ public sealed class SystemCallTest
         Assert.All(payloads, payload => Assert.Equal("ssh.connect", (string?)GetPropertyValue(payload, "Via")));
     }
 
+    /// <summary>Ensures ssh.connect success enqueues one SSH_LOGIN attempt snapshot with via='ssh.connect'.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshConnect_Success_EnqueuesSshLoginAttempt()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/ssh_login_attempt.ms",
+            """
+            r = ssh.connect("10.0.1.20", "guest", "pw")
+            if r.ok then
+                ssh.disconnect(r.session)
+            end if
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/ssh_login_attempt.ms");
+
+        Assert.True(result.Ok);
+        var attempt = Assert.Single(DrainSshLoginAttempts(harness.World));
+        Assert.Equal("10.0.1.20", (string?)GetPropertyValue(attempt, "HostOrIp"));
+        Assert.Equal("guest", (string?)GetPropertyValue(attempt, "UserId"));
+        Assert.Equal("pw", (string?)GetPropertyValue(attempt, "Password"));
+        Assert.Equal(2, (int)GetPropertyValue(attempt, "PasswordLength")!);
+        Assert.Equal("ssh.connect", (string?)GetPropertyValue(attempt, "Via"));
+        Assert.Empty(DrainSshLoginAttempts(harness.World));
+    }
+
     /// <summary>Ensures ssh.connect intrinsic returns structured failure map on connection failure.</summary>
     [Fact]
     public void Execute_Miniscript_SshConnect_ReturnsStructuredFailure()
@@ -3985,9 +4015,9 @@ public sealed class SystemCallTest
         WaitForTerminalProgramStop(harness.World, "ts-dup");
     }
 
-    /// <summary>Ensures async miniscript ssh.connect/disconnect runs in sandbox mode (validated only, no world session mutation).</summary>
+    /// <summary>Ensures async miniscript ssh.connect in SandboxValidated mode still creates real world sessions.</summary>
     [Fact]
-    public void TryStartTerminalProgramExecution_SshSandbox_DoesNotMutateWorldSessions()
+    public void TryStartTerminalProgramExecution_SshSandbox_MutatesWorldSessions()
     {
         var harness = CreateHarness(includeVfsModule: true);
         harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
@@ -3999,10 +4029,6 @@ public sealed class SystemCallTest
             result = ssh.connect("10.0.1.20", "guest", "pw")
             print "ok=" + str(result.ok)
             print "code=" + result.code
-            d1 = ssh.disconnect(result.session)
-            d2 = ssh.disconnect(result.session)
-            print "d1=" + str(d1.disconnected)
-            print "d2=" + str(d2.disconnected)
             """,
             fileKind: VfsFileKind.Text);
 
@@ -4020,9 +4046,16 @@ public sealed class SystemCallTest
         var outputLines = SnapshotTerminalEventLines(harness.World);
         Assert.Contains("ok=1", outputLines);
         Assert.Contains("code=OK", outputLines);
-        Assert.Contains("d1=1", outputLines);
-        Assert.Contains("d2=0", outputLines);
-        Assert.Empty(remote.Sessions);
+        var createdSession = Assert.Single(remote.Sessions);
+        Assert.True(createdSession.Value.UserKey.Length > 0);
+        Assert.Equal("/", createdSession.Value.Cwd);
+        var attempt = Assert.Single(DrainSshLoginAttempts(harness.World));
+        Assert.Equal("10.0.1.20", (string?)GetPropertyValue(attempt, "HostOrIp"));
+        Assert.Equal("guest", (string?)GetPropertyValue(attempt, "UserId"));
+        Assert.Equal("pw", (string?)GetPropertyValue(attempt, "Password"));
+        Assert.Equal(2, (int)GetPropertyValue(attempt, "PasswordLength")!);
+        Assert.Equal("ssh.connect", (string?)GetPropertyValue(attempt, "Via"));
+        Assert.Empty(DrainSshLoginAttempts(harness.World));
         var events = DrainQueuedGameEvents(harness.World);
         Assert.NotEmpty(events);
         Assert.All(
@@ -5779,9 +5812,9 @@ public sealed class SystemCallTest
         Assert.Contains(result.Lines, static line => string.Equals(line, "b2code=ERR_INVALID_ARGS", StringComparison.Ordinal));
     }
 
-    /// <summary>Ensures async miniscript fs.write/delete are validate-only in sandbox mode.</summary>
+    /// <summary>Ensures async miniscript fs.write/delete in SandboxValidated mode mutates world state.</summary>
     [Fact]
-    public void TryStartTerminalProgramExecution_FsSandbox_WriteDelete_ValidateOnly_DoesNotMutateWorld()
+    public void TryStartTerminalProgramExecution_FsSandbox_WriteDelete_MutatesWorld()
     {
         var harness = CreateHarness(includeVfsModule: true);
         harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
@@ -5818,14 +5851,134 @@ public sealed class SystemCallTest
         Assert.Contains("dok=1", outputLines);
         Assert.Contains("dcode=OK", outputLines);
 
-        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/sandbox/new.txt", out _));
-        Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/sandbox/keep.txt", out _));
+        Assert.True(harness.Server.DiskOverlay.TryResolveEntry("/sandbox/new.txt", out var newEntry));
+        Assert.Equal(VfsEntryKind.File, newEntry.EntryKind);
+        Assert.True(harness.Server.DiskOverlay.TryReadFileText("/sandbox/new.txt", out var newText));
+        Assert.Equal("N", newText);
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry("/sandbox/keep.txt", out _));
         var events = DrainQueuedGameEvents(harness.World);
         var fileAcquireEvents = events
             .Where(static gameEvent => string.Equals((string)GetPropertyValue(gameEvent, "EventType"), "fileAcquire", StringComparison.Ordinal))
             .ToList();
-        Assert.Empty(fileAcquireEvents);
-        Assert.Empty(events);
+        Assert.Single(fileAcquireEvents);
+        Assert.Equal(fileAcquireEvents.Count, events.Count);
+    }
+
+    /// <summary>Ensures non-world-thread system calls complete through intrinsic request queue after world tick drains.</summary>
+    [Fact]
+    public void ExecuteSystemCall_NonWorldThread_UsesIntrinsicQueue()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        SetWorldRuntimeThreadId(harness.World, Environment.CurrentManagedThreadId);
+
+        SystemCallResult? workerResult = null;
+        var worker = new Thread(() =>
+        {
+            workerResult = harness.World.ExecuteSystemCall(new SystemCallRequest
+            {
+                NodeId = harness.Server.NodeId,
+                UserId = harness.UserId,
+                Cwd = harness.Cwd,
+                CommandLine = "pwd",
+                TerminalSessionId = "ts-queue-nonworld",
+            });
+        });
+        worker.Start();
+
+        var completed = WaitUntil(
+            () =>
+            {
+                PumpIntrinsicQueue(harness.World);
+                return !worker.IsAlive;
+            },
+            timeoutMs: 2000,
+            pollMs: 5);
+        Assert.True(completed, "non-world worker did not complete after queue drain.");
+        Assert.NotNull(workerResult);
+        Assert.True(workerResult!.Ok);
+        Assert.Equal(SystemCallErrorCode.None, workerResult.Code);
+        Assert.Single(workerResult.Lines);
+        Assert.Equal(harness.Cwd, workerResult.Lines[0]);
+    }
+
+    /// <summary>Ensures timed-out pending intrinsic queue requests are cancelled and never produce late side effects.</summary>
+    [Fact]
+    public void ExecuteSystemCall_QueueTimeout_CancelsPendingWithoutLateSideEffect()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/");
+        SetWorldRuntimeThreadId(harness.World, Environment.CurrentManagedThreadId);
+        const string targetPath = "/queue-timeout-created";
+
+        SystemCallResult? workerResult = null;
+        var worker = new Thread(() =>
+        {
+            workerResult = harness.World.ExecuteSystemCall(new SystemCallRequest
+            {
+                NodeId = harness.Server.NodeId,
+                UserId = harness.UserId,
+                Cwd = "/",
+                CommandLine = $"mkdir {targetPath}",
+                TerminalSessionId = "ts-queue-timeout",
+            });
+        });
+        worker.Start();
+
+        Assert.True(worker.Join(7000), "queue-timeout worker did not finish within expected timeout window.");
+        Assert.NotNull(workerResult);
+        Assert.False(workerResult!.Ok);
+        Assert.Equal(SystemCallErrorCode.InternalError, workerResult.Code);
+
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry(targetPath, out _));
+        PumpIntrinsicQueue(harness.World);
+        PumpIntrinsicQueue(harness.World);
+        Assert.False(harness.Server.DiskOverlay.TryResolveEntry(targetPath, out _));
+    }
+
+    /// <summary>Ensures async miniscript import remains stable when relative module reads run through intrinsic queue.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_ImportAsync_ResolvesRelativeModuleThroughQueue()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        SetWorldRuntimeThreadId(harness.World, Environment.CurrentManagedThreadId);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddDirectory("/scripts/lib");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lib/mathTool.ms",
+            """
+            // @name mathTool
+            value = 7
+            """,
+            fileKind: VfsFileKind.Text);
+        harness.BaseFileSystem.AddFile(
+            "/scripts/main_import_async.ms",
+            """
+            m = import("lib/mathTool")
+            print "v=" + str(m.value)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "miniscript /scripts/main_import_async.ms",
+            "ts-import-async");
+        Assert.True(start.Handled);
+        Assert.True(start.Started);
+
+        var stopped = WaitUntil(
+            () =>
+            {
+                PumpIntrinsicQueue(harness.World);
+                return !harness.World.IsTerminalProgramRunning("ts-import-async");
+            },
+            timeoutMs: 3000,
+            pollMs: 10);
+        Assert.True(stopped, "async import script did not stop within timeout.");
+        var outputLines = SnapshotTerminalEventLines(harness.World);
+        Assert.Contains("v=7", outputLines);
     }
 
     /// <summary>Ensures processor context creation requires userId and rejects unknown user ids.</summary>
@@ -6396,6 +6549,45 @@ public sealed class SystemCallTest
         Assert.False(result.Ok);
         var events = DrainQueuedGameEvents(harness.World);
         Assert.Empty(events);
+    }
+
+    /// <summary>Ensures connect success enqueues one SSH_LOGIN attempt snapshot and drain is consumptive.</summary>
+    [Fact]
+    public void Execute_Connect_Success_EnqueuesSshLoginAttempt()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var result = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-sshlogin-connect-ok");
+
+        Assert.True(result.Ok);
+        var attempts = DrainSshLoginAttempts(harness.World);
+        var attempt = Assert.Single(attempts);
+        Assert.Equal("10.0.1.20", (string?)GetPropertyValue(attempt, "HostOrIp"));
+        Assert.Equal("guest", (string?)GetPropertyValue(attempt, "UserId"));
+        Assert.Equal("pw", (string?)GetPropertyValue(attempt, "Password"));
+        Assert.Equal(2, (int)GetPropertyValue(attempt, "PasswordLength")!);
+        Assert.Equal("connect", (string?)GetPropertyValue(attempt, "Via"));
+        Assert.True((long)GetPropertyValue(attempt, "RecordedAtMs")! >= 0);
+        Assert.Empty(DrainSshLoginAttempts(harness.World));
+    }
+
+    /// <summary>Ensures connect failure still enqueues one SSH_LOGIN attempt snapshot.</summary>
+    [Fact]
+    public void Execute_Connect_Failure_EnqueuesSshLoginAttempt()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var result = Execute(harness, "connect 10.0.1.20 guest wrong", terminalSessionId: "ts-sshlogin-connect-fail");
+
+        Assert.False(result.Ok);
+        var attempt = Assert.Single(DrainSshLoginAttempts(harness.World));
+        Assert.Equal("10.0.1.20", (string?)GetPropertyValue(attempt, "HostOrIp"));
+        Assert.Equal("guest", (string?)GetPropertyValue(attempt, "UserId"));
+        Assert.Equal("wrong", (string?)GetPropertyValue(attempt, "Password"));
+        Assert.Equal(5, (int)GetPropertyValue(attempt, "PasswordLength")!);
+        Assert.Equal("connect", (string?)GetPropertyValue(attempt, "Via"));
     }
 
     /// <summary>Ensures connect resolves login target by userId while preserving internal session userKey.</summary>
@@ -8127,6 +8319,15 @@ public sealed class SystemCallTest
         return condition();
     }
 
+    private static void PumpIntrinsicQueue(WorldRuntime world)
+    {
+        var method = typeof(WorldRuntime).GetMethod(
+            "DrainIntrinsicQueueRequests",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        method!.Invoke(world, Array.Empty<object?>());
+    }
+
     private static void WaitForTerminalProgramStop(WorldRuntime world, string terminalSessionId, int timeoutMs = 3000)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
@@ -8682,6 +8883,11 @@ public sealed class SystemCallTest
         field!.SetValue(target, value);
     }
 
+    private static void SetWorldRuntimeThreadId(WorldRuntime world, int threadId)
+    {
+        SetPrivateField(world, "worldRuntimeThreadId", threadId);
+    }
+
     private static object CreateSystemCallProcessor(WorldRuntime world, IReadOnlyList<object> modules)
     {
         var processorType = RequireRuntimeType("Uplink2.Runtime.Syscalls.SystemCallProcessor");
@@ -8789,6 +8995,29 @@ public sealed class SystemCallTest
         }
 
         return gameEvents;
+    }
+
+    private static IReadOnlyList<object> DrainSshLoginAttempts(WorldRuntime world)
+    {
+        var drainMethod = typeof(WorldRuntime).GetMethod(
+            "DrainSshLoginAttempts",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(drainMethod);
+
+        var raw = drainMethod!.Invoke(world, Array.Empty<object?>()) as System.Collections.IEnumerable;
+        Assert.NotNull(raw);
+        var drained = new List<object>();
+        foreach (var entry in raw!)
+        {
+            if (entry is null)
+            {
+                continue;
+            }
+
+            drained.Add(entry);
+        }
+
+        return drained;
     }
 
     private static object GetPrivateField(object target, string fieldName)
