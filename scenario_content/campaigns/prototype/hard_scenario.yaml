@@ -13,6 +13,7 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    location: AUTO:North_America
   hardTerminal1Server:
     initialStatus: online
     initialReason: OK
@@ -32,6 +33,7 @@ ServerSpec:
           entryKind: File
           contentId: res://scenario_content/resources/text/scenario_docs/hard_hint1.txt 
           fileKind: Text
+    location: AUTO:North_America
   hardTerminal2Server:
     initialStatus: online
     initialReason: OK
@@ -45,6 +47,7 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    location: AUTO:North_America
   hardTerminal3Server:
     initialStatus: online
     initialReason: OK
@@ -58,6 +61,7 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    location: AUTO:North_America
   hardTerminal4Server:
     initialStatus: online
     initialReason: OK
@@ -71,6 +75,7 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    location: AUTO:North_America
     diskOverlay:
       overlayEntries:
         /doc/email.txt:
@@ -90,6 +95,7 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    location: AUTO:North_America
     diskOverlay:
       overlayEntries:
         /doc/email.txt:
@@ -109,6 +115,7 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    location: AUTO:North_America
     diskOverlay:
       overlayEntries:
         /doc/email.txt:
@@ -145,6 +152,7 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    location: AUTO:North_America
     diskOverlay:
       overlayEntries:
         /connection_test.ms:
@@ -169,6 +177,7 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    location: AUTO:North_America
     diskOverlay:
       overlayEntries:
         /connection_test.ms:
@@ -193,6 +202,7 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    location: AUTO:North_America
     diskOverlay:
       overlayEntries:
         /opt/bin/ms:

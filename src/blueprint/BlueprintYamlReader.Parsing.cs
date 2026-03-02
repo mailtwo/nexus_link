@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 
 #nullable enable
@@ -8,6 +9,13 @@ namespace Uplink2.Blueprint;
 
 public sealed partial class BlueprintYamlReader
 {
+    private const string AutoLocationPrefix = "AUTO:";
+    private const string UnknownRegionId = "Unknown";
+    private const double MinLocationLatitude = -90.0;
+    private const double MaxLocationLatitude = 90.0;
+    private const double MinLocationLongitude = -180.0;
+    private const double MaxLocationLongitude = 180.0;
+
     private static void ParseServerSpecs(
         Dictionary<string, object?> rootMap,
         string filePath,
@@ -85,6 +93,18 @@ public sealed partial class BlueprintYamlReader
                 {
                     errors.Add($"{filePath}: {specContext}.logCapacity must be a positive integer.");
                 }
+            }
+
+            if (TryGetValueIgnoreCase(specMap, "location", out var locationValue) &&
+                locationValue is not null &&
+                TryParseServerSpecLocation(
+                    locationValue,
+                    filePath,
+                    $"{specContext}.location",
+                    errors,
+                    out var location))
+            {
+                specBlueprint.Location = location;
             }
 
             if (TryGetValueIgnoreCase(specMap, "users", out var usersValue))
@@ -1306,6 +1326,127 @@ public sealed partial class BlueprintYamlReader
         }
 
         return daemon;
+    }
+
+    private static bool TryParseServerSpecLocation(
+        object? locationValue,
+        string filePath,
+        string context,
+        List<string> errors,
+        out BlueprintLocationInfo location)
+    {
+        location = new BlueprintLocationInfo();
+        if (locationValue is not string rawLocation)
+        {
+            errors.Add($"{filePath}: {context} must be a scalar string.");
+            return false;
+        }
+
+        if (rawLocation.Length == 0)
+        {
+            errors.Add($"{filePath}: {context} cannot be empty.");
+            return false;
+        }
+
+        if (rawLocation.StartsWith(AutoLocationPrefix, StringComparison.Ordinal))
+        {
+            var regionId = rawLocation[AutoLocationPrefix.Length..];
+            if (string.IsNullOrWhiteSpace(regionId))
+            {
+                errors.Add($"{filePath}: {context} AUTO regionId cannot be empty.");
+                return false;
+            }
+
+            if (ContainsWhitespace(regionId))
+            {
+                errors.Add($"{filePath}: {context} AUTO regionId cannot contain whitespace.");
+                return false;
+            }
+
+            if (string.Equals(regionId, UnknownRegionId, StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"{filePath}: {context} cannot use AUTO:{UnknownRegionId}.");
+                return false;
+            }
+
+            location = new BlueprintLocationInfo
+            {
+                Mode = BlueprintLocationMode.Auto,
+                RegionId = regionId,
+            };
+            return true;
+        }
+
+        if (rawLocation.StartsWith(AutoLocationPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"{filePath}: {context} AUTO prefix must be uppercase 'AUTO:'.");
+            return false;
+        }
+
+        if (ContainsWhitespace(rawLocation))
+        {
+            errors.Add($"{filePath}: {context} coordinates must not contain whitespace.");
+            return false;
+        }
+
+        var commaIndex = rawLocation.IndexOf(',');
+        if (commaIndex <= 0 ||
+            commaIndex >= rawLocation.Length - 1 ||
+            commaIndex != rawLocation.LastIndexOf(','))
+        {
+            errors.Add($"{filePath}: {context} must match '<lat>,<lng>' format.");
+            return false;
+        }
+
+        var latitudeText = rawLocation[..commaIndex];
+        var longitudeText = rawLocation[(commaIndex + 1)..];
+        if (!double.TryParse(latitudeText, NumberStyles.Float, CultureInfo.InvariantCulture, out var latitude))
+        {
+            errors.Add($"{filePath}: {context} latitude must be a valid float.");
+            return false;
+        }
+
+        if (!double.TryParse(longitudeText, NumberStyles.Float, CultureInfo.InvariantCulture, out var longitude))
+        {
+            errors.Add($"{filePath}: {context} longitude must be a valid float.");
+            return false;
+        }
+
+        if (latitude < MinLocationLatitude || latitude > MaxLocationLatitude)
+        {
+            errors.Add(
+                $"{filePath}: {context} latitude must be within [{MinLocationLatitude}, {MaxLocationLatitude}].");
+            return false;
+        }
+
+        if (longitude < MinLocationLongitude || longitude > MaxLocationLongitude)
+        {
+            errors.Add(
+                $"{filePath}: {context} longitude must be within [{MinLocationLongitude}, {MaxLocationLongitude}].");
+            return false;
+        }
+
+        location = new BlueprintLocationInfo
+        {
+            Mode = BlueprintLocationMode.Coordinates,
+            RegionId = UnknownRegionId,
+            Lat = latitude,
+            Lng = longitude,
+        };
+        return true;
+    }
+
+    private static bool ContainsWhitespace(string value)
+    {
+        foreach (var c in value)
+        {
+            if (char.IsWhiteSpace(c))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static PortBlueprint ParsePortBlueprint(

@@ -149,6 +149,128 @@ public sealed class BlueprintTest
         Assert.Contains("conditionArgs.privilege must be a string or null.", ex.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>Ensures ServerSpec.location parses AUTO, coordinates, and omitted(default) forms.</summary>
+    [Fact]
+    public void ReadFiles_ServerSpecLocation_AutoAndCoordinateAndOmitted_Parses()
+    {
+        using var scope = TempDirScope.Create();
+        var yamlPath = scope.WriteFile(
+            "location_valid.yaml",
+            """
+            ServerSpec:
+              spec_auto:
+                location: "AUTO:Asia"
+              spec_coordinate:
+                location: "37.380055,127.117856"
+              spec_omitted: {}
+            """);
+
+        var reader = new BlueprintYamlReader();
+        var catalog = reader.ReadFiles(new[] { yamlPath });
+
+        var autoLocation = catalog.ServerSpecs["spec_auto"].Location;
+        Assert.Equal(BlueprintLocationMode.Auto, autoLocation.Mode);
+        Assert.Equal("Asia", autoLocation.RegionId);
+
+        var coordinateLocation = catalog.ServerSpecs["spec_coordinate"].Location;
+        Assert.Equal(BlueprintLocationMode.Coordinates, coordinateLocation.Mode);
+        Assert.Equal("Unknown", coordinateLocation.RegionId);
+        Assert.Equal(37.380055, coordinateLocation.Lat, 9);
+        Assert.Equal(127.117856, coordinateLocation.Lng, 9);
+
+        var omittedLocation = catalog.ServerSpecs["spec_omitted"].Location;
+        Assert.Equal(BlueprintLocationMode.Auto, omittedLocation.Mode);
+        Assert.Equal("Unknown", omittedLocation.RegionId);
+        Assert.Equal(0, omittedLocation.Lat);
+        Assert.Equal(0, omittedLocation.Lng);
+    }
+
+    /// <summary>Ensures explicit AUTO:Unknown location is rejected by blueprint loader.</summary>
+    [Fact]
+    public void ReadFiles_ServerSpecLocation_ExplicitAutoUnknown_Fails()
+    {
+        using var scope = TempDirScope.Create();
+        var yamlPath = scope.WriteFile(
+            "location_auto_unknown.yaml",
+            """
+            ServerSpec:
+              spec_bad:
+                location: "AUTO:Unknown"
+            """);
+
+        var reader = new BlueprintYamlReader();
+        var ex = Assert.Throws<InvalidDataException>(() => reader.ReadFiles(new[] { yamlPath }));
+        Assert.Contains("cannot use AUTO:Unknown", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures invalid location forms are aggregated into one read exception.</summary>
+    [Fact]
+    public void ReadFiles_ServerSpecLocation_InvalidFormats_AggregatesErrors()
+    {
+        using var scope = TempDirScope.Create();
+        var yamlPath = scope.WriteFile(
+            "location_invalid.yaml",
+            """
+            ServerSpec:
+              spec_space:
+                location: "37.5, 127.0"
+              spec_range:
+                location: "91,127.0"
+              spec_empty_auto:
+                location: "AUTO:"
+              spec_lower_auto:
+                location: "auto:Asia"
+            """);
+
+        var reader = new BlueprintYamlReader();
+        var ex = Assert.Throws<InvalidDataException>(() => reader.ReadFiles(new[] { yamlPath }));
+
+        Assert.Contains("coordinates must not contain whitespace.", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("latitude must be within [", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("AUTO regionId cannot be empty.", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("AUTO prefix must be uppercase 'AUTO:'.", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures multi-spec location parsing works from test-local YAML text only.</summary>
+    [Fact]
+    public void ReadFiles_ServerSpecLocation_MultiSpecYaml_Loads()
+    {
+        using var scope = TempDirScope.Create();
+        var yamlPath = scope.WriteFile(
+            "location_multi_spec.yaml",
+            """
+            ServerSpec:
+              easyServer:
+                location: "37.380055,127.117856"
+              mediumMainServer:
+                location: "AUTO:Asia"
+              hardGatewayServer:
+                location: "AUTO:North_America"
+              hardMainframeServer: {}
+            """);
+
+        var reader = new BlueprintYamlReader();
+        var catalog = reader.ReadFiles(new[] { yamlPath });
+
+        var easyLocation = catalog.ServerSpecs["easyServer"].Location;
+        Assert.Equal(BlueprintLocationMode.Coordinates, easyLocation.Mode);
+        Assert.Equal("Unknown", easyLocation.RegionId);
+        Assert.Equal(37.380055, easyLocation.Lat, 9);
+        Assert.Equal(127.117856, easyLocation.Lng, 9);
+
+        var mediumLocation = catalog.ServerSpecs["mediumMainServer"].Location;
+        Assert.Equal(BlueprintLocationMode.Auto, mediumLocation.Mode);
+        Assert.Equal("Asia", mediumLocation.RegionId);
+
+        var hardLocation = catalog.ServerSpecs["hardGatewayServer"].Location;
+        Assert.Equal(BlueprintLocationMode.Auto, hardLocation.Mode);
+        Assert.Equal("North_America", hardLocation.RegionId);
+
+        var omittedLocation = catalog.ServerSpecs["hardMainframeServer"].Location;
+        Assert.Equal(BlueprintLocationMode.Auto, omittedLocation.Mode);
+        Assert.Equal("Unknown", omittedLocation.RegionId);
+    }
+
     /// <summary>Ensures executable file kinds parse correctly inside diskOverlay entry metadata.</summary>
     [Fact]
     public void ReadFiles_ParsesExecutableFileKinds()

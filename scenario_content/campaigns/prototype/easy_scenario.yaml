@@ -13,6 +13,7 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    location: 37.503556,127.031254
 Scenario:
   easyScenario:
     servers:

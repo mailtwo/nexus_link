@@ -11,6 +11,7 @@ plans/ 문서에 정의되어 있으나, 현재 기준으로 명시적으로 보
 - [07] 프로토타입 임시 `save/load` 명령 제거(알파 제거 대상 반영) (`plans/07_ui_terminal_prototype_godot.md` §6.5).
 - [10] 동적 생성 Pass(알파) 구현: 서버 수/배치, topology, 이벤트, 초기 데이터, 계정/자격정보를 `worldSeed` 결정적 생성으로 확정 (`plans/10_blueprint_schema_v0.md` §7 2.5).
 - [10] Campaign `flowMeta` YAML 작성/로더 초기화 매핑 구현 (`plans/10_blueprint_schema_v0.md` §5, 상세 스테이지 설계는 See DOCS_INDEX.md -> 15).
+- [10] ServerSpec `location` 월드 빌드 단계 구현: `AUTO:<regionId>` region 존재 검증 + `RuntimeLocationInfo` 생성/저장 (`plans/10_blueprint_schema_v0.md` §7 3), (`plans/09_server_node_runtime_schema_v0.md` §11).
 - [11] Action -> Event emit reentrancy 구현: tail append + tick budget 기반 같은 tick 처리/이월 (`plans/11_event_handler_spec_v0_1.md` §7.3).
 - [12] Save/Load 엔진 API + 저장/로드 UI 연동 구현 (`plans/12_save_load_persistence_spec_v0_1.md` line 9, §8.1).
 - [13] DesktopOverlay 상태 영속 저장 정책 확정 및 Save/Load 연계 (`plans/13_multi_window_engine_contract_v1.md` §16.8, See DOCS_INDEX.md -> 12).

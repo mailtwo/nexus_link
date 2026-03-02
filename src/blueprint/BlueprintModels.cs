@@ -116,6 +116,29 @@ public enum BlueprintHubType
     Switch,
 }
 
+/// <summary>Location authoring mode used by <c>ServerSpec.location</c>.</summary>
+public enum BlueprintLocationMode
+{
+    Auto,
+    Coordinates,
+}
+
+/// <summary>Parsed location payload stored on server spec blueprints.</summary>
+public sealed class BlueprintLocationInfo
+{
+    /// <summary>Selected location mode.</summary>
+    public BlueprintLocationMode Mode { get; set; } = BlueprintLocationMode.Auto;
+
+    /// <summary>Region id used for AUTO sampling.</summary>
+    public string RegionId { get; set; } = "Unknown";
+
+    /// <summary>Latitude value for coordinate mode.</summary>
+    public double Lat { get; set; }
+
+    /// <summary>Longitude value for coordinate mode.</summary>
+    public double Lng { get; set; }
+}
+
 /// <summary>Reusable server recipe blueprint.</summary>
 public sealed class ServerSpecBlueprint
 {
@@ -130,6 +153,9 @@ public sealed class ServerSpecBlueprint
 
     /// <summary>Default hostname.</summary>
     public string Hostname { get; set; } = string.Empty;
+
+    /// <summary>Parsed location rule (<c>AUTO:&lt;regionId&gt;</c> or <c>&lt;lat&gt;,&lt;lng&gt;</c>).</summary>
+    public BlueprintLocationInfo Location { get; set; } = new();
 
     /// <summary>User blueprints keyed by userKey.</summary>
     public Dictionary<string, UserBlueprint> Users { get; } = new(StringComparer.Ordinal);

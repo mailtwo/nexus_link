@@ -171,3 +171,7 @@ plans/ 문서의 설계 결정이 추가되거나 변경될 때 기록한다.
 ### [10] RegionData 경로/로딩 정책
 - **결정**: RegionData 기본 경로를 `res://scenario_content/campaigns/base/regions.yaml`로 고정하고, 월드 런타임에서 1회 로딩 + 전처리(`TotalArea` 계산/정렬 캐시) 후 불변 캐시로 재사용한다.
 - **이유**: BlueprintLocationInfo 도입 전 공용 지역 인덱스를 안정적으로 준비하고, save/load와 무관한 정적 데이터의 재직렬화 비용/복잡도를 제거하기 위함.
+
+### [10] ServerSpec location 스키마 스칼라화
+- **결정**: `ServerSpec.location`은 중첩 객체(`location.location`)가 아닌 단일 scalar 문자열로 정의한다. 허용 입력은 `AUTO:<regionId>`, `<lat>,<lng>`, 생략(= `AUTO:Unknown`)으로 고정한다.
+- **이유**: 실제 프로토타입 YAML 작성 패턴과 스키마 표현을 일치시켜 작성/리뷰 혼선을 줄이고, location 키 중복 표기를 제거하기 위함.

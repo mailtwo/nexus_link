@@ -134,7 +134,7 @@ ServerSpecBlueprint
     - overlayEntries: Dictionary<string /*path*/, EntryMeta>
     - tombstones: Set<string /*path*/>
 - logCapacity: int
-- location?: BlueprintLocationInfo
+- location?: string
     # 생략 시 AUTO:Unknown 으로 처리 (worldSeed 기반 전세계 랜덤)
 ```
 
@@ -202,11 +202,10 @@ DaemonBlueprint (OTP)
 > 실제 OTP 문자열 포맷은 엔진이 고정된 표준(예: 6자리 숫자 or 8자리 base32 등)로 정의해도 된다.
 > v0 OTP 모델은 `stepMs/allowedDriftSteps` 기반 TOTP만 허용하며, 서버 발급형 TTL 토큰 모델은 사용하지 않는다.
 
-### 1.4 BlueprintLocationInfo
+### 1.4 ServerSpec.location (scalar)
 
 ```text
-BlueprintLocationInfo
-- location: string    # 아래 형식 중 하나
+ServerSpec.location?: string   # 아래 형식 중 하나
 ```
 
 허용 형식 (파싱 우선순위 순):
@@ -521,7 +520,7 @@ CampaignBlueprint
     - user.authMode=otp 인 계정이 있으면 OTP daemon 설정이 반드시 존재해야 함(없으면 에러)
     - OTP daemon의 userKey가 users에 존재해야 함(없으면 에러)
 - location 처리:
-  - `BlueprintLocationInfo` 파싱
+  - `ServerSpec.location` 파싱
   - `AUTO:<regionId>`이면:
     1. 해당 region의 박스 리스트에서 TotalArea 비례 weighted sampling으로 박스 선택
     2. 선택된 박스 내에서 균등 랜덤 좌표 샘플링
@@ -599,7 +598,7 @@ See DOCS_INDEX.md → 09.
 - [ ] Unknown region 존재 검증 (없으면 로딩 에러)
 - [ ] TotalArea 계산 + 캐시
 - [ ] 동일 region 내 박스 겹침 경고
-- [ ] BlueprintLocationInfo 파싱 (AUTO / 좌표 / 생략)
+- [ ] ServerSpec.location 파싱 (AUTO / 좌표 / 생략)
 - [ ] AUTO:Unknown 로딩 에러 처리
 - [ ] weighted sampling + 박스 내 균등 샘플링 (worldSeed + nodeId 기반 결정론)
 - [ ] displayName 결정 (TotalArea 최소 region)

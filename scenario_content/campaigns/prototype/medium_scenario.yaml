@@ -13,6 +13,7 @@ ServerSpec:
           read: true
           write: true
           execute: true
+    location: AUTO:Asia
     daemons:
       OTP:
         userKey: mediumMainUser1
