@@ -125,6 +125,7 @@ ServerStruct
       런타임 `interfaces`에는 저장하지 않는다.
 - lanNeighbors: List<string /*nodeId*/>
     - 의미: 현재 서버 기준 직접 이동 가능한 이웃 서버의 내부 참조 목록
+- location: RuntimeLocationInfo
 ```
 
 ---
@@ -312,3 +313,26 @@ LogStruct
 - [ ] `daemons` 스키마(`OTP/firewall/connectionRateLimiter`) 필드 유지
 - [ ] VFS overlay 스키마: `overlayEntries` / `tombstones` / `dirDelta` 필드 유지
 - [ ] Logs: ringbuffer + `sourceNodeId`(필수/비노출, 추적 판정 키) + `remoteIp`(표시 전용) + origin 유지 규칙
+- [ ] ServerStruct에 `location: RuntimeLocationInfo` 필드 추가
+
+## 11) RuntimeLocationInfo
+
+블루프린트의 `location` 필드를 월드 생성 시 해석한 결과를 저장한다.
+AUTO 해석, 좌표 샘플링, displayName 결정은 모두 월드 생성 시 1회 수행하며,
+이후 런타임에서 재계산하지 않는다.
+생성 규칙/파이프라인은 `10_blueprint_schema_v0.md`를 따른다.
+See DOCS_INDEX.md → 10.
+
+```text
+RuntimeLocationInfo
+- regionId: string
+    # 블루프린트에서 지정한 region의 id (샘플링 기준)
+    # AUTO:X 이면 X, 좌표 직접 지정이면 "Unknown"
+- displayName: string
+    # 해당 좌표를 포함하는 region 중 TotalArea가 가장 작은 region의 id
+    # Unknown region이 전세계를 커버하므로 결과가 없는 경우는 발생하지 않음
+- lat: float   # 위도 (-90.0 ~ +90.0)
+- lng: float   # 경도 (-180.0 ~ +180.0)
+```
+
+---

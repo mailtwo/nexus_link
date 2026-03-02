@@ -34,6 +34,89 @@
 
 ---
 
+## 0-A) 지역 데이터 (RegionData)
+
+### 개요
+
+지역 데이터는 `scenario_content/resources/regions.yaml`에 정의한다.
+본 문서는 그 스키마 규칙을 정의한다.
+
+- Region은 **플랫 리스트**다. 부모-자식 계층 관계는 데이터에 없다.
+- 크기가 다른 region이 같은 좌표를 커버할 수 있다
+  (Asia/Korea/Seoul이 모두 서울 좌표를 포함하는 식).
+- 계층 관계는 데이터에 명시하지 않고, TotalArea 계산 결과에서 자연히 드러난다.
+
+### RegionData 스키마
+
+```yaml
+# regions.yaml
+regions:
+  <regionId>:           # 영문, 언더스코어 허용. 예: "Asia", "Korea", "Seoul", "Pacific_Ocean"
+    boxes:
+      - [minLat, minLng, maxLat, maxLng]   # float, 순서 고정
+      - ...                                 # 박스 여러 개 허용 (list of bounding box)
+      # TotalArea는 런타임 로딩 시 계산하며 파일에 저장하지 않는다
+```
+
+예시:
+
+```yaml
+regions:
+  Asia:
+    boxes:
+      - [5.0, 26.0, 55.0, 180.0]
+
+  Korea:
+    boxes:
+      - [33.0, 124.5, 38.6, 130.9]
+
+  Seoul:
+    boxes:
+      - [37.2, 126.7, 37.7, 127.2]
+
+  Pacific_Ocean:
+    boxes:
+      - [-30.0, 150.0, 30.0, 180.0]
+      - [-30.0, -180.0, 30.0, -120.0]   # 날짜변경선 걸치는 경우 박스 분할
+
+  Unknown:
+    boxes:
+      - [-90.0, -180.0, 90.0, 180.0]    # 전세계 커버 (fallback 전용)
+```
+
+### 박스 좌표 규칙
+
+- `lat`: 위도. 적도=0, 북극=+90, 남극=-90.
+- `lng`: 경도. 그리니치=0, 동쪽=+, 서쪽=-.
+- `minLat < maxLat`, `minLng < maxLng` 이어야 한다 (로딩 에러).
+- 날짜변경선(lng=±180)을 걸치는 지역은 박스를 분할해서 정의한다.
+
+### Unknown region 규칙 (필수)
+
+- `Unknown` regionId는 예약어다. `regions.yaml`에 반드시 1개 정의되어야 한다 (없으면 로딩 에러).
+- `Unknown`은 전세계 단일 박스 `[-90.0, -180.0, 90.0, 180.0]`만 허용한다.
+- `Unknown`은 블루프린트의 `location` 필드에서 **AUTO 지정 불가**
+  (`AUTO:Unknown` 로딩 에러).
+  직접 좌표 지정의 결과가 다른 region에 속하지 않을 때 `regionId = "Unknown"`이
+  되는 용도로만 사용한다.
+- `Unknown`은 박스 겹침 검증 대상에서 제외한다.
+
+### TotalArea 계산 (로딩 시 1회)
+
+- 각 박스의 넓이: `(maxLat - minLat) * (maxLng - minLng)`
+- TotalArea = 해당 region의 모든 박스 넓이 합산
+- weighted sampling과 displayName 결정 양쪽에서 사용하므로 캐시한다.
+- 실제 구면 면적이 아닌 격자 면적이며, 게임 밸런스 용도로 충분하다.
+
+### 박스 겹침 규칙
+
+- 동일 region 내 박스끼리는 겹침을 허용하지 않는다 (weighted sampling 왜곡 방지).
+- 서로 다른 region 간 박스 겹침은 허용한다 (Asia와 Korea가 같은 좌표를 커버하는 것이 정상).
+- 로딩 시 동일 region 내 박스 겹침이 감지되면 경고 로그를 출력한다 (에러로 중단하지 않음).
+```
+
+---
+
 ## 1) ServerSpecBlueprint (서버 스펙)
 
 ```text
@@ -49,6 +132,8 @@ ServerSpecBlueprint
     - overlayEntries: Dictionary<string /*path*/, EntryMeta>
     - tombstones: Set<string /*path*/>
 - logCapacity: int
+- location?: BlueprintLocationInfo
+    # 생략 시 AUTO:Unknown 으로 처리 (worldSeed 기반 전세계 랜덤)
 ```
 
 ### 1.1 UserBlueprint
@@ -115,7 +200,27 @@ DaemonBlueprint (OTP)
 > 실제 OTP 문자열 포맷은 엔진이 고정된 표준(예: 6자리 숫자 or 8자리 base32 등)로 정의해도 된다.
 > v0 OTP 모델은 `stepMs/allowedDriftSteps` 기반 TOTP만 허용하며, 서버 발급형 TTL 토큰 모델은 사용하지 않는다.
 
----
+### 1.4 BlueprintLocationInfo
+
+```text
+BlueprintLocationInfo
+- location: string    # 아래 형식 중 하나
+```
+
+허용 형식 (파싱 우선순위 순):
+
+| 형식 | 예시 | 의미 |
+|------|------|------|
+| `"AUTO:<regionId>"` | `"AUTO:Korea"` | 해당 region 내 랜덤 좌표 |
+| `"<lat>,<lng>"` | `"37.5665,126.9780"` | 좌표 직접 지정 |
+| 생략 | | `AUTO:Unknown`과 동일 |
+
+파싱 규칙:
+- `AUTO:<regionId>`: regionId가 regions.yaml에 존재해야 한다 (없으면 로딩 에러).
+  `AUTO:Unknown`은 허용하지 않는다 (로딩 에러).
+- `<lat>,<lng>`: 공백 없이 쉼표로 구분.
+  범위 검증 (`-90 ≤ lat ≤ 90`, `-180 ≤ lng ≤ 180`). 범위 벗어나면 로딩 에러.
+- 위 2가지에 해당하지 않으면 로딩 에러.
 
 ## 2) ScenarioBlueprint (시나리오)
 
@@ -413,6 +518,21 @@ CampaignBlueprint
   - OTP 규칙 검증:
     - user.authMode=otp 인 계정이 있으면 OTP daemon 설정이 반드시 존재해야 함(없으면 에러)
     - OTP daemon의 userKey가 users에 존재해야 함(없으면 에러)
+- location 처리:
+  - `BlueprintLocationInfo` 파싱
+  - `AUTO:<regionId>`이면:
+    1. 해당 region의 박스 리스트에서 TotalArea 비례 weighted sampling으로 박스 선택
+    2. 선택된 박스 내에서 균등 랜덤 좌표 샘플링
+    - 결정론성 보장을 위해 `worldSeed + nodeId` 조합으로 seed 구성
+  - 좌표 직접 지정이면: 그대로 사용
+  - `regionId` 결정:
+    - AUTO이면 지정한 regionId
+    - 좌표 직접 지정이면 `"Unknown"`
+  - `displayName` 결정:
+    - regions.yaml의 모든 region을 순회하며 해당 좌표를 포함하는 region 수집
+    - TotalArea 오름차순 정렬 후 첫 번째 region의 id를 displayName으로 사용
+    - (Unknown이 항상 커버하므로 결과가 없는 경우는 발생하지 않음)
+  - 결과를 `RuntimeLocationInfo`로 `ServerStruct`에 저장
 
 4) **네트워크/서브넷 구성**
 - netId 수집:
@@ -470,3 +590,15 @@ See DOCS_INDEX.md → 09.
 - OTP 출력 프로그램(otpGenerator) 스펙/커맨드/API (프로그램 실행과 stdout 모델)
 - “leaked_password.txt”의 제공 방식(워크스테이션 기본 탑재 vs 마켓 구매)
 - 캠페인 진행/보상/클리어 처리의 데이터화(현재는 print로도 가능)
+
+
+## 11) 구현 체크리스트(v0.2)
+- [ ] `regions.yaml` 로딩 + RegionData 파싱 구현
+- [ ] Unknown region 존재 검증 (없으면 로딩 에러)
+- [ ] TotalArea 계산 + 캐시
+- [ ] 동일 region 내 박스 겹침 경고
+- [ ] BlueprintLocationInfo 파싱 (AUTO / 좌표 / 생략)
+- [ ] AUTO:Unknown 로딩 에러 처리
+- [ ] weighted sampling + 박스 내 균등 샘플링 (worldSeed + nodeId 기반 결정론)
+- [ ] displayName 결정 (TotalArea 최소 region)
+- [ ] RuntimeLocationInfo → ServerStruct 저장
