@@ -84,6 +84,7 @@
 4. 정적 원본 데이터
 - Base 이미지 원본
 - Blueprint/시나리오 원문
+- RegionData 원본(`scenario_content/campaigns/base/regions.yaml`) 및 전처리 캐시(`TotalArea` 등)
 
 5. 이벤트 큐
 - `eventQueue`는 v0.1에서 비저장

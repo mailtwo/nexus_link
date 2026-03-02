@@ -38,13 +38,15 @@
 
 ### 개요
 
-지역 데이터는 `scenario_content/resources/regions.yaml`에 정의한다.
+지역 데이터는 `scenario_content/campaigns/base/regions.yaml`에 정의한다.
 본 문서는 그 스키마 규칙을 정의한다.
 
 - Region은 **플랫 리스트**다. 부모-자식 계층 관계는 데이터에 없다.
 - 크기가 다른 region이 같은 좌표를 커버할 수 있다
   (Asia/Korea/Seoul이 모두 서울 좌표를 포함하는 식).
 - 계층 관계는 데이터에 명시하지 않고, TotalArea 계산 결과에서 자연히 드러난다.
+- RegionData는 월드 런타임에서 **1회 로딩 + 전처리 후 불변 캐시**로 사용한다.
+  save/load 대상이 아니며 런타임 중 값이 바뀌지 않는다.
 
 ### RegionData 스키마
 
@@ -106,6 +108,7 @@ regions:
 - 각 박스의 넓이: `(maxLat - minLat) * (maxLng - minLng)`
 - TotalArea = 해당 region의 모든 박스 넓이 합산
 - weighted sampling과 displayName 결정 양쪽에서 사용하므로 캐시한다.
+- 해당 캐시는 WorldRuntime 초기화 시 1회 계산 후 재사용하며, 월드 재생성/로드에서도 재직렬화하지 않는다.
 - 실제 구면 면적이 아닌 격자 면적이며, 게임 밸런스 용도로 충분하다.
 
 ### 박스 겹침 규칙
@@ -113,7 +116,6 @@ regions:
 - 동일 region 내 박스끼리는 겹침을 허용하지 않는다 (weighted sampling 왜곡 방지).
 - 서로 다른 region 간 박스 겹침은 허용한다 (Asia와 Korea가 같은 좌표를 커버하는 것이 정상).
 - 로딩 시 동일 region 내 박스 겹침이 감지되면 경고 로그를 출력한다 (에러로 중단하지 않음).
-```
 
 ---
 
@@ -593,7 +595,7 @@ See DOCS_INDEX.md → 09.
 
 
 ## 11) 구현 체크리스트(v0.2)
-- [ ] `regions.yaml` 로딩 + RegionData 파싱 구현
+- [ ] `scenario_content/campaigns/base/regions.yaml` 로딩 + RegionData 파싱 구현
 - [ ] Unknown region 존재 검증 (없으면 로딩 에러)
 - [ ] TotalArea 계산 + 캐시
 - [ ] 동일 region 내 박스 겹침 경고

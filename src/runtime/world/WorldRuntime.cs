@@ -24,6 +24,7 @@ public partial class WorldRuntime : Node
     private const string DefaultStartupServerNodeId = "startScenario/myWorkstation";
     private const string DefaultMotdFile = "res://scenario_content/resources/text/default_motd.txt";
     private const string DefaultDictionaryPasswordFile = "res://scenario_content/resources/text/leaked_password.txt";
+    private const string DefaultRegionDataFile = "res://scenario_content/campaigns/base/regions.yaml";
     private const string FallbackDefaultUserId = "player";
     private const string DefaultInternetAddressPlan = "10.255.0.0/16";
     private const uint DefaultHostStart = 10;
@@ -58,6 +59,10 @@ public partial class WorldRuntime : Node
     /// <summary>Default public userId text used by AUTO:user policy.</summary>
     [Export]
     public string DefaultUserId { get; set; } = FallbackDefaultUserId;
+
+    /// <summary>RegionData YAML file loaded once during runtime initialization.</summary>
+    [Export]
+    public string RegionDataFile { get; set; } = DefaultRegionDataFile;
 
     /// <summary>Enables debug-only runtime features such as DEBUG_* system calls.</summary>
     [Export]
@@ -124,6 +129,8 @@ public partial class WorldRuntime : Node
     [Export]
     // Serialized backing field keeps inspector editing without invoking guarded getter before initialization.
     private int worldSeed;
+    private RegionCatalog regionCatalog = null!;
+    private bool regionCatalogLoaded;
     private int nextProcessId = 1;
     private int physicsTicksPerSecond = 60;
 
@@ -144,6 +151,7 @@ public partial class WorldRuntime : Node
         BaseFileSystem = new BaseFileSystem(BlobStore);
         BuildBaseOsImage();
         LoadDictionaryPasswordPool();
+        EnsureRegionDataLoaded();
         InitializeSystemCalls();
         BuildInitialWorldFromBlueprint();
         ValidateWorldSeedForWorldBuild();
