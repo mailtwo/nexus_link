@@ -30,6 +30,7 @@ public partial class WorldRuntime
     private const int IntrinsicQueueWaitTimeoutMs = 5000;
     private const int IntrinsicQueueMaxRequestsPerDrain = 512;
     private const int IntrinsicQueueTailYieldBudgetMs = 8;
+    private const long SessionLineageTtlMs = 5 * 60 * 1000;
     private const string ConnectionRateLimiterBlockedMessage =
         "connectionRateLimiter daemon blocked this connection attempt.";
     private Queue<SshLoginAttempt>? sshLoginAttempts = new();
@@ -45,10 +46,18 @@ public partial class WorldRuntime
         new(StringComparer.Ordinal);
     private Dictionary<string, ConnectionRateLimiterState>? connectionRateLimiterStatesByNodeId =
         new(StringComparer.Ordinal);
+    private Dictionary<SessionKey, SessionHistoryEntry>? sessionHistoryByKey = new();
+    private HashSet<SessionKey>? activeSessionKeys = new();
+    private Dictionary<string, HashSet<SessionKey>>? activeSessionKeysByTargetNodeId =
+        new(StringComparer.Ordinal);
+    private Dictionary<SessionKey, IncidentBufferEntry>? forensicIncidentBuffersBySessionKey = new();
+    private Dictionary<string, ForensicTraceEntry>? activeForensicTracesByTraceId =
+        new(StringComparer.Ordinal);
 
     private int nextTerminalSessionSerial = 1;
     private int nextTerminalRemoteSessionId = 1;
     private int nextAsyncExecJobSerial = 1;
+    private int nextForensicTraceSerial = 1;
     private long inspectProbeRateLimitWindowStartMs;
     private int inspectProbeRateLimitCallsInWindow;
     private readonly object terminalProgramExecutionSync = new();
@@ -1440,7 +1449,8 @@ public partial class WorldRuntime
             return false;
         }
 
-        if (!TryGetServer(nodeId, out var server))
+        var normalizedNodeId = nodeId.Trim();
+        if (!TryGetServer(normalizedNodeId, out var server))
         {
             return false;
         }
@@ -1450,6 +1460,10 @@ public partial class WorldRuntime
             return false;
         }
 
+        var closedSessionKey = new SessionKey(normalizedNodeId, sessionId);
+        var nowMs = GetCurrentWorldTimeMs();
+        MarkSessionClosed(closedSessionKey, nowMs);
+        TryStartForensicTraceFromIncidentBuffer(closedSessionKey, nowMs);
         server.RemoveSession(sessionId);
         return true;
     }
@@ -1652,13 +1666,370 @@ public partial class WorldRuntime
         }
     }
 
+    internal void RecordForensicIncidentForSession(string targetNodeId, int sessionId, string incidentKind)
+    {
+        var normalizedTargetNodeId = targetNodeId?.Trim() ?? string.Empty;
+        if (sessionId < 1 || string.IsNullOrWhiteSpace(normalizedTargetNodeId))
+        {
+            return;
+        }
+
+        EnsureSessionLineageStores();
+        var sessionKey = new SessionKey(normalizedTargetNodeId, sessionId);
+        var nowMs = GetCurrentWorldTimeMs();
+        if (!forensicIncidentBuffersBySessionKey!.TryGetValue(sessionKey, out var entry))
+        {
+            entry = new IncidentBufferEntry
+            {
+                IncidentCount = 0,
+                FirstIncidentAt = nowMs,
+                LastIncidentAt = nowMs,
+            };
+            forensicIncidentBuffersBySessionKey[sessionKey] = entry;
+        }
+
+        entry.IncidentCount++;
+        if (entry.IncidentCount == 1)
+        {
+            entry.FirstIncidentAt = nowMs;
+        }
+
+        entry.LastIncidentAt = nowMs;
+        var normalizedIncidentKind = incidentKind?.Trim() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(normalizedIncidentKind))
+        {
+            entry.IncidentKinds.Add(normalizedIncidentKind);
+        }
+    }
+
+    internal void CleanupSessionLineageStores(long nowMs)
+    {
+        EnsureSessionLineageStores();
+        var normalizedNowMs = Math.Max(0, nowMs);
+
+        var expiredTraceIds = activeForensicTracesByTraceId!
+            .Where(static pair => pair.Value.ExpiresAt <= 0 || pair.Value.ExpiresAt <= pair.Value.StartedAt)
+            .Select(static pair => pair.Key)
+            .ToList();
+        foreach (var pair in activeForensicTracesByTraceId)
+        {
+            if (pair.Value.ExpiresAt > pair.Value.StartedAt && pair.Value.ExpiresAt <= normalizedNowMs)
+            {
+                expiredTraceIds.Add(pair.Key);
+            }
+        }
+
+        foreach (var traceId in expiredTraceIds.Distinct(StringComparer.Ordinal))
+        {
+            activeForensicTracesByTraceId.Remove(traceId);
+        }
+
+        var expiredIncidentKeys = forensicIncidentBuffersBySessionKey!
+            .Where(pair => pair.Value.LastIncidentAt + SessionLineageTtlMs <= normalizedNowMs)
+            .Select(static pair => pair.Key)
+            .ToArray();
+        foreach (var incidentKey in expiredIncidentKeys)
+        {
+            forensicIncidentBuffersBySessionKey.Remove(incidentKey);
+        }
+
+        var protectedHistoryKeys = CollectProtectedSessionLineageKeys();
+        var expiredHistoryKeys = sessionHistoryByKey!
+            .Where(pair =>
+                pair.Value.ClosedAt.HasValue &&
+                pair.Value.ClosedAt.Value + SessionLineageTtlMs <= normalizedNowMs &&
+                !protectedHistoryKeys.Contains(pair.Key))
+            .Select(static pair => pair.Key)
+            .ToArray();
+        foreach (var expiredHistoryKey in expiredHistoryKeys)
+        {
+            sessionHistoryByKey.Remove(expiredHistoryKey);
+        }
+
+        PruneActiveSessionIndexes();
+    }
+
+    internal void ResetSessionLineageStores()
+    {
+        EnsureSessionLineageStores();
+        sessionHistoryByKey!.Clear();
+        activeSessionKeys!.Clear();
+        activeSessionKeysByTargetNodeId!.Clear();
+        forensicIncidentBuffersBySessionKey!.Clear();
+        activeForensicTracesByTraceId!.Clear();
+        nextForensicTraceSerial = 1;
+    }
+
+    private void EnsureSessionLineageStores()
+    {
+        sessionHistoryByKey ??= new Dictionary<SessionKey, SessionHistoryEntry>();
+        activeSessionKeys ??= new HashSet<SessionKey>();
+        activeSessionKeysByTargetNodeId ??= new Dictionary<string, HashSet<SessionKey>>(StringComparer.Ordinal);
+        forensicIncidentBuffersBySessionKey ??= new Dictionary<SessionKey, IncidentBufferEntry>();
+        activeForensicTracesByTraceId ??= new Dictionary<string, ForensicTraceEntry>(StringComparer.Ordinal);
+        if (nextForensicTraceSerial < 1)
+        {
+            nextForensicTraceSerial = 1;
+        }
+    }
+
+    private void RegisterSessionLineageOnOpen(
+        ServerNodeRuntime sourceServer,
+        SshSessionValidationResult validated,
+        int sessionId,
+        SshOpenCallerContext? callerContext)
+    {
+        EnsureSessionLineageStores();
+        var sessionKey = new SessionKey(validated.TargetNodeId, sessionId);
+        var sourceNodeId = callerContext?.SourceMetadata?.SourceNodeId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(sourceNodeId))
+        {
+            sourceNodeId = sourceServer.NodeId;
+        }
+
+        var parentSessionKey = TryResolveParentSessionKey(callerContext);
+        var nowMs = GetCurrentWorldTimeMs();
+        sessionHistoryByKey![sessionKey] = new SessionHistoryEntry
+        {
+            SessionKey = sessionKey,
+            SourceNodeId = sourceNodeId,
+            TargetNodeId = validated.TargetNodeId,
+            ParentSessionKey = parentSessionKey,
+            OpenedAt = nowMs,
+            ClosedAt = null,
+        };
+
+        activeSessionKeys!.Add(sessionKey);
+        if (!activeSessionKeysByTargetNodeId!.TryGetValue(sessionKey.TargetNodeId, out var activeKeySet))
+        {
+            activeKeySet = new HashSet<SessionKey>();
+            activeSessionKeysByTargetNodeId[sessionKey.TargetNodeId] = activeKeySet;
+        }
+
+        activeKeySet.Add(sessionKey);
+    }
+
+    private static SessionKey? TryResolveParentSessionKey(SshOpenCallerContext? callerContext)
+    {
+        if (callerContext is null || callerContext.ParentSessions is null || callerContext.ParentSessions.Count == 0)
+        {
+            return null;
+        }
+
+        var lastParentSession = callerContext.ParentSessions[callerContext.ParentSessions.Count - 1];
+        var sessionNodeId = lastParentSession.SessionNodeId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(sessionNodeId) || lastParentSession.SessionId < 1)
+        {
+            return null;
+        }
+
+        return new SessionKey(sessionNodeId, lastParentSession.SessionId);
+    }
+
+    private void MarkSessionClosed(SessionKey sessionKey, long closedAtMs)
+    {
+        EnsureSessionLineageStores();
+        if (sessionHistoryByKey!.TryGetValue(sessionKey, out var sessionHistoryEntry) &&
+            !sessionHistoryEntry.ClosedAt.HasValue)
+        {
+            sessionHistoryEntry.ClosedAt = Math.Max(0, closedAtMs);
+        }
+
+        activeSessionKeys!.Remove(sessionKey);
+        if (activeSessionKeysByTargetNodeId!.TryGetValue(sessionKey.TargetNodeId, out var activeKeySet))
+        {
+            activeKeySet.Remove(sessionKey);
+            if (activeKeySet.Count == 0)
+            {
+                activeSessionKeysByTargetNodeId.Remove(sessionKey.TargetNodeId);
+            }
+        }
+    }
+
+    private void TryStartForensicTraceFromIncidentBuffer(SessionKey originSessionKey, long startedAtMs)
+    {
+        EnsureSessionLineageStores();
+        if (!forensicIncidentBuffersBySessionKey!.TryGetValue(originSessionKey, out var incidentBuffer))
+        {
+            return;
+        }
+
+        forensicIncidentBuffersBySessionKey.Remove(originSessionKey);
+        if (incidentBuffer.IncidentCount < 1)
+        {
+            return;
+        }
+
+        TryBuildForensicRouteSnapshot(originSessionKey, out var routeNodeIds, out var routeEdgeKeys);
+        if (routeNodeIds.Count == 0)
+        {
+            routeNodeIds.Add(originSessionKey.TargetNodeId);
+        }
+
+        if (routeEdgeKeys.Count == 0 && routeNodeIds.Count > 1)
+        {
+            for (var index = 0; index + 1 < routeNodeIds.Count; index++)
+            {
+                routeEdgeKeys.Add(new TraceEdgeKey(routeNodeIds[index], routeNodeIds[index + 1]));
+            }
+        }
+
+        var normalizedStartedAtMs = Math.Max(0, startedAtMs);
+        var traceId = AllocateForensicTraceId();
+        activeForensicTracesByTraceId![traceId] = new ForensicTraceEntry
+        {
+            TraceId = traceId,
+            OriginSessionKey = originSessionKey,
+            RouteNodeIds = routeNodeIds,
+            RouteEdgeKeys = routeEdgeKeys,
+            StartedAt = normalizedStartedAtMs,
+            ExpiresAt = normalizedStartedAtMs + SessionLineageTtlMs,
+        };
+    }
+
+    private void TryBuildForensicRouteSnapshot(
+        SessionKey originSessionKey,
+        out List<string> routeNodeIds,
+        out List<TraceEdgeKey> routeEdgeKeys)
+    {
+        routeNodeIds = new List<string>();
+        routeEdgeKeys = new List<TraceEdgeKey>();
+        EnsureSessionLineageStores();
+        if (!sessionHistoryByKey!.TryGetValue(originSessionKey, out var currentEntry))
+        {
+            return;
+        }
+
+        var targetNodeId = currentEntry.TargetNodeId?.Trim() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(targetNodeId))
+        {
+            routeNodeIds.Add(targetNodeId);
+        }
+
+        var visitedSessionKeys = new HashSet<SessionKey> { originSessionKey };
+        while (true)
+        {
+            var sourceNodeId = currentEntry.SourceNodeId?.Trim() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(sourceNodeId) &&
+                (routeNodeIds.Count == 0 || !string.Equals(routeNodeIds[routeNodeIds.Count - 1], sourceNodeId, StringComparison.Ordinal)))
+            {
+                routeNodeIds.Add(sourceNodeId);
+            }
+
+            if (!currentEntry.ParentSessionKey.HasValue)
+            {
+                break;
+            }
+
+            var parentSessionKey = currentEntry.ParentSessionKey.Value;
+            if (!visitedSessionKeys.Add(parentSessionKey) ||
+                !sessionHistoryByKey.TryGetValue(parentSessionKey, out currentEntry))
+            {
+                break;
+            }
+
+            var parentTargetNodeId = currentEntry.TargetNodeId?.Trim() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(parentTargetNodeId) &&
+                (routeNodeIds.Count == 0 || !string.Equals(routeNodeIds[routeNodeIds.Count - 1], parentTargetNodeId, StringComparison.Ordinal)))
+            {
+                routeNodeIds.Add(parentTargetNodeId);
+            }
+        }
+
+        for (var index = 0; index + 1 < routeNodeIds.Count; index++)
+        {
+            routeEdgeKeys.Add(new TraceEdgeKey(routeNodeIds[index], routeNodeIds[index + 1]));
+        }
+    }
+
+    private string AllocateForensicTraceId()
+    {
+        EnsureSessionLineageStores();
+        string traceId;
+        do
+        {
+            traceId = $"forensic-{nextForensicTraceSerial++:D6}";
+        }
+        while (activeForensicTracesByTraceId!.ContainsKey(traceId));
+
+        return traceId;
+    }
+
+    private HashSet<SessionKey> CollectProtectedSessionLineageKeys()
+    {
+        EnsureSessionLineageStores();
+        var protectedKeys = new HashSet<SessionKey>();
+        foreach (var activeSessionKey in activeSessionKeys!)
+        {
+            AddProtectedSessionLineageChain(activeSessionKey, protectedKeys);
+        }
+
+        foreach (var incidentSessionKey in forensicIncidentBuffersBySessionKey!.Keys)
+        {
+            AddProtectedSessionLineageChain(incidentSessionKey, protectedKeys);
+        }
+
+        foreach (var forensicTrace in activeForensicTracesByTraceId!.Values)
+        {
+            AddProtectedSessionLineageChain(forensicTrace.OriginSessionKey, protectedKeys);
+        }
+
+        return protectedKeys;
+    }
+
+    private void AddProtectedSessionLineageChain(SessionKey sessionKey, HashSet<SessionKey> protectedKeys)
+    {
+        EnsureSessionLineageStores();
+        var currentKey = sessionKey;
+        while (true)
+        {
+            if (!protectedKeys.Add(currentKey))
+            {
+                break;
+            }
+
+            if (!sessionHistoryByKey!.TryGetValue(currentKey, out var currentEntry) ||
+                !currentEntry.ParentSessionKey.HasValue)
+            {
+                break;
+            }
+
+            currentKey = currentEntry.ParentSessionKey.Value;
+        }
+    }
+
+    private void PruneActiveSessionIndexes()
+    {
+        EnsureSessionLineageStores();
+        var activeKeySnapshot = activeSessionKeys!.ToArray();
+        foreach (var activeKey in activeKeySnapshot)
+        {
+            if (!sessionHistoryByKey!.TryGetValue(activeKey, out var historyEntry) ||
+                historyEntry.ClosedAt.HasValue)
+            {
+                activeSessionKeys.Remove(activeKey);
+            }
+        }
+
+        var bucketKeys = activeSessionKeysByTargetNodeId!.Keys.ToArray();
+        foreach (var bucketKey in bucketKeys)
+        {
+            var activeKeySet = activeSessionKeysByTargetNodeId[bucketKey];
+            activeKeySet.RemoveWhere(activeKey => !activeSessionKeys.Contains(activeKey));
+            if (activeKeySet.Count == 0)
+            {
+                activeSessionKeysByTargetNodeId.Remove(bucketKey);
+            }
+        }
+    }
+
     internal bool TryOpenSshSession(
         ServerNodeRuntime sourceServer,
         string hostOrIp,
         string userId,
         string password,
         int port,
-        SshOpenCallerContext callerContext,
+        SshOpenCallerContext? callerContext,
         out SshSessionOpenResult openResult,
         out SystemCallResult failureResult)
     {
@@ -1690,6 +2061,7 @@ public partial class WorldRuntime
             RemoteIp = validated.RemoteIp,
             Cwd = "/",
         });
+        RegisterSessionLineageOnOpen(sourceServer, validated, sessionId, callerContext);
 
         EmitPrivilegeAcquireForLogin(validated.TargetNodeId, validated.TargetUserKey, normalizedVia);
         openResult = new SshSessionOpenResult
@@ -2923,6 +3295,51 @@ public partial class WorldRuntime
         internal string SessionNodeId { get; init; } = string.Empty;
 
         internal int SessionId { get; init; }
+    }
+
+    internal readonly record struct SessionKey(string TargetNodeId, int SessionId);
+
+    internal readonly record struct TraceEdgeKey(string FromNodeId, string ToNodeId);
+
+    internal sealed class SessionHistoryEntry
+    {
+        internal SessionKey SessionKey { get; init; }
+
+        internal string SourceNodeId { get; init; } = string.Empty;
+
+        internal string TargetNodeId { get; init; } = string.Empty;
+
+        internal SessionKey? ParentSessionKey { get; init; }
+
+        internal long OpenedAt { get; init; }
+
+        internal long? ClosedAt { get; set; }
+    }
+
+    internal sealed class IncidentBufferEntry
+    {
+        internal int IncidentCount { get; set; }
+
+        internal long FirstIncidentAt { get; set; }
+
+        internal long LastIncidentAt { get; set; }
+
+        internal HashSet<string> IncidentKinds { get; } = new(StringComparer.Ordinal);
+    }
+
+    internal sealed class ForensicTraceEntry
+    {
+        internal string TraceId { get; init; } = string.Empty;
+
+        internal SessionKey OriginSessionKey { get; init; }
+
+        internal List<string> RouteNodeIds { get; init; } = new();
+
+        internal List<TraceEdgeKey> RouteEdgeKeys { get; init; } = new();
+
+        internal long StartedAt { get; init; }
+
+        internal long ExpiresAt { get; init; }
     }
 
     internal sealed class SshSessionOpenResult

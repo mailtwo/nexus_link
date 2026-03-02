@@ -410,7 +410,8 @@ close 경로와 무관하게 공통으로 아래를 수행한다.
 1. 대상 `sessionKey`를 history에서 조회한다.
 2. history 엔트리의 `closedAt`을 현재 `worldTimeMs`로 기록한다.
 3. active 인덱스에서 `sessionKey`를 제거한다.
-4. history 엔트리는 즉시 삭제하지 않는다(forensic TTL/참조 정책에 따라 유지).
+4. 해당 `sessionKey`에 incident buffer가 있으면 forensic trace를 생성하고 incident buffer를 소비(삭제)한다.
+5. history 엔트리는 즉시 삭제하지 않는다(forensic TTL/참조 정책에 따라 유지).
 
 ### 11.3 Close 진입점별 규칙
 
@@ -444,3 +445,14 @@ close 경로와 무관하게 공통으로 아래를 수행한다.
 - `ssh.disconnect(route)`의 닫힌 세션 집합 각각에 대해 incident 버퍼를 조회한다.
 - incident가 있는 세션마다 forensic trace를 개별 생성한다.
 - incident가 부모 hop에만 있고 현재 닫힌 세션에는 없는 경우 forensic를 시작하지 않는다.
+
+### 11.8 Session Lineage TTL Cleanup
+
+- WorldTick마다 lineage 저장소 TTL 정리를 수행한다.
+- 정리 순서는 `ForensicTraceStore -> ForensicIncidentBufferStore -> SessionHistoryStore`다.
+- TTL 기준 시간은 `worldTimeMs`, 기본값은 5분(`300000ms`)이다.
+- SessionHistory 정리 시 보호 키:
+  - active session keys
+  - incident buffer keys
+  - active forensic origin session keys
+- 보호 키의 `parentSessionKey` 조상 체인까지 보호한 뒤, 보호되지 않은 `closedAt + TTL` 만료 history만 삭제한다.

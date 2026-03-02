@@ -224,3 +224,17 @@ plans/ 문서의 설계 결정이 추가되거나 변경될 때 기록한다.
 - **결정**: v0.1 save/load에서는 session lineage/forensic runtime state를 상세 설계하지 않고 deferred로 남긴다.
 - **이유**: 현재 포맷 안정성을 유지하면서도, save/load 악용(trace reset) 가능성은 후속 버전에서
   별도 chunk/schema/version 정책으로 명시적으로 해결하기 위함.
+
+### [09][11] Session lineage TTL 정리 범위/순서
+- **결정**: TTL 정리는 `ForensicTraceStore -> ForensicIncidentBufferStore -> SessionHistoryStore` 순으로 수행하고,
+  적용 범위는 세 저장소 전체(`Forensic+Incident+History`)로 고정한다.
+  history는 `active`, `incident`, `forensic origin` 및 `parentSessionKey` 조상 체인을 보호한 뒤 만료분만 제거한다.
+- **이유**: 메모리 증가를 제어하면서도, 활성 체인/진행 중 forensic가 참조하는 lineage가 TTL 정리로 끊기는 문제를 방지하기 위함.
+
+### [11] Disconnect handoff incident 소비 규칙
+- **결정**: forensic handoff는 닫힌 `sessionKey`에 incident buffer가 있을 때만 수행하고, handoff 직후 해당 incident buffer를 소비(삭제)한다.
+- **이유**: incident 없는 disconnect에서 불필요한 forensic 엔트리 생성을 막고, 동일 세션의 중복 handoff를 방지하기 위함.
+
+### [11] Session lineage TTL 기본값
+- **결정**: session lineage/forensic TTL 기준은 `worldTimeMs` 5분(`300000ms`)으로 둔다.
+- **이유**: 알파 밸런싱 단계에서 단일 상수로 빠르게 조정 가능하게 하면서도, 기본 추적 잔상 지속 시간을 확보하기 위함.

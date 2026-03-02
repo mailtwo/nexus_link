@@ -301,6 +301,7 @@ public partial class WorldRuntime
         ActiveScenarioId = string.Empty;
         nextProcessId = 1;
         ResetTerminalSessionState();
+        ResetSessionLineageStores();
         ResetConnectionRateLimiterState();
         ResetInspectProbeRateLimitState();
         ResetEventRuntimeState();

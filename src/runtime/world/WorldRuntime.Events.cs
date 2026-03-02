@@ -261,6 +261,7 @@ public partial class WorldRuntime
         EnsureEventRuntimeServices();
         worldTickIndex++;
         var nowMs = GetCurrentWorldTimeMs();
+        CleanupSessionLineageStores(nowMs);
         ProcessDueProcesses(nowMs);
         eventDispatcher?.Drain(eventQueue, ScenarioFlags);
     }

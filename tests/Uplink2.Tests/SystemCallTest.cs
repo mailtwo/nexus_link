@@ -6472,6 +6472,237 @@ public sealed class SystemCallTest
         Assert.True(routeRefs[0].SessionId < routeRefs[1].SessionId);
     }
 
+    /// <summary>Ensures successful connect registers lineage history and active-session indexes.</summary>
+    [Fact]
+    public void Execute_Connect_RegistersSessionLineageHistoryAndActiveIndex()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var connect = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-lineage-open");
+
+        Assert.True(connect.Ok);
+        var session = Assert.Single(remote.Sessions);
+        var historyEntry = GetSessionHistoryEntry(harness.World, remote.NodeId, session.Key);
+        Assert.NotNull(historyEntry);
+        Assert.Equal(harness.Server.NodeId, (string?)GetPropertyValue(historyEntry!, "SourceNodeId"));
+        Assert.Equal(remote.NodeId, (string?)GetPropertyValue(historyEntry!, "TargetNodeId"));
+        Assert.Null(GetPropertyValue(historyEntry!, "ParentSessionKey"));
+        Assert.Null(GetPropertyValue(historyEntry!, "ClosedAt"));
+        Assert.True(ActiveSessionIndexContains(harness.World, remote.NodeId, session.Key));
+    }
+
+    /// <summary>Ensures terminal disconnect marks lineage close and removes active-session indexes.</summary>
+    [Fact]
+    public void Execute_Disconnect_ClosesSessionLineageAndRemovesActiveIndex()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var connect = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-lineage-close");
+        Assert.True(connect.Ok);
+        var session = Assert.Single(remote.Sessions);
+
+        var disconnect = Execute(
+            harness,
+            "disconnect",
+            nodeId: remote.NodeId,
+            userId: "guest",
+            cwd: "/",
+            terminalSessionId: "ts-lineage-close");
+        Assert.True(disconnect.Ok);
+        Assert.Empty(remote.Sessions);
+
+        var historyEntry = GetSessionHistoryEntry(harness.World, remote.NodeId, session.Key);
+        Assert.NotNull(historyEntry);
+        Assert.NotNull(GetPropertyValue(historyEntry!, "ClosedAt"));
+        Assert.False(ActiveSessionIndexContains(harness.World, remote.NodeId, session.Key));
+    }
+
+    /// <summary>Ensures route disconnect closes each hop and marks lineage entries as closed.</summary>
+    [Fact]
+    public void Execute_Miniscript_SshDisconnectRoute_ClosesLineageEntries()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(harness, "node-2", "remote-a", "10.1.0.20", AuthMode.Static, "pw");
+        AddRemoteServer(harness, "node-3", "remote-b", "10.1.0.30", AuthMode.Static, "pw");
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lineage_route_disconnect.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            opts = {}
+            opts["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", opts)
+            d = ssh.disconnect(r2.route)
+            print "closed=" + str(d.summary.closed)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/lineage_route_disconnect.ms");
+
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "closed=2", StringComparison.Ordinal));
+        var node2Entry = Assert.Single(GetSessionHistoryEntriesByTargetNodeId(harness.World, "node-2"));
+        var node3Entry = Assert.Single(GetSessionHistoryEntriesByTargetNodeId(harness.World, "node-3"));
+        Assert.NotNull(GetPropertyValue(node2Entry, "ClosedAt"));
+        Assert.NotNull(GetPropertyValue(node3Entry, "ClosedAt"));
+        var node3Parent = GetPropertyValue(node3Entry, "ParentSessionKey");
+        Assert.NotNull(node3Parent);
+        Assert.Equal("node-2", (string?)GetPropertyValue(node3Parent!, "TargetNodeId"));
+    }
+
+    /// <summary>Ensures incident-bearing session close hands off once to forensic store and consumes incident buffer.</summary>
+    [Fact]
+    public void Disconnect_WithIncident_StartsForensicTraceOnce_AndConsumesIncidentBuffer()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var connect = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-incident-handoff");
+        Assert.True(connect.Ok);
+        var session = Assert.Single(remote.Sessions);
+
+        RecordForensicIncidentForSession(harness.World, remote.NodeId, session.Key, "fileWrite");
+        Assert.True(IncidentBufferContains(harness.World, remote.NodeId, session.Key));
+
+        var disconnect = Execute(
+            harness,
+            "disconnect",
+            nodeId: remote.NodeId,
+            userId: "guest",
+            cwd: "/",
+            terminalSessionId: "ts-incident-handoff");
+        Assert.True(disconnect.Ok);
+        Assert.False(IncidentBufferContains(harness.World, remote.NodeId, session.Key));
+
+        var tracesAfterFirstClose = GetForensicTraceEntries(harness.World);
+        Assert.Single(tracesAfterFirstClose);
+        var trace = tracesAfterFirstClose[0];
+        var originKey = GetPropertyValue(trace, "OriginSessionKey");
+        Assert.NotNull(originKey);
+        Assert.Equal(remote.NodeId, (string?)GetPropertyValue(originKey!, "TargetNodeId"));
+        Assert.Equal(session.Key, (int)GetPropertyValue(originKey!, "SessionId")!);
+        var routeNodeIds = (System.Collections.IEnumerable?)GetPropertyValue(trace, "RouteNodeIds");
+        Assert.NotNull(routeNodeIds);
+        var workstationNodeId = harness.Server.NodeId;
+        Assert.Contains(
+            routeNodeIds!.Cast<object>().Select(static node => node.ToString() ?? string.Empty),
+            nodeId => string.Equals(nodeId, workstationNodeId, StringComparison.Ordinal));
+
+        var secondDisconnect = Execute(
+            harness,
+            "disconnect",
+            nodeId: harness.Server.NodeId,
+            userId: harness.UserId,
+            cwd: harness.Cwd,
+            terminalSessionId: "ts-incident-handoff");
+        Assert.False(secondDisconnect.Ok);
+        Assert.Single(GetForensicTraceEntries(harness.World));
+    }
+
+    /// <summary>Ensures TTL cleanup removes expired forensic/incident/history entries.</summary>
+    [Fact]
+    public void CleanupSessionLineageStores_RemovesExpiredEntriesByTtl()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var connect = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-lineage-ttl-expire");
+        Assert.True(connect.Ok);
+        var session = Assert.Single(remote.Sessions);
+        RecordForensicIncidentForSession(harness.World, remote.NodeId, session.Key, "sensitiveRead");
+        var disconnect = Execute(
+            harness,
+            "disconnect",
+            nodeId: remote.NodeId,
+            userId: "guest",
+            cwd: "/",
+            terminalSessionId: "ts-lineage-ttl-expire");
+        Assert.True(disconnect.Ok);
+
+        Assert.NotEmpty(GetForensicTraceEntries(harness.World));
+        Assert.NotNull(GetSessionHistoryEntry(harness.World, remote.NodeId, session.Key));
+
+        CleanupSessionLineageStores(harness.World, nowMs: 600_000);
+
+        Assert.Empty(GetForensicTraceEntries(harness.World));
+        Assert.Equal(0, GetIncidentBufferCount(harness.World));
+        Assert.Null(GetSessionHistoryEntry(harness.World, remote.NodeId, session.Key));
+    }
+
+    /// <summary>Ensures TTL cleanup keeps expired parent history while an active child session still references it.</summary>
+    [Fact]
+    public void CleanupSessionLineageStores_ProtectsExpiredAncestorWhenChildIsActive()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(harness, "node-2", "remote-a", "10.1.0.20", AuthMode.Static, "pw");
+        var node3 = AddRemoteServer(harness, "node-3", "remote-b", "10.1.0.30", AuthMode.Static, "pw");
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/lineage_parent_protect.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            opts = {}
+            opts["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", opts)
+            d = ssh.disconnect(r1.session)
+            print "parentClosed=" + str(d.disconnected)
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/lineage_parent_protect.ms");
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "parentClosed=1", StringComparison.Ordinal));
+
+        var parentEntry = Assert.Single(GetSessionHistoryEntriesByTargetNodeId(harness.World, "node-2"));
+        Assert.NotNull(GetPropertyValue(parentEntry, "ClosedAt"));
+        Assert.Single(node3.Sessions);
+
+        var parentSessionKey = GetPropertyValue(parentEntry, "SessionKey");
+        Assert.NotNull(parentSessionKey);
+        var parentSessionId = (int)GetPropertyValue(parentSessionKey!, "SessionId")!;
+        CleanupSessionLineageStores(harness.World, nowMs: 600_000);
+
+        Assert.NotNull(GetSessionHistoryEntry(harness.World, "node-2", parentSessionId));
+    }
+
+    /// <summary>Ensures load-session clear path also resets session lineage runtime stores.</summary>
+    [Fact]
+    public void EnsureSessionStateClearedForLoad_ClearsSessionLineageStores()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var connect = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-lineage-clear");
+        Assert.True(connect.Ok);
+        var session = Assert.Single(remote.Sessions);
+        RecordForensicIncidentForSession(harness.World, remote.NodeId, session.Key, "fileWrite");
+        var disconnect = Execute(
+            harness,
+            "disconnect",
+            nodeId: remote.NodeId,
+            userId: "guest",
+            cwd: "/",
+            terminalSessionId: "ts-lineage-clear");
+        Assert.True(disconnect.Ok);
+
+        Assert.NotEmpty(GetSessionHistoryEntries(harness.World));
+        Assert.NotEmpty(GetForensicTraceEntries(harness.World));
+
+        var ensureClearMethod = typeof(WorldRuntime).GetMethod(
+            "EnsureSessionStateClearedForLoad",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(ensureClearMethod);
+        ensureClearMethod!.Invoke(harness.World, Array.Empty<object?>());
+
+        Assert.Empty(GetSessionHistoryEntries(harness.World));
+        Assert.Equal(0, GetIncidentBufferCount(harness.World));
+        Assert.Empty(GetForensicTraceEntries(harness.World));
+    }
+
     /// <summary>Ensures connect success prints /etc/motd when target account can read text MOTD.</summary>
     [Fact]
     public void Execute_Connect_Succeeds_PrintsMotd_WhenReadableTextExists()
@@ -9083,6 +9314,185 @@ public sealed class SystemCallTest
         }
 
         return routeRefs;
+    }
+
+    private static void RecordForensicIncidentForSession(
+        WorldRuntime world,
+        string targetNodeId,
+        int sessionId,
+        string incidentKind)
+    {
+        var recordMethod = typeof(WorldRuntime).GetMethod(
+            "RecordForensicIncidentForSession",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(recordMethod);
+        recordMethod!.Invoke(world, new object?[] { targetNodeId, sessionId, incidentKind });
+    }
+
+    private static void CleanupSessionLineageStores(WorldRuntime world, long nowMs)
+    {
+        var cleanupMethod = typeof(WorldRuntime).GetMethod(
+            "CleanupSessionLineageStores",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(cleanupMethod);
+        cleanupMethod!.Invoke(world, new object?[] { nowMs });
+    }
+
+    private static IReadOnlyList<object> GetSessionHistoryEntries(WorldRuntime world)
+    {
+        var field = typeof(WorldRuntime).GetField(
+            "sessionHistoryByKey",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        if (field!.GetValue(world) is not System.Collections.IDictionary dictionary)
+        {
+            return Array.Empty<object>();
+        }
+
+        var entries = new List<object>();
+        foreach (System.Collections.DictionaryEntry pair in dictionary)
+        {
+            if (pair.Value is not null)
+            {
+                entries.Add(pair.Value);
+            }
+        }
+
+        return entries;
+    }
+
+    private static IReadOnlyList<object> GetSessionHistoryEntriesByTargetNodeId(WorldRuntime world, string targetNodeId)
+    {
+        var normalizedTargetNodeId = targetNodeId?.Trim() ?? string.Empty;
+        return GetSessionHistoryEntries(world)
+            .Where(entry =>
+                string.Equals(
+                    (string?)GetPropertyValue(entry, "TargetNodeId") ?? string.Empty,
+                    normalizedTargetNodeId,
+                    StringComparison.Ordinal))
+            .ToArray();
+    }
+
+    private static object? GetSessionHistoryEntry(WorldRuntime world, string targetNodeId, int sessionId)
+    {
+        var normalizedTargetNodeId = targetNodeId?.Trim() ?? string.Empty;
+        foreach (var entry in GetSessionHistoryEntries(world))
+        {
+            var sessionKey = GetPropertyValue(entry, "SessionKey");
+            if (sessionKey is null)
+            {
+                continue;
+            }
+
+            var keyTargetNodeId = (string?)GetPropertyValue(sessionKey, "TargetNodeId") ?? string.Empty;
+            var keySessionId = (int)GetPropertyValue(sessionKey, "SessionId")!;
+            if (keySessionId == sessionId &&
+                string.Equals(keyTargetNodeId, normalizedTargetNodeId, StringComparison.Ordinal))
+            {
+                return entry;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool ActiveSessionIndexContains(WorldRuntime world, string targetNodeId, int sessionId)
+    {
+        var field = typeof(WorldRuntime).GetField(
+            "activeSessionKeys",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        if (field!.GetValue(world) is not System.Collections.IEnumerable activeKeys)
+        {
+            return false;
+        }
+
+        var normalizedTargetNodeId = targetNodeId?.Trim() ?? string.Empty;
+        foreach (var key in activeKeys)
+        {
+            if (key is null)
+            {
+                continue;
+            }
+
+            var keyTargetNodeId = (string?)GetPropertyValue(key, "TargetNodeId") ?? string.Empty;
+            var keySessionId = (int)GetPropertyValue(key, "SessionId")!;
+            if (keySessionId == sessionId &&
+                string.Equals(keyTargetNodeId, normalizedTargetNodeId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IncidentBufferContains(WorldRuntime world, string targetNodeId, int sessionId)
+    {
+        var field = typeof(WorldRuntime).GetField(
+            "forensicIncidentBuffersBySessionKey",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        if (field!.GetValue(world) is not System.Collections.IDictionary dictionary)
+        {
+            return false;
+        }
+
+        var normalizedTargetNodeId = targetNodeId?.Trim() ?? string.Empty;
+        foreach (System.Collections.DictionaryEntry pair in dictionary)
+        {
+            if (pair.Key is null)
+            {
+                continue;
+            }
+
+            var keyTargetNodeId = (string?)GetPropertyValue(pair.Key, "TargetNodeId") ?? string.Empty;
+            var keySessionId = (int)GetPropertyValue(pair.Key, "SessionId")!;
+            if (keySessionId == sessionId &&
+                string.Equals(keyTargetNodeId, normalizedTargetNodeId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static int GetIncidentBufferCount(WorldRuntime world)
+    {
+        var field = typeof(WorldRuntime).GetField(
+            "forensicIncidentBuffersBySessionKey",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        if (field!.GetValue(world) is not System.Collections.IDictionary dictionary)
+        {
+            return 0;
+        }
+
+        return dictionary.Count;
+    }
+
+    private static IReadOnlyList<object> GetForensicTraceEntries(WorldRuntime world)
+    {
+        var field = typeof(WorldRuntime).GetField(
+            "activeForensicTracesByTraceId",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        if (field!.GetValue(world) is not System.Collections.IDictionary dictionary)
+        {
+            return Array.Empty<object>();
+        }
+
+        var entries = new List<object>();
+        foreach (System.Collections.DictionaryEntry pair in dictionary)
+        {
+            if (pair.Value is not null)
+            {
+                entries.Add(pair.Value);
+            }
+        }
+
+        return entries;
     }
 
     private static object GetPrivateField(object target, string fieldName)

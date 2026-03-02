@@ -460,3 +460,6 @@ TraceEdgeKey
 규칙:
 - forensic 경로는 session snapshot 기반으로 고정하며,
   로그는 incident 탐지/단절 판정 증거로 사용한다.
+- 런타임 TTL 기본값은 `worldTimeMs` 기준 5분(`300000ms`)이다(후속 밸런싱에서 조정 가능).
+- TTL 정리 시 `ForensicTraceStore` / `ForensicIncidentBufferStore` / `SessionHistoryStore` 모두 정리 대상이며,
+  history는 `active session`, `incident buffer`, `active forensic origin` 및 그 조상 체인을 보호한 뒤 삭제한다.

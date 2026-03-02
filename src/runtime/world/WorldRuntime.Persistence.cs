@@ -1430,6 +1430,7 @@ public partial class WorldRuntime
     {
         CancelPendingIntrinsicQueueRequests();
         ResetTerminalSessionState();
+        ResetSessionLineageStores();
         foreach (var server in ServerList.Values)
         {
             server.ClearSessions();
