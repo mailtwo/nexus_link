@@ -199,3 +199,28 @@ plans/ 문서의 설계 결정이 추가되거나 변경될 때 기록한다.
 - **결정**: WORLD_MAP_TRACE `map` 탭 1차 구현에서는 표시 대상을 `PlayerWorkstationServer + KnownNodesByNet["internet"]`로 제한하고,
   trace/SSH 마커/라벨은 렌더링에서 제외한다.
 - **이유**: `known` 명령의 public 인지 범위(`internet`)와 표시 기준을 맞추고, 과도한 정보 노출 없이 아이콘 렌더 파이프라인을 단계적으로 도입하기 위함.
+
+## 2026-03-03
+
+### [09][11] SSH SessionKey 고정 규칙
+- **결정**: SSH 세션 lineage 식별 키를 `(targetNodeId, sessionId)`로 고정한다.
+- **이유**: incident origin 서버(E) 기준 역추적 시작점을 안정적으로 확보하고,
+  `parentSessionKey` 체인 복원과 `byTargetNodeId` 인덱스 탐색을 일관되게 만들기 위함.
+
+### [09][11] Session history 보존 + active 인덱스 분리
+- **결정**: disconnect 시 세션 history를 즉시 삭제하지 않고 `closedAt`만 기록하며,
+  active 인덱스(`activeSessionKeys`, `activeByTargetNodeId`)에서만 제거한다.
+- **이유**: forensic TTL/중첩 trace/경로 스냅샷 참조를 유지하면서,
+  live 세션 판정은 active 인덱스로 분리해 단순화하기 위함.
+
+### [04][11] Forensic 시작 시점 및 route disconnect 판정
+- **결정**: forensic는 incident 탐지와 분리해 disconnect/handoff 시점에 시작한다.
+  같은 체인에서는 Hot Trace와 forensic 동시 진행을 금지하며, hot 종료 후 forensic를 시작한다.
+  `ssh.disconnect(route)`는 닫힌 각 session별 incident를 조회해 forensic를 개별 생성한다.
+- **이유**: 즉시 동시 추적으로 인한 과도한 처벌/가독성 저하를 막고,
+  다중 hop 종료 시 실제 닫힌 세션 단위 책임 추적을 일관되게 유지하기 위함.
+
+### [12] Session lineage/forensic 영속화 deferred
+- **결정**: v0.1 save/load에서는 session lineage/forensic runtime state를 상세 설계하지 않고 deferred로 남긴다.
+- **이유**: 현재 포맷 안정성을 유지하면서도, save/load 악용(trace reset) 가능성은 후속 버전에서
+  별도 chunk/schema/version 정책으로 명시적으로 해결하기 위함.

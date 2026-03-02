@@ -15,7 +15,7 @@ Codex는 이 문서를 기준으로 런타임 데이터 컨테이너(월드 `ser
 
 ## 0) 전역 런타임 컨테이너(World Runtime)
 
-월드는 최소 3개의 전역 컨테이너와 `worldSeed`를 유지한다.
+월드는 최소 3개의 핵심 전역 컨테이너와 `worldSeed`를 유지한다.
 
 ### 0.1 `serverList`
 - 타입: `Dictionary<string /*nodeId*/, ServerStruct>`
@@ -316,6 +316,11 @@ LogStruct
 - [ ] Logs: ringbuffer + `sourceNodeId`(필수/비노출, 추적 판정 키) + `remoteIp`(표시 전용) + origin 유지 규칙
 - [ ] ServerStruct에 `location: RuntimeLocationInfo` 필드 추가
 - [ ] ServerStruct에 `icon: RuntimeServerIconInfo` 필드 추가
+- [ ] SessionHistoryStore(`SessionKey=(targetNodeId, sessionId)`) 저장소 초기화/유지
+- [ ] ActiveSessionIndex(`activeSessionKeys`, `activeByTargetNodeId`) 저장소 초기화/유지
+- [ ] 세션 close 시 history 삭제 대신 `closedAt` 기록 + active 인덱스 해제
+- [ ] ForensicIncidentBufferStore(세션 단위 incident 집계) 저장 구조 유지
+- [ ] ForensicTraceStore(route snapshot/TTL 기반 forensic 런타임 상태) 저장 구조 유지
 
 ## 11) RuntimeLocationInfo
 
@@ -359,3 +364,99 @@ RuntimeServerIconInfo
 - 기존 `FormatMinor=1`을 유지하며, 필드 누락은 하위 호환 기본값으로 처리한다.
 
 ---
+
+## 13) SSH Session Lineage Stores
+
+Trace/Forensic 런타임에서 세션 이력과 활성 세션을 분리 관리하기 위한 전역 저장 구조다.
+본 섹션은 **저장 구조(스키마)만** 정의하며, connect/disconnect 갱신 알고리즘은
+`11_event_handler_spec_v0_1.md`를 따른다. See DOCS_INDEX.md → 11.
+
+### 13.1 SessionKey
+
+```text
+SessionKey
+- targetNodeId: string
+- sessionId: int
+```
+
+규칙:
+- `SessionKey`는 `(targetNodeId, sessionId)`로 고정한다.
+- 동일 `targetNodeId` 내에서 `sessionId`는 유일해야 한다.
+
+### 13.2 SessionHistoryEntry
+
+```text
+SessionHistoryEntry
+- sessionKey: SessionKey
+- sourceNodeId: string
+- targetNodeId: string
+- parentSessionKey: Optional<SessionKey>
+- openedAt: long    # worldTimeMs
+- closedAt: Optional<long>   # worldTimeMs, null이면 active
+```
+
+규칙:
+- `closedAt == null`이면 active, 값이 있으면 closed.
+- history는 disconnect 즉시 삭제하지 않고 forensic TTL/참조 정책에 따라 보관한다.
+
+### 13.3 SessionHistoryStore
+
+```text
+SessionHistoryStore
+- bySessionKey: Dictionary<SessionKey, SessionHistoryEntry>
+```
+
+### 13.4 ActiveSessionIndex
+
+```text
+ActiveSessionIndex
+- activeSessionKeys: HashSet<SessionKey>
+- activeByTargetNodeId: Dictionary<string /*targetNodeId*/, HashSet<SessionKey>>
+```
+
+규칙:
+- 역방향 그래프를 별도 저장하지 않고 `byTargetNodeId` 보조 인덱스로 시작점 탐색을 지원한다.
+
+### 13.5 ForensicIncidentBufferStore
+
+세션 단위 incident 집계 저장소.
+
+```text
+ForensicIncidentBufferStore
+- bySessionKey: Dictionary<SessionKey, IncidentBufferEntry>
+
+IncidentBufferEntry
+- incidentCount: int
+- firstIncidentAt: long   # worldTimeMs
+- lastIncidentAt: long    # worldTimeMs
+- incidentKinds: HashSet<string>
+```
+
+규칙:
+- 버퍼 전파는 하지 않는다(부모/자식 세션 자동 승계 없음).
+- incident는 세션 단위로 누적 집계한다.
+
+### 13.6 ForensicTraceStore
+
+forensic 진행/잔상(TTL) 상태 저장소.
+
+```text
+ForensicTraceStore
+- activeForensicTraces: Dictionary<string /*traceId*/, ForensicTraceEntry>
+
+ForensicTraceEntry
+- traceId: string
+- originSessionKey: SessionKey
+- routeNodeIds: List<string>          # incident origin -> workstation 방향 스냅샷
+- routeEdgeKeys: List<TraceEdgeKey>   # 방향성 edge 스냅샷
+- startedAt: long                     # worldTimeMs
+- expiresAt: long                     # worldTimeMs
+
+TraceEdgeKey
+- fromNodeId: string
+- toNodeId: string
+```
+
+규칙:
+- forensic 경로는 session snapshot 기반으로 고정하며,
+  로그는 incident 탐지/단절 판정 증거로 사용한다.

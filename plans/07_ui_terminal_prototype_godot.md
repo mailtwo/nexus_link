@@ -190,6 +190,7 @@ TerminalScene (Control)
   - 예시: `connect 10.0.1.20 guest guest`, `connect -p 2222 10.0.1.20 guest guest`
   - 실패 코드 매핑은 `03_game_api_modules.md` §5.1을 따른다: exposure 거부 `ERR_NET_DENIED`, 인증 실패 `ERR_AUTH_FAILED`, connectionRateLimiter 차단 `ERR_RATE_LIMITED`.
 - `disconnect`: 현재 원격 SSH 세션을 종료하고 이전 컨텍스트(로컬 또는 이전 hop)로 복귀한다.
+  - SessionHistoryStore/ActiveSessionIndex 갱신 및 forensic handoff 내부 규칙은 `11_event_handler_spec_v0_1.md`를 따른다. See DOCS_INDEX.md → 11.
 - `known`: 플레이어가 파악한 public 호스트/IP 목록을 표 형식으로 출력한다.
 - `scan [netId]`: 인접 서버를 스캔해 인터페이스별 이웃을 출력한다. 실행 권한(`execute`)이 필요하다.
 - `ftp [(-p|--port) <port>] <get|put> <pathA> [<pathB>]`: SSH 연결 상태에서 파일을 전송한다. `get`은 원격→로컬, `put`은 로컬→원격이며 기본 포트는 `21`이다.

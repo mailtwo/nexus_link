@@ -73,6 +73,9 @@
 - 터미널 연결 스택 (`terminalConnectionFramesBySessionId`)
 - 서버 `sessions`
 - 실행 중 프로그램 상태 (`terminalProgramExecutionsBySessionId`)
+- `SessionHistoryStore` / `ActiveSessionIndex` / `ForensicIncidentBufferStore` / `ForensicTraceStore`
+  - 현재 v0.1에서는 비저장(deferred)으로 둔다.
+  - save/load 악용으로 trace를 초기화할 수 있으므로, 후속 버전에서 영속화 정책을 확정해야 한다.
 
 3. 파생/재구축 가능 캐시/인덱스
 - `ipIndex`
@@ -324,6 +327,8 @@ Chunk
 - 세션 비저장 정책은 저장/로드 양쪽에서 일관되게 유지한다.
 - 로그는 반드시 순서/ID를 유지해 복원한다.
 - `eventQueue` 비저장으로 인해 세이브 시점의 미처리 이벤트는 로드 후 유실될 수 있다(v0.1 허용).
+- Session lineage/forensic runtime state는 v0.1에서 deferred이며,
+  후속 버전에서 chunk/schema/version 정책을 별도로 확정한다.
 
 ---
 
@@ -341,6 +346,7 @@ Chunk
 - [ ] 세션 상태 미복원 정책 반영
 - [ ] 파생 캐시 재구축 루틴 반영
 - [ ] ServerState `icon` snapshot 저장/복원 + 누락 기본값(circle/none) 처리
+- [ ] (Deferred) Session lineage/forensic runtime state 영속화 정책 확정(후속 범위)
 
 ### 8.2 테스트 체크리스트
 

@@ -366,6 +366,8 @@ ActionBlueprint (v0): `{ print, setFlag }`
 See DOCS_INDEX.md → 12.
 
 본 문서는 런타임 처리 로직만 정의하며, 영속화 항목을 중복 정의하지 않는다.
+Session lineage/forensic runtime state 영속화 상세는 이번 버전에서 deferred이며,
+후속 Save/Load 확장 시 `12` 문서에서 별도로 확정한다.
 
 ---
 
@@ -380,3 +382,65 @@ See DOCS_INDEX.md → 12.
 - [ ] Guard 실행: 개별 0.0166s, tick 총 0.05s 예산, 에러/타임아웃=false + warn
 - [ ] ActionExecutor: 부분 성공 + warn
 - [ ] (선택) privilegeAcquire(execute) 시스템 훅 적용 시점(시나리오 actions보다 선행)
+- [ ] SessionHistoryStore/ActiveSessionIndex 갱신 훅(connect/disconnect) 구현
+- [ ] incident buffer 집계 + hot->forensic handoff 규칙 구현
+- [ ] `ssh.disconnect(route)` 닫힌 세션별 forensic 후보 판정 구현
+
+---
+
+## 11) SSH Session Lineage / Forensic Handoff 런타임 규칙
+
+본 섹션은 connect/disconnect에 따른 session lineage 갱신과 forensic handoff 규칙을 정의한다.  
+저장 구조(필드/타입)는 `09_server_node_runtime_schema_v0.md`를 따른다.  
+See DOCS_INDEX.md → 09.
+
+### 11.1 Session Open 처리
+
+- `TryOpenSshSession` 성공 시 `SessionHistoryEntry`를 생성한다.
+- `sessionKey`는 `(targetNodeId, sessionId)`를 사용한다.
+- `parentSessionKey`는 caller context의 `ParentSessions` 마지막 hop(closest parent)을 사용한다.
+- `openedAt`은 현재 `worldTimeMs`, `closedAt`은 `null`로 기록한다.
+- `SessionHistoryStore.bySessionKey`에 저장하고,
+  `ActiveSessionIndex.activeSessionKeys`/`activeByTargetNodeId`에 등록한다.
+
+### 11.2 Session Close 처리 (공통)
+
+close 경로와 무관하게 공통으로 아래를 수행한다.
+
+1. 대상 `sessionKey`를 history에서 조회한다.
+2. history 엔트리의 `closedAt`을 현재 `worldTimeMs`로 기록한다.
+3. active 인덱스에서 `sessionKey`를 제거한다.
+4. history 엔트리는 즉시 삭제하지 않는다(forensic TTL/참조 정책에 따라 유지).
+
+### 11.3 Close 진입점별 규칙
+
+- terminal `disconnect`: 현재 top frame 1-hop만 close한다.
+- `ssh.disconnect(session)`: 지정된 세션 1-hop을 close한다.
+- `ssh.disconnect(route)`:
+  - route 세션 목록을 역순으로 close 시도한다.
+  - 실제로 닫힌 각 `sessionKey`에 대해 forensic 후보 판정을 개별 수행한다.
+
+### 11.4 Incident Buffer 집계 규칙
+
+- incident(파일 변조/민감 데이터 접근) 발생 시, 실행 컨텍스트의 `sessionKey` 버퍼에 누적한다.
+- 버퍼는 세션 단위 집계(`incidentCount`, `firstIncidentAt`, `lastIncidentAt`, `incidentKinds`)를 유지한다.
+- 부모/자식 세션 간 버퍼 자동 전파는 하지 않는다.
+
+### 11.5 Hot/Forensic 전환 규칙
+
+- 같은 체인에서 Hot Trace와 Forensic Trace의 동시 활성은 허용하지 않는다.
+- Hot Trace가 활성인 동안 forensic 시작을 보류한다.
+- Hot Trace 종료(체인 단절/disconnect) 후, 닫힌 세션에 incident 버퍼가 있으면 forensic handoff를 시작한다.
+
+### 11.6 Forensic 시작 알고리즘
+
+- 시작 세션(`originSessionKey`)에서 `parentSessionKey` 체인을 따라 route를 복원한다.
+- 루트 hop에서는 `sourceNodeId`를 포함해 workstation 방향 경로를 완성한다.
+- 복원 결과를 `routeNodeIds`/`routeEdgeKeys(TraceEdgeKey)`로 스냅샷한다.
+- `startedAt`, `expiresAt(TTL)`를 설정해 forensic trace 인스턴스를 생성한다.
+
+### 11.7 Route Close 시 forensic 후보 판정
+
+- `ssh.disconnect(route)`의 닫힌 세션 집합 각각에 대해 incident 버퍼를 조회한다.
+- incident가 있는 세션마다 forensic trace를 개별 생성한다.
+- incident가 부모 hop에만 있고 현재 닫힌 세션에는 없는 경우 forensic를 시작하지 않는다.
