@@ -136,6 +136,7 @@ ServerSpecBlueprint
 - logCapacity: int
 - location?: string
     # 생략 시 AUTO:Unknown 으로 처리 (worldSeed 기반 전세계 랜덤)
+    # v0.2: icon은 블루프린트 입력을 받지 않음(런타임 기본값으로 초기화)
 ```
 
 ### 1.1 UserBlueprint
@@ -534,6 +535,11 @@ CampaignBlueprint
     - TotalArea 오름차순 정렬 후 첫 번째 region의 id를 displayName으로 사용
     - (Unknown이 항상 커버하므로 결과가 없는 경우는 발생하지 않음)
   - 결과를 `RuntimeLocationInfo`로 `ServerStruct`에 저장
+- icon 처리(v0.2):
+  - 현재 blueprint 입력은 없음
+  - 모든 서버를 기본값으로 런타임 `ServerStruct.icon`에 저장:
+    - `iconType = circle`
+    - `haloType = none`
 
 4) **네트워크/서브넷 구성**
 - netId 수집:
@@ -603,3 +609,4 @@ See DOCS_INDEX.md → 09.
 - [ ] weighted sampling + 박스 내 균등 샘플링 (worldSeed + nodeId 기반 결정론)
 - [ ] displayName 결정 (TotalArea 최소 region)
 - [ ] RuntimeLocationInfo → ServerStruct 저장
+- [ ] blueprint 입력 없이 RuntimeServerIconInfo 기본값(circle/none) → ServerStruct 저장

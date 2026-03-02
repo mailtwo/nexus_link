@@ -103,6 +103,9 @@ public partial class WorldRuntime
                 baseFileSystem: BaseFileSystem,
                 blobStore: BlobStore);
 
+            server.Location = ResolveRuntimeLocation(spec.Location, worldSeed, indexedSpawn.NodeId);
+            server.Icon = RuntimeServerIconInfo.CreateDefault();
+
             ApplyInitialServerState(server, spec, indexedSpawn);
             server.LogCapacity = spec.LogCapacity > 0 ? spec.LogCapacity : server.LogCapacity;
             foreach (var infoLine in indexedSpawn.Info)

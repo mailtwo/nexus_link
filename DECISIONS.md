@@ -175,3 +175,27 @@ plans/ 문서의 설계 결정이 추가되거나 변경될 때 기록한다.
 ### [10] ServerSpec location 스키마 스칼라화
 - **결정**: `ServerSpec.location`은 중첩 객체(`location.location`)가 아닌 단일 scalar 문자열로 정의한다. 허용 입력은 `AUTO:<regionId>`, `<lat>,<lng>`, 생략(= `AUTO:Unknown`)으로 고정한다.
 - **이유**: 실제 프로토타입 YAML 작성 패턴과 스키마 표현을 일치시켜 작성/리뷰 혼선을 줄이고, location 키 중복 표기를 제거하기 위함.
+
+### [12] Save/Load 버전 정책 갱신 (location runtime 승격 반영)
+- **결정**: save 컨테이너 기본 버전을 `FormatMinor 0 -> 1`, `saveSchemaVersion "0.1" -> "0.2"`로 상향한다.
+- **이유**: 서버 location 런타임 데이터를 영속화 범위에 추가하는 하위 호환 확장을 명시적으로 구분하기 위함.
+
+### [12] 구버전 save 로드 정책
+- **결정**: `FormatMinor < 1` save 파일은 로드를 허용하지 않고 `UnsupportedVersion`으로 실패 처리한다.
+- **이유**: location 필드 없는 save를 암묵 복원하면 월드 좌표 일관성/검증 규칙이 깨질 수 있어, 명시적 실패 정책으로 데이터 계약을 고정하기 위함.
+
+### [12] ServerState location 저장 범위
+- **결정**: save에는 `regionId`, `lat`, `lng`만 저장하고 `displayName`은 저장하지 않는다. 로드 시 `lat/lng` 기반으로 `displayName`을 재계산한다.
+- **이유**: displayName은 RegionData 전처리 결과(TotalArea 최소 포함 region)에 의해 파생되는 값이므로 중복 저장을 피하고 로드 시 일관된 파생 규칙을 유지하기 위함.
+
+### [09][10][12] Server icon 런타임/영속화 확장 (minor 고정)
+- **결정**: ServerStruct에 `icon` 런타임 필드(`iconType`, `haloType`)를 추가하고, save/load에 영속화한다.
+  블루프린트에서는 icon 입력을 받지 않고 월드 생성 시 기본값(`circle`, `none`)으로 초기화한다.
+  로드 시 `icon` 필드가 누락되면 동일 기본값으로 복구한다.
+- **이유**: WORLD_MAP_TRACE 아이콘 렌더 계약에 필요한 최소 런타임 데이터를 확보하면서,
+  기존 save 포맷 호환성을 유지하기 위해 `FormatMinor=1`을 유지하고 optional 필드 확장으로 처리하기 위함.
+
+### [13] WORLD_MAP_TRACE 1차 아이콘 표시 범위 제한
+- **결정**: WORLD_MAP_TRACE `map` 탭 1차 구현에서는 표시 대상을 `PlayerWorkstationServer + KnownNodesByNet["internet"]`로 제한하고,
+  trace/SSH 마커/라벨은 렌더링에서 제외한다.
+- **이유**: `known` 명령의 public 인지 범위(`internet`)와 표시 기준을 맞추고, 과도한 정보 노출 없이 아이콘 렌더 파이프라인을 단계적으로 도입하기 위함.

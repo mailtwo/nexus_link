@@ -2,6 +2,7 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using Uplink2.Runtime;
 using Uplink2.Runtime.Windowing;
 using Xunit;
 
@@ -276,6 +277,86 @@ public sealed class WindowManagerPolicyTest
         Assert.False(GetPropertyValue<bool>(restoredWithoutRequest, "StopTick"));
         Assert.False(GetPropertyValue<bool>(restoredWithoutRequest, "ShouldShow"));
         Assert.False(GetPropertyValue<bool>(restoredWithoutRequest, "ForceVisibilityEdge"));
+    }
+
+    /// <summary>Ensures node collection includes internet-known nodes plus workstation and excludes non-internet known sets.</summary>
+    [Fact]
+    public void CollectWorldMapTraceNodeIds_UsesInternetKnownPlusWorkstationOnly()
+    {
+        var method = typeof(WindowManager).GetMethod(
+            "CollectWorldMapTraceNodeIds",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var knownByNet = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
+        {
+            ["internet"] = new HashSet<string>(StringComparer.Ordinal) { "node-b", "node-a", "node-a" },
+            ["corp_lan"] = new HashSet<string>(StringComparer.Ordinal) { "node-c" },
+        };
+
+        var result = method!.Invoke(null, new object[] { knownByNet, "node-ws" });
+        Assert.NotNull(result);
+        var nodeIds = Assert.IsType<List<string>>(result);
+        Assert.Equal(new[] { "node-a", "node-b", "node-ws" }, nodeIds);
+    }
+
+    /// <summary>Ensures equirectangular world-map projection maps key coordinates to viewport edges/center.</summary>
+    [Fact]
+    public void ProjectWorldMapLocation_MapsCoordinatesToViewport()
+    {
+        var method = typeof(WindowManager).GetMethod(
+            "ProjectWorldMapLocation",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var viewport = new Vector2(512, 256);
+        var northWest = (Vector2)method!.Invoke(null, new object[] { 90d, -180d, viewport })!;
+        var center = (Vector2)method.Invoke(null, new object[] { 0d, 0d, viewport })!;
+        var southEast = (Vector2)method.Invoke(null, new object[] { -90d, 180d, viewport })!;
+
+        Assert.Equal(0f, northWest.X, 3);
+        Assert.Equal(0f, northWest.Y, 3);
+        Assert.Equal(256f, center.X, 3);
+        Assert.Equal(128f, center.Y, 3);
+        Assert.Equal(512f, southEast.X, 3);
+        Assert.Equal(256f, southEast.Y, 3);
+    }
+
+    /// <summary>Ensures fill color priority and outline mode mapping follow WORLD_MAP_TRACE icon contract.</summary>
+    [Fact]
+    public void ResolveWorldMapNodeStyle_AppliesFillPriorityAndOutlineModes()
+    {
+        var fillMethod = typeof(WindowManager).GetMethod(
+            "ResolveWorldMapNodeFillColor",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        var outlineMethod = typeof(WindowManager).GetMethod(
+            "ResolveWorldMapNodeOutlineMode",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(fillMethod);
+        Assert.NotNull(outlineMethod);
+
+        var offlineFill = (Color)fillMethod!.Invoke(null, new object[] { true, true })!;
+        var workstationFill = (Color)fillMethod.Invoke(null, new object[] { false, true })!;
+        var onlineFill = (Color)fillMethod.Invoke(null, new object[] { false, false })!;
+
+        Assert.Equal(0.5f, offlineFill.R, 3);
+        Assert.Equal(0.5f, offlineFill.G, 3);
+        Assert.Equal(0.5f, offlineFill.B, 3);
+        Assert.Equal(0.18f, workstationFill.R, 3);
+        Assert.Equal(0.9f, workstationFill.G, 3);
+        Assert.Equal(1f, onlineFill.R, 3);
+        Assert.Equal(1f, onlineFill.G, 3);
+        Assert.Equal(1f, onlineFill.B, 3);
+
+        var rebootOutline = outlineMethod!.Invoke(null, new object[] { ServerReason.Reboot });
+        var disabledOutline = outlineMethod.Invoke(null, new object[] { ServerReason.Disabled });
+        var crashedOutline = outlineMethod.Invoke(null, new object[] { ServerReason.Crashed });
+        var okOutline = outlineMethod.Invoke(null, new object[] { ServerReason.Ok });
+
+        Assert.Equal("PulseRed", rebootOutline?.ToString());
+        Assert.Equal("SolidRed", disabledOutline?.ToString());
+        Assert.Equal("SolidRed", crashedOutline?.ToString());
+        Assert.Equal("None", okOutline?.ToString());
     }
 
     private static object CreateController(FakePlatformWindowAdapter adapter, Action<string> warningLogger)

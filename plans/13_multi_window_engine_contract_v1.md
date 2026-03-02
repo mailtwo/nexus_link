@@ -453,6 +453,7 @@
 #### 10.5.1 `map` (지도 보기) (MUST)
 - 월드맵 배경 + 서버 노드/연결 + trace overlay를 표시한다.
 - 지도/노드/trace 렌더링은 “현재 크기 모드(작게/크게)”의 스케일을 따른다(§11.7).
+- 현재 구현 단계에서는 `map` 탭에서 `workstation + KnownNodesByNet["internet"]` 노드 아이콘만 렌더링하며, trace/SSH 마커는 제외한다.
 
 #### 10.5.2 `nodes` (노드만 보기) (MUST)
 - 월드맵 이미지는 표시하지 않고, 노드 그래프만 표시한다.
@@ -463,6 +464,37 @@
   - `Workstation` → 현재 바운싱 체인(경로)을 1개의 spine으로 표현한다.
   - Spine 상의 일부 노드에 대해, 1-hop 근접 노드를 branch로 표현할 수 있다.
   - 근접 노드의 근접 노드(2-hop)는 표시하지 않는다.
+
+#### 10.5.3 서버 노드/SSH 마커 시각 계약 (MUST)
+- 본 규약은 `map`/`nodes` 탭 및 작게 보기/크게 보기 양쪽에 공통 적용된다.
+- 서버 아이콘은 `중앙 모양(shape) + 채움(fill) + 상태 외곽선(status outline) + underlay halo` 조합으로 렌더링한다.
+- 아이콘 중앙 모양(shape):
+  - 기본 서버는 원형을 사용한다.
+  - 중요 서버 타입(예: NIC)은 추후 사각/삼각 등으로 확장 가능해야 한다.
+- 아이콘 채움(fill) 색은 서버 접근 가능성 기준으로 결정한다:
+  - 기본 online: 흰색
+  - offline: 회색
+  - user workstation: 녹색 (특별 취급)
+  - 충돌 우선순위: **회색 > 녹색 > 흰색**
+- 상태 외곽선(status outline)은 채움과 독립 레이어로 동시에 적용한다:
+  - 일반 상태: 외곽선 없음
+  - `reboot`: 빨간색 외곽선 + 1초 주기 알파 pulse
+  - `disabled`, `crashed`: 빨간색 고정 외곽선
+  - 예: `crashed` 서버는 "회색 채움 + 빨간 외곽선"으로 표현된다.
+- underlay halo(노드 뒤 글로우):
+  - 미션 목표 노드는 노란색 blur halo를 표시한다.
+- 레이어 렌더 순서(아래에서 위):
+  - `halo -> 아이콘 채움 -> 상태 외곽선 -> 연결선/SSH 마커 -> 라벨`
+- 외곽선 반지름 규칙:
+  - 상태 외곽선은 노드 채움 경계에 붙이지 않고, 약간 이격된 반지름에 그린다.
+  - SSH 시작 마커 arc(`)`)는 상태 외곽선보다 더 바깥 반지름에 그린다.
+- SSH 연결 마커:
+  - 시작점(source): 녹색 arc(`)`) 마커
+  - 끝점(target): 빨간색 작은 삼각형 마커
+  - 시작 arc는 source 노드 중심에서 target 방향 각도 기반으로 생성한다.
+  - source 노드에 대해 여러 SSH 시작 arc가 겹치면 각도 구간을 누적/병합한다.
+  - 누적 구간이 360도(허용오차 포함)를 덮으면 arc를 닫힌 원형 링으로 렌더링한다.
+- 크게 보기에서는 hostname 라벨 표시 토글을 추가할 수 있다(MAY). 작게 보기에서는 라벨을 생략할 수 있다(MAY).
 
 ### 10.6 Trace 데이터 모델 (SSOT 참조) (MUST)
 - WORLD_MAP_TRACE는 trace “표시/필터링”만 담당한다.
@@ -667,6 +699,7 @@
 - 상단 탭(`map`/`nodes`) 전환 시 좌측 토글 상태와 확대/축소 상태가 유지된다.
 - 좌측 토글(`hot`/`forensic`/`lock-on`)을 OFF로 전환해도 해당 trace 데이터는 삭제되지 않고 표시만 숨겨진다. 다시 ON으로 전환하면 즉시 표시된다.
 - `map` 탭에서 월드맵 배경 + 노드 + trace overlay가 표시된다.
+- 현재 구현 단계에서는 `map` 탭에서 `workstation + KnownNodesByNet["internet"]` 노드 아이콘만 렌더링하며, trace/SSH 마커는 표시하지 않는다.
 - `nodes` 탭에서 월드맵 이미지 없이 노드 그래프만 표시되며, trace overlay는 `map` 탭과 동일한 시각 표현을 사용한다.
 - 작게 보기(창 556×300, map viewport 512×256) 상태에서 `크게 보기` 버튼을 누르면 §10.7.1의 스케일 계산에 따라 확대된다.
 - 크게 보기 상태에서 `작게 보기` 버튼을 누르면 이전 작게 보기 위치/크기로 정확히 복원된다.
@@ -680,6 +713,12 @@
 - 최소화 후 복귀 시 WORLD_MAP_TRACE는 `requestedVisible=true` 상태일 때 자동 재표시된다.
 - WORLD_MAP_TRACE는 Passthrough 모드이며, 창이 떠 있는 동안 Primary Core Window 입력이 방해받지 않는다.
 - WORLD_MAP_TRACE는 `autoFocus=NO`이며, 열릴 때 Primary Core Window 포커스를 뺏지 않는다.
+- 서버 아이콘 채움색 충돌 시 우선순위 `회색 > 녹색 > 흰색`이 적용된다.
+- `reboot` 상태 노드는 1초 주기의 알파 pulse 빨간 외곽선을 표시하고, `disabled/crashed`는 고정 빨간 외곽선을 표시한다.
+- 상태 외곽선은 아이콘 채움 경계와 이격되어 렌더링되며, SSH 시작 arc(`)`)는 상태 외곽선보다 더 바깥 반지름에 렌더링된다.
+- SSH 연결 마커는 source에 녹색 arc(`)`), target에 빨간 삼각형을 표시한다.
+- 동일 source에서 다수 SSH 시작 arc가 각도 병합으로 누적되어 360도(허용오차 포함)를 덮으면, 시작 마커는 닫힌 원형 링으로 전환된다.
+- 미션 목표 노드는 노란 underlay halo를 표시하며, halo는 아이콘 채움보다 아래 레이어에 렌더링된다.
 
 ### 14.12 EXCLUSIVE_FULLSCREEN 제약 (§12)
 - EXCLUSIVE_FULLSCREEN 상태에서 OS 윈도우 호출(네이티브 파일 다이얼로그 등)이 발생하지 않는다.

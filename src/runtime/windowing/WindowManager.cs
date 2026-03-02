@@ -150,7 +150,18 @@ public sealed partial class WindowManager : Node
     private static readonly Vector2I WorldMapTraceDefaultSize = new(556, 300);
     private static readonly Vector2I WorldMapTraceDefaultPosition = new(120, 80);
     private static readonly Vector2I WorldMapTraceMapViewportSize = new(512, 256);
+    private const string InternetNetId = "internet";
     private const string WorldMapTraceTexturePath = "res://gui/images/min_world_map_subtle_glow.png";
+    private const float WorldMapNodeFillRadius = 3.5f;
+    private const float WorldMapNodeHaloRadius = 7.0f;
+    private const float WorldMapNodeOutlineRadius = 5.25f;
+    private const float WorldMapNodeOutlineWidth = 1.5f;
+    private const int WorldMapNodeOutlineArcPointCount = 32;
+    private static readonly Color WorldMapNodeFillOnlineColor = new(1f, 1f, 1f, 1f);
+    private static readonly Color WorldMapNodeFillWorkstationColor = new(0.18f, 0.9f, 0.18f, 1f);
+    private static readonly Color WorldMapNodeFillOfflineColor = new(0.5f, 0.5f, 0.5f, 1f);
+    private static readonly Color WorldMapNodeOutlineRedColor = new(1f, 0.2f, 0.2f, 1f);
+    private static readonly Color WorldMapNodeHaloYellowColor = new(1f, 0.9f, 0.15f, 0.45f);
     /// <summary>Pass 1: horizontal gaussian blur with brightness extraction. Renders into an off-screen SubViewport.</summary>
     private const string WorldMapTraceGlowHBlurShaderCode = @"shader_type canvas_item;
 
@@ -237,6 +248,7 @@ void fragment() {
     private HBoxContainer? worldMapTraceTopTabsContainer;
     private VBoxContainer? worldMapTraceLeftTogglesContainer;
     private TextureRect? worldMapTraceMapTextureRect;
+    private WorldMapNodeOverlay? worldMapTraceNodeOverlay;
     private Button? worldMapTraceExpandButton;
     private ButtonGroup? worldMapTraceTabGroup;
     private readonly Dictionary<string, Button> worldMapTraceTabButtons = new(StringComparer.Ordinal);
@@ -256,6 +268,20 @@ void fragment() {
         string Label,
         bool DefaultEnabled,
         bool IncludeInPhaseOneUi);
+
+    private enum WorldMapNodeOutlineMode
+    {
+        None = 0,
+        PulseRed = 1,
+        SolidRed = 2,
+    }
+
+    private readonly record struct WorldMapNodeRenderState(
+        Vector2 Position,
+        global::Uplink2.Runtime.ServerIconType IconType,
+        global::Uplink2.Runtime.ServerHaloType HaloType,
+        Color FillColor,
+        WorldMapNodeOutlineMode OutlineMode);
 
     /// <inheritdoc/>
     public override void _Ready()
@@ -512,6 +538,8 @@ void fragment() {
             }
         }
 
+        UpdateWorldMapNodeOverlay();
+
         if (mode != WindowingMode.NativeOs)
         {
             return;
@@ -704,9 +732,17 @@ void fragment() {
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
             Material = CreateWorldMapTraceGlowVBlurMaterial(),
         };
+        var mapNodeOverlay = new WorldMapNodeOverlay
+        {
+            Name = "MapNodeOverlay",
+            AnchorRight = 1.0f,
+            AnchorBottom = 1.0f,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
 
         mapViewport.AddChild(mapTextureRect);
         mapViewport.AddChild(mapGlowTextureRect);
+        mapViewport.AddChild(mapNodeOverlay);
         window.AddChild(glowHBlurViewport);
 
         AddChild(window);
@@ -717,6 +753,7 @@ void fragment() {
         worldMapTraceTopTabsContainer = topTabsContainer;
         worldMapTraceLeftTogglesContainer = leftTogglesContainer;
         worldMapTraceMapTextureRect = mapTextureRect;
+        worldMapTraceNodeOverlay = mapNodeOverlay;
         worldMapTraceExpandButton = expandButton;
 
         BuildWorldMapTraceTabButtons();
@@ -823,6 +860,7 @@ void fragment() {
         }
 
         worldMapTraceWindow?.SetMeta("world_map_trace_active_tab", worldMapTraceActiveTabId);
+        UpdateWorldMapNodeOverlay();
     }
 
     private void HandleWorldMapTraceToggleChanged(string toggleId, bool isEnabled)
@@ -862,6 +900,269 @@ void fragment() {
     {
         var shader = new Shader { Code = WorldMapTraceGlowVBlurShaderCode };
         return new ShaderMaterial { Shader = shader };
+    }
+
+    private void UpdateWorldMapNodeOverlay()
+    {
+        if (worldMapTraceNodeOverlay is null)
+        {
+            return;
+        }
+
+        var isMapTabActive = string.Equals(worldMapTraceActiveTabId, "map", StringComparison.Ordinal);
+        worldMapTraceNodeOverlay.Visible = isMapTabActive;
+        if (!isMapTabActive)
+        {
+            worldMapTraceNodeOverlay.SetRenderNodes(Array.Empty<WorldMapNodeRenderState>());
+            return;
+        }
+
+        var runtime = global::Uplink2.Runtime.WorldRuntime.Instance;
+        if (runtime is null)
+        {
+            worldMapTraceNodeOverlay.SetRenderNodes(Array.Empty<WorldMapNodeRenderState>());
+            return;
+        }
+
+        var viewportSize = worldMapTraceNodeOverlay.Size;
+        if (viewportSize.X <= 0f || viewportSize.Y <= 0f)
+        {
+            viewportSize = new Vector2(WorldMapTraceMapViewportSize.X, WorldMapTraceMapViewportSize.Y);
+        }
+
+        if (!runtime.TryRunViaWorldLock(
+                () => BuildWorldMapNodeRenderStates(runtime, viewportSize),
+                out var renderStates,
+                out _))
+        {
+            worldMapTraceNodeOverlay.SetRenderNodes(Array.Empty<WorldMapNodeRenderState>());
+            return;
+        }
+
+        if (renderStates is null)
+        {
+            worldMapTraceNodeOverlay.SetRenderNodes(Array.Empty<WorldMapNodeRenderState>());
+            return;
+        }
+
+        worldMapTraceNodeOverlay.SetRenderNodes(renderStates);
+    }
+
+    private static List<WorldMapNodeRenderState> BuildWorldMapNodeRenderStates(
+        global::Uplink2.Runtime.WorldRuntime runtime,
+        Vector2 viewportSize)
+    {
+        var renderStates = new List<WorldMapNodeRenderState>();
+        var workstationNodeId = runtime.PlayerWorkstationServer?.NodeId ?? string.Empty;
+        var nodeIds = CollectWorldMapTraceNodeIds(runtime.KnownNodesByNet, workstationNodeId);
+        foreach (var nodeId in nodeIds)
+        {
+            if (!runtime.TryGetServer(nodeId, out var server))
+            {
+                continue;
+            }
+
+            var iconInfo = server.Icon ?? global::Uplink2.Runtime.RuntimeServerIconInfo.CreateDefault();
+            var fillColor = ResolveWorldMapNodeFillColor(
+                isOffline: server.Status == global::Uplink2.Runtime.ServerStatus.Offline,
+                isWorkstation: string.Equals(nodeId, workstationNodeId, StringComparison.Ordinal));
+            var outlineMode = ResolveWorldMapNodeOutlineMode(server.Reason);
+            var projectedPosition = ProjectWorldMapLocation(server.Location.Lat, server.Location.Lng, viewportSize);
+            renderStates.Add(new WorldMapNodeRenderState(
+                projectedPosition,
+                iconInfo.IconType,
+                iconInfo.HaloType,
+                fillColor,
+                outlineMode));
+        }
+
+        return renderStates;
+    }
+
+    private static List<string> CollectWorldMapTraceNodeIds(
+        IReadOnlyDictionary<string, HashSet<string>> knownNodesByNet,
+        string? workstationNodeId)
+    {
+        var nodeIdSet = new HashSet<string>(StringComparer.Ordinal);
+        if (knownNodesByNet.TryGetValue(InternetNetId, out var internetKnownNodeIds))
+        {
+            foreach (var rawNodeId in internetKnownNodeIds)
+            {
+                if (string.IsNullOrWhiteSpace(rawNodeId))
+                {
+                    continue;
+                }
+
+                nodeIdSet.Add(rawNodeId.Trim());
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(workstationNodeId))
+        {
+            nodeIdSet.Add(workstationNodeId.Trim());
+        }
+
+        var orderedNodeIds = new List<string>(nodeIdSet);
+        orderedNodeIds.Sort(StringComparer.Ordinal);
+        return orderedNodeIds;
+    }
+
+    private static Vector2 ProjectWorldMapLocation(double lat, double lng, Vector2 viewportSize)
+    {
+        var width = Math.Max(1f, viewportSize.X);
+        var height = Math.Max(1f, viewportSize.Y);
+        var clampedLat = Math.Clamp(lat, -90d, 90d);
+        var clampedLng = Math.Clamp(lng, -180d, 180d);
+        var projectedX = (float)(((clampedLng + 180d) / 360d) * width);
+        var projectedY = (float)(((90d - clampedLat) / 180d) * height);
+        return new Vector2(projectedX, projectedY);
+    }
+
+    private static Color ResolveWorldMapNodeFillColor(bool isOffline, bool isWorkstation)
+    {
+        if (isOffline)
+        {
+            return WorldMapNodeFillOfflineColor;
+        }
+
+        if (isWorkstation)
+        {
+            return WorldMapNodeFillWorkstationColor;
+        }
+
+        return WorldMapNodeFillOnlineColor;
+    }
+
+    private static WorldMapNodeOutlineMode ResolveWorldMapNodeOutlineMode(global::Uplink2.Runtime.ServerReason reason)
+    {
+        return reason switch
+        {
+            global::Uplink2.Runtime.ServerReason.Reboot => WorldMapNodeOutlineMode.PulseRed,
+            global::Uplink2.Runtime.ServerReason.Disabled => WorldMapNodeOutlineMode.SolidRed,
+            global::Uplink2.Runtime.ServerReason.Crashed => WorldMapNodeOutlineMode.SolidRed,
+            _ => WorldMapNodeOutlineMode.None,
+        };
+    }
+
+    private static float ResolveWorldMapPulseAlpha(double nowSeconds)
+    {
+        var cycle = nowSeconds - Math.Floor(nowSeconds);
+        var wave = 0.5d + (0.5d * Math.Sin(cycle * (Math.PI * 2d)));
+        return (float)(0.35d + (0.65d * wave));
+    }
+
+    private sealed partial class WorldMapNodeOverlay : Control
+    {
+        private IReadOnlyList<WorldMapNodeRenderState> renderStates = Array.Empty<WorldMapNodeRenderState>();
+
+        internal void SetRenderNodes(IReadOnlyList<WorldMapNodeRenderState> states)
+        {
+            renderStates = states ?? Array.Empty<WorldMapNodeRenderState>();
+            QueueRedraw();
+        }
+
+        public override void _Draw()
+        {
+            if (renderStates.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var state in renderStates)
+            {
+                if (state.HaloType != global::Uplink2.Runtime.ServerHaloType.Yellow)
+                {
+                    continue;
+                }
+
+                DrawCircle(state.Position, WorldMapNodeHaloRadius, WorldMapNodeHaloYellowColor);
+            }
+
+            foreach (var state in renderStates)
+            {
+                DrawFillShape(state.Position, state.IconType, state.FillColor);
+            }
+
+            var nowSeconds = Time.GetTicksMsec() / 1000d;
+            foreach (var state in renderStates)
+            {
+                var outlineColor = ResolveOutlineColor(state.OutlineMode, nowSeconds);
+                if (!outlineColor.HasValue)
+                {
+                    continue;
+                }
+
+                DrawArc(
+                    state.Position,
+                    WorldMapNodeOutlineRadius,
+                    0f,
+                    Mathf.Tau,
+                    WorldMapNodeOutlineArcPointCount,
+                    outlineColor.Value,
+                    WorldMapNodeOutlineWidth,
+                    antialiased: true);
+            }
+        }
+
+        private static Color? ResolveOutlineColor(WorldMapNodeOutlineMode mode, double nowSeconds)
+        {
+            if (mode == WorldMapNodeOutlineMode.None)
+            {
+                return null;
+            }
+
+            var color = WorldMapNodeOutlineRedColor;
+            if (mode == WorldMapNodeOutlineMode.PulseRed)
+            {
+                color.A = ResolveWorldMapPulseAlpha(nowSeconds);
+            }
+
+            return color;
+        }
+
+        private void DrawFillShape(Vector2 center, global::Uplink2.Runtime.ServerIconType iconType, Color fillColor)
+        {
+            switch (iconType)
+            {
+                case global::Uplink2.Runtime.ServerIconType.Triangle:
+                    DrawTriangle(center, fillColor);
+                    break;
+                case global::Uplink2.Runtime.ServerIconType.Square:
+                    DrawSquare(center, fillColor);
+                    break;
+                default:
+                    DrawCircle(center, WorldMapNodeFillRadius, fillColor);
+                    break;
+            }
+        }
+
+        private void DrawSquare(Vector2 center, Color fillColor)
+        {
+            var side = WorldMapNodeFillRadius * 2f;
+            var topLeft = center - new Vector2(WorldMapNodeFillRadius, WorldMapNodeFillRadius);
+            DrawRect(new Rect2(topLeft, new Vector2(side, side)), fillColor, filled: true);
+        }
+
+        private void DrawTriangle(Vector2 center, Color fillColor)
+        {
+            var radius = WorldMapNodeFillRadius;
+            var halfBase = radius * 0.95f;
+            var tipHeight = radius * 1.05f;
+            var baseY = center.Y + (radius * 0.75f);
+            var points = new Vector2[]
+            {
+                new(center.X, center.Y - tipHeight),
+                new(center.X + halfBase, baseY),
+                new(center.X - halfBase, baseY),
+            };
+            var colors = new Color[]
+            {
+                fillColor,
+                fillColor,
+                fillColor,
+            };
+            DrawPolygon(points, colors);
+        }
     }
 
     private void EnsureSshLoginWindowCreated()

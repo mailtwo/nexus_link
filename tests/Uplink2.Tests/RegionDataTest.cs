@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
+using Uplink2.Blueprint;
 using Uplink2.Runtime;
 using Xunit;
 
@@ -218,12 +219,120 @@ public sealed class RegionDataTest
         Assert.False(InvokeTryGetRegion(world, "Replaced", out _));
     }
 
+    [Fact]
+    public void ResolveRuntimeLocation_AutoRegion_IsDeterministicAndWithinRegion()
+    {
+        using var scope = TempDirScope.Create();
+        var yamlPath = scope.WriteFile(
+            "regions.yaml",
+            """
+            regions:
+              Asia:
+                boxes:
+                  - [10.0, 20.0, 20.0, 30.0]
+              Unknown:
+                boxes:
+                  - [-90.0, -180.0, 90.0, 180.0]
+            """);
+
+        var world = CreateUninitializedWorldRuntime(yamlPath);
+        var blueprintLocation = new BlueprintLocationInfo
+        {
+            Mode = BlueprintLocationMode.Auto,
+            RegionId = "Asia",
+        };
+
+        var first = InvokeResolveRuntimeLocation(world, blueprintLocation, 12345, "nodeA");
+        var second = InvokeResolveRuntimeLocation(world, blueprintLocation, 12345, "nodeA");
+
+        Assert.Equal("Asia", first.RegionId);
+        Assert.Equal("Asia", first.DisplayName);
+        Assert.Equal(first.Lat, second.Lat, 12);
+        Assert.Equal(first.Lng, second.Lng, 12);
+        Assert.InRange(first.Lat, 10.0, 20.0);
+        Assert.InRange(first.Lng, 20.0, 30.0);
+    }
+
+    [Fact]
+    public void ResolveRuntimeLocation_Throws_WhenAutoRegionIsMissing()
+    {
+        using var scope = TempDirScope.Create();
+        var yamlPath = scope.WriteFile(
+            "regions.yaml",
+            """
+            regions:
+              Unknown:
+                boxes:
+                  - [-90.0, -180.0, 90.0, 180.0]
+            """);
+
+        var world = CreateUninitializedWorldRuntime(yamlPath);
+        var blueprintLocation = new BlueprintLocationInfo
+        {
+            Mode = BlueprintLocationMode.Auto,
+            RegionId = "MissingRegion",
+        };
+
+        var ex = Assert.Throws<TargetInvocationException>(
+            () => InvokeResolveRuntimeLocation(world, blueprintLocation, 1, "nodeA"));
+        Assert.IsType<InvalidDataException>(ex.InnerException);
+        Assert.Contains("MissingRegion", ex.InnerException!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResolveRuntimeLocation_Coordinates_UsesSmallestContainingRegionForDisplayName()
+    {
+        using var scope = TempDirScope.Create();
+        var yamlPath = scope.WriteFile(
+            "regions.yaml",
+            """
+            regions:
+              Asia:
+                boxes:
+                  - [0.0, 0.0, 10.0, 10.0]
+              Korea:
+                boxes:
+                  - [2.0, 2.0, 4.0, 4.0]
+              Unknown:
+                boxes:
+                  - [-90.0, -180.0, 90.0, 180.0]
+            """);
+
+        var world = CreateUninitializedWorldRuntime(yamlPath);
+        var blueprintLocation = new BlueprintLocationInfo
+        {
+            Mode = BlueprintLocationMode.Coordinates,
+            RegionId = "Unknown",
+            Lat = 3.0,
+            Lng = 3.0,
+        };
+
+        var resolved = InvokeResolveRuntimeLocation(world, blueprintLocation, 99, "nodeK");
+        Assert.Equal("Unknown", resolved.RegionId);
+        Assert.Equal("Korea", resolved.DisplayName);
+        Assert.Equal(3.0, resolved.Lat, 9);
+        Assert.Equal(3.0, resolved.Lng, 9);
+    }
+
     private static WorldRuntime CreateUninitializedWorldRuntime(string regionDataFile)
     {
         var world = (WorldRuntime)RuntimeHelpers.GetUninitializedObject(typeof(WorldRuntime));
         SetPrivateField(world, "_worldStateLock", new object());
         world.RegionDataFile = regionDataFile;
         return world;
+    }
+
+    private static RuntimeLocationInfo InvokeResolveRuntimeLocation(
+        WorldRuntime world,
+        BlueprintLocationInfo locationInfo,
+        int worldSeed,
+        string nodeId)
+    {
+        var method = typeof(WorldRuntime).GetMethod(
+            "ResolveRuntimeLocation",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return (RuntimeLocationInfo)method!.Invoke(world, new object?[] { locationInfo, worldSeed, nodeId })!;
     }
 
     private static void InvokeEnsureRegionDataLoaded(WorldRuntime world)

@@ -8,7 +8,7 @@ namespace Uplink2.Runtime.Persistence;
 internal static class SaveContainerConstants
 {
     internal const ushort FormatMajor = 1;
-    internal const ushort FormatMinor = 0;
+    internal const ushort FormatMinor = 1;
     internal const uint FlagBrotli = 1u << 0;
     internal const uint FlagHmacSha256 = 1u << 1;
     internal const uint RequiredFlags = FlagBrotli | FlagHmacSha256;
@@ -18,7 +18,7 @@ internal static class SaveContainerConstants
     internal const uint ChunkIdProcessState = 0x0004;
     internal const uint ChunkIdServerState = 0x0100;
     internal const ushort ChunkVersion1 = 1;
-    internal const string SaveSchemaVersion = "0.1";
+    internal const string SaveSchemaVersion = "0.2";
     internal const string CampaignPrefix = "campaign:";
     internal const int HmacSha256Length = 32;
 
@@ -204,6 +204,35 @@ internal sealed class ServerStateChunkDto
 
     [Key(8)]
     public Dictionary<int, DaemonSnapshotDto>? Daemons { get; set; }
+
+    [Key(9)]
+    public ServerLocationSnapshotDto? Location { get; set; }
+
+    [Key(10)]
+    public ServerIconSnapshotDto? Icon { get; set; }
+}
+
+[MessagePackObject(AllowPrivate = true)]
+internal sealed class ServerLocationSnapshotDto
+{
+    [Key(0)]
+    public string RegionId { get; set; } = string.Empty;
+
+    [Key(1)]
+    public double Lat { get; set; }
+
+    [Key(2)]
+    public double Lng { get; set; }
+}
+
+[MessagePackObject(AllowPrivate = true)]
+internal sealed class ServerIconSnapshotDto
+{
+    [Key(0)]
+    public int IconType { get; set; }
+
+    [Key(1)]
+    public int HaloType { get; set; }
 }
 
 [MessagePackObject(AllowPrivate = true)]

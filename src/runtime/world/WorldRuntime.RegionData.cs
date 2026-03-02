@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using Uplink2.Blueprint;
 using YamlDotNet.RepresentationModel;
 
 namespace Uplink2.Runtime;
@@ -74,6 +77,136 @@ public partial class WorldRuntime
                lat <= box.MaxLat &&
                lng >= box.MinLng &&
                lng <= box.MaxLng;
+    }
+
+    private RuntimeLocationInfo ResolveRuntimeLocation(BlueprintLocationInfo blueprintLocation, int worldSeed, string nodeId)
+    {
+        if (blueprintLocation is null)
+        {
+            throw new InvalidDataException($"Server '{nodeId}' location payload is missing.");
+        }
+
+        if (string.IsNullOrWhiteSpace(nodeId))
+        {
+            throw new InvalidDataException("Server nodeId cannot be empty while resolving runtime location.");
+        }
+
+        return blueprintLocation.Mode switch
+        {
+            BlueprintLocationMode.Auto => ResolveAutoRuntimeLocation(blueprintLocation, worldSeed, nodeId),
+            BlueprintLocationMode.Coordinates => BuildRuntimeLocation(
+                string.IsNullOrWhiteSpace(blueprintLocation.RegionId) ? UnknownRegionId : blueprintLocation.RegionId.Trim(),
+                blueprintLocation.Lat,
+                blueprintLocation.Lng,
+                $"Server '{nodeId}'"),
+            _ => throw new InvalidDataException(
+                $"Server '{nodeId}' location mode '{blueprintLocation.Mode}' is unsupported."),
+        };
+    }
+
+    private RuntimeLocationInfo ResolveRuntimeLocationFromSnapshot(string regionId, double lat, double lng, string nodeId)
+    {
+        var resolvedRegionId = string.IsNullOrWhiteSpace(regionId) ? UnknownRegionId : regionId.Trim();
+        var context = $"save server '{nodeId}'";
+        return BuildRuntimeLocation(resolvedRegionId, lat, lng, context);
+    }
+
+    private RuntimeLocationInfo ResolveAutoRuntimeLocation(BlueprintLocationInfo blueprintLocation, int worldSeed, string nodeId)
+    {
+        var regionId = string.IsNullOrWhiteSpace(blueprintLocation.RegionId)
+            ? UnknownRegionId
+            : blueprintLocation.RegionId.Trim();
+        if (!TryGetRegion(regionId, out var region))
+        {
+            throw new InvalidDataException(
+                $"Server '{nodeId}' location AUTO region '{regionId}' was not found in RegionData.");
+        }
+
+        var sampled = SampleLocationFromRegion(region, worldSeed, nodeId);
+        return BuildRuntimeLocation(regionId, sampled.Lat, sampled.Lng, $"Server '{nodeId}'");
+    }
+
+    private RuntimeLocationInfo BuildRuntimeLocation(string regionId, double lat, double lng, string context)
+    {
+        if (lat < MinLatitude || lat > MaxLatitude)
+        {
+            throw new InvalidDataException(
+                $"{context} location latitude must be within [{MinLatitude}, {MaxLatitude}].");
+        }
+
+        if (lng < MinLongitude || lng > MaxLongitude)
+        {
+            throw new InvalidDataException(
+                $"{context} location longitude must be within [{MinLongitude}, {MaxLongitude}].");
+        }
+
+        if (!TryGetRegion(regionId, out _))
+        {
+            throw new InvalidDataException($"{context} location region '{regionId}' was not found in RegionData.");
+        }
+
+        var containingRegions = GetContainingRegions(lat, lng);
+        if (containingRegions.Count == 0)
+        {
+            throw new InvalidDataException(
+                $"{context} location ({lat.ToString(CultureInfo.InvariantCulture)},{lng.ToString(CultureInfo.InvariantCulture)}) does not belong to any region.");
+        }
+
+        return new RuntimeLocationInfo
+        {
+            RegionId = regionId,
+            DisplayName = containingRegions[0].RegionId,
+            Lat = lat,
+            Lng = lng,
+        };
+    }
+
+    private static (double Lat, double Lng) SampleLocationFromRegion(RegionDefinition region, int worldSeed, string nodeId)
+    {
+        var boxUnit = CreateDeterministicUnitValue($"{worldSeed}|{nodeId}|location|box");
+        var selectedBox = SelectBoxByWeightedArea(region, boxUnit);
+        var latUnit = CreateDeterministicUnitValue($"{worldSeed}|{nodeId}|location|lat");
+        var lngUnit = CreateDeterministicUnitValue($"{worldSeed}|{nodeId}|location|lng");
+
+        var lat = selectedBox.MinLat + ((selectedBox.MaxLat - selectedBox.MinLat) * latUnit);
+        var lng = selectedBox.MinLng + ((selectedBox.MaxLng - selectedBox.MinLng) * lngUnit);
+        return (lat, lng);
+    }
+
+    private static RegionBox SelectBoxByWeightedArea(RegionDefinition region, double unitValue)
+    {
+        if (region.Boxes.Count == 0 || region.TotalArea <= 0.0)
+        {
+            throw new InvalidDataException(
+                $"Region '{region.RegionId}' cannot be sampled because it does not contain a positive-area box.");
+        }
+
+        var normalized = Math.Clamp(unitValue, 0.0, 1.0);
+        var target = normalized * region.TotalArea;
+        var cumulative = 0.0;
+        for (var i = 0; i < region.Boxes.Count; i++)
+        {
+            var box = region.Boxes[i];
+            cumulative += box.Area;
+            if (target <= cumulative || i == region.Boxes.Count - 1)
+            {
+                return box;
+            }
+        }
+
+        return region.Boxes[^1];
+    }
+
+    private static double CreateDeterministicUnitValue(string seedText)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(seedText));
+        ulong value = 0;
+        for (var i = 0; i < 8; i++)
+        {
+            value = (value << 8) | hash[i];
+        }
+
+        return value / (((double)ulong.MaxValue) + 1.0);
     }
 
     private static RegionCatalog LoadRegionCatalog(string regionDataFilePath, Action<string> warningSink)

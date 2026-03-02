@@ -30,6 +30,21 @@ public enum ServerReason
     Crashed,
 }
 
+/// <summary>Visual icon type used to render a server node marker.</summary>
+public enum ServerIconType
+{
+    Circle,
+    Triangle,
+    Square,
+}
+
+/// <summary>Visual halo type rendered behind a server node marker.</summary>
+public enum ServerHaloType
+{
+    None,
+    Yellow,
+}
+
 /// <summary>Process lifecycle state.</summary>
 public enum ProcessState
 {
@@ -72,6 +87,48 @@ public enum PortExposure
     Public,
     Lan,
     Localhost,
+}
+
+/// <summary>Resolved runtime location payload for a server node.</summary>
+public sealed class RuntimeLocationInfo
+{
+    /// <summary>Sampling/base region id from blueprint interpretation.</summary>
+    public string RegionId { get; set; } = "Unknown";
+
+    /// <summary>Display region id selected by minimum TotalArea containment.</summary>
+    public string DisplayName { get; set; } = "Unknown";
+
+    /// <summary>Resolved latitude in degrees.</summary>
+    public double Lat { get; set; }
+
+    /// <summary>Resolved longitude in degrees.</summary>
+    public double Lng { get; set; }
+}
+
+/// <summary>Runtime icon payload used by map/node renderers.</summary>
+public sealed class RuntimeServerIconInfo
+{
+    /// <summary>Default icon type when no explicit data exists.</summary>
+    public const ServerIconType DefaultIconType = ServerIconType.Circle;
+
+    /// <summary>Default halo type when no explicit data exists.</summary>
+    public const ServerHaloType DefaultHaloType = ServerHaloType.None;
+
+    /// <summary>Node shape to draw for this server.</summary>
+    public ServerIconType IconType { get; set; } = DefaultIconType;
+
+    /// <summary>Halo style to draw behind this server.</summary>
+    public ServerHaloType HaloType { get; set; } = DefaultHaloType;
+
+    /// <summary>Creates a default icon payload (<c>circle</c>, <c>none</c>).</summary>
+    public static RuntimeServerIconInfo CreateDefault()
+    {
+        return new RuntimeServerIconInfo
+        {
+            IconType = DefaultIconType,
+            HaloType = DefaultHaloType,
+        };
+    }
 }
 
 /// <summary>Daemon type used for gameplay rules/hints.</summary>
@@ -336,6 +393,12 @@ public sealed class ServerNodeRuntime
 
     /// <summary>Neighboring node ids in the current topology.</summary>
     public List<string> LanNeighbors { get; } = new();
+
+    /// <summary>Resolved runtime location information.</summary>
+    public RuntimeLocationInfo Location { get; set; } = new();
+
+    /// <summary>Resolved runtime icon information.</summary>
+    public RuntimeServerIconInfo Icon { get; set; } = RuntimeServerIconInfo.CreateDefault();
 
     /// <summary>Port configuration indexed by port number.</summary>
     public Dictionary<int, PortConfig> Ports { get; } = new();

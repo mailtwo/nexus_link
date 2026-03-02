@@ -197,6 +197,7 @@ Chunk
 - `logCapacity: int` (선택)
 - `ports: Dictionary<int, PortSnapshot>` (선택)
 - `daemons: Dictionary<string, DaemonSnapshot>` (선택)
+- `icon: ServerIconSnapshot` (선택, 누락 시 기본값 복구)
 
 `UserSnapshot`:
 - `userId`
@@ -230,6 +231,23 @@ Chunk
 `LogSnapshot` 규칙:
 - `sourceNodeId`는 공백/누락을 허용하지 않는다(누락 시 로드 실패).
 - `remoteIp`는 표시용 관측값이며, 추적 판정 키로 사용하지 않는다.
+- `location`은 아래 필드만 저장한다:
+  - `regionId: string`
+  - `lat: double`
+  - `lng: double`
+  - `displayName`은 저장하지 않는다.
+  - 로드 시 `lat/lng` 기준 포함 region(최소 TotalArea)의 id를 `displayName`으로 재계산한다.
+
+`ServerIconSnapshot`:
+- `iconType: enum { circle, triangle, square }`
+- `haloType: enum { none, yellow }`
+
+`ServerIconSnapshot` 규칙:
+- save 시 서버 `icon` 런타임 값을 저장한다.
+- load 시 `icon` 필드가 누락되면 다음 기본값으로 복구한다:
+  - `iconType = circle`
+  - `haloType = none`
+- 필드가 존재하지만 enum 값이 유효 범위를 벗어나면 로드 실패 처리한다.
 
 ---
 
@@ -279,7 +297,9 @@ Chunk
   - 로더 major mismatch 시 로드 실패.
 - `formatMinor`:
   - 하위 호환 확장에서 증가.
-  - 로더가 더 낮은 minor라도, 알 수 없는 chunk/field skip으로 가능한 범위에서 복원.
+  - v0.2 구현부터 최소 요구 minor는 `1`이다.
+  - `formatMinor < 1` 저장 파일은 `UnsupportedVersion`으로 로드 실패한다.
+  - `icon` 필드 추가는 optional 확장이므로 `formatMinor`를 증가시키지 않는다(계속 `1`).
 
 ### 6.2 청크 버전 정책
 
@@ -320,6 +340,7 @@ Chunk
 - [ ] 로드 시 `myWorkstation` 시작 컨텍스트 강제
 - [ ] 세션 상태 미복원 정책 반영
 - [ ] 파생 캐시 재구축 루틴 반영
+- [ ] ServerState `icon` snapshot 저장/복원 + 누락 기본값(circle/none) 처리
 
 ### 8.2 테스트 체크리스트
 
@@ -327,5 +348,6 @@ Chunk
 - [ ] 로그 순서/ID 복원 검증
 - [ ] 세션 미복원 검증(서버 sessions/터미널 스택/실행중 프로그램)
 - [ ] unknown chunk skip 검증
-- [ ] minor 확장 필드 추가 후 구버전 로더 동작 검증
+- [ ] `formatMinor < 1` 구버전 save 로드 실패 검증
 - [ ] HMAC 변조 검출 검증
+- [ ] `icon` 필드 누락 save 로드 시 기본값 복구 검증

@@ -170,6 +170,15 @@ public partial class WorldRuntime
             return false;
         }
 
+        if (header.FormatMinor < SaveContainerConstants.FormatMinor)
+        {
+            failure = CreateFailureResult(
+                SaveLoadErrorCode.UnsupportedVersion,
+                $"unsupported save format minor version: {header.FormatMinor}. minimum supported minor is {SaveContainerConstants.FormatMinor}.",
+                string.Empty);
+            return false;
+        }
+
         failure = CreateSuccessResult(string.Empty, string.Empty);
         return true;
     }
@@ -552,6 +561,8 @@ public partial class WorldRuntime
             };
         }
 
+        var iconSnapshot = CaptureServerIconSnapshot(server.Icon);
+
         serverState = new ServerStateChunkDto
         {
             NodeId = server.NodeId,
@@ -570,8 +581,25 @@ public partial class WorldRuntime
             LogCapacity = server.LogCapacity,
             Ports = ports,
             Daemons = daemons,
+            Location = new ServerLocationSnapshotDto
+            {
+                RegionId = server.Location.RegionId ?? UnknownRegionId,
+                Lat = server.Location.Lat,
+                Lng = server.Location.Lng,
+            },
+            Icon = iconSnapshot,
         };
         return true;
+    }
+
+    private static ServerIconSnapshotDto CaptureServerIconSnapshot(RuntimeServerIconInfo? icon)
+    {
+        var resolvedIcon = icon ?? RuntimeServerIconInfo.CreateDefault();
+        return new ServerIconSnapshotDto
+        {
+            IconType = (int)resolvedIcon.IconType,
+            HaloType = (int)resolvedIcon.HaloType,
+        };
     }
 
     private static LogSnapshotDto CaptureLogSnapshot(LogStruct log, HashSet<LogStruct> visited)
@@ -860,6 +888,16 @@ public partial class WorldRuntime
             server.SetOffline(reason);
         }
 
+        if (!TryApplyServerLocation(server, serverState.Location, out errorMessage))
+        {
+            return false;
+        }
+
+        if (!TryApplyServerIcon(server, serverState.Icon, out errorMessage))
+        {
+            return false;
+        }
+
         if (!TryApplyServerUsers(server, serverState.Users, out errorMessage))
         {
             return false;
@@ -887,6 +925,73 @@ public partial class WorldRuntime
             return false;
         }
 
+        return true;
+    }
+
+    private bool TryApplyServerLocation(
+        ServerNodeRuntime server,
+        ServerLocationSnapshotDto? locationSnapshot,
+        out string errorMessage)
+    {
+        errorMessage = string.Empty;
+        if (locationSnapshot is null)
+        {
+            errorMessage = $"server '{server.NodeId}' location is required.";
+            return false;
+        }
+
+        var regionId = locationSnapshot.RegionId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(regionId))
+        {
+            errorMessage = $"server '{server.NodeId}' location.regionId cannot be empty.";
+            return false;
+        }
+
+        try
+        {
+            server.Location = ResolveRuntimeLocationFromSnapshot(
+                regionId,
+                locationSnapshot.Lat,
+                locationSnapshot.Lng,
+                server.NodeId);
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException)
+        {
+            errorMessage = ex.Message;
+            return false;
+        }
+    }
+
+    private static bool TryApplyServerIcon(
+        ServerNodeRuntime server,
+        ServerIconSnapshotDto? iconSnapshot,
+        out string errorMessage)
+    {
+        errorMessage = string.Empty;
+        if (iconSnapshot is null)
+        {
+            server.Icon = RuntimeServerIconInfo.CreateDefault();
+            return true;
+        }
+
+        if (!TryResolveEnum(iconSnapshot.IconType, out ServerIconType iconType))
+        {
+            errorMessage = $"invalid icon type value: {iconSnapshot.IconType} (nodeId={server.NodeId}).";
+            return false;
+        }
+
+        if (!TryResolveEnum(iconSnapshot.HaloType, out ServerHaloType haloType))
+        {
+            errorMessage = $"invalid halo type value: {iconSnapshot.HaloType} (nodeId={server.NodeId}).";
+            return false;
+        }
+
+        server.Icon = new RuntimeServerIconInfo
+        {
+            IconType = iconType,
+            HaloType = haloType,
+        };
         return true;
     }
 

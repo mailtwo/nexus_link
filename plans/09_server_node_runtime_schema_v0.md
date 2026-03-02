@@ -126,6 +126,7 @@ ServerStruct
 - lanNeighbors: List<string /*nodeId*/>
     - 의미: 현재 서버 기준 직접 이동 가능한 이웃 서버의 내부 참조 목록
 - location: RuntimeLocationInfo
+- icon: RuntimeServerIconInfo
 ```
 
 ---
@@ -314,6 +315,7 @@ LogStruct
 - [ ] VFS overlay 스키마: `overlayEntries` / `tombstones` / `dirDelta` 필드 유지
 - [ ] Logs: ringbuffer + `sourceNodeId`(필수/비노출, 추적 판정 키) + `remoteIp`(표시 전용) + origin 유지 규칙
 - [ ] ServerStruct에 `location: RuntimeLocationInfo` 필드 추가
+- [ ] ServerStruct에 `icon: RuntimeServerIconInfo` 필드 추가
 
 ## 11) RuntimeLocationInfo
 
@@ -334,5 +336,26 @@ RuntimeLocationInfo
 - lat: float   # 위도 (-90.0 ~ +90.0)
 - lng: float   # 경도 (-180.0 ~ +180.0)
 ```
+
+## 12) RuntimeServerIconInfo
+
+월드맵/노드 그래프 렌더러가 서버 아이콘을 결정할 때 사용하는 런타임 payload다.
+현재는 블루프린트 입력을 받지 않고, 월드 생성 시 모든 서버를 기본값으로 채운다.
+
+```text
+RuntimeServerIconInfo
+- iconType: ENUM { circle, triangle, square }
+- haloType: ENUM { none, yellow }
+```
+
+기본값 규칙(v0.2):
+- 월드 생성 시 기본값:
+  - `iconType = circle`
+  - `haloType = none`
+- save 로드 시 `icon` 필드가 누락된 경우에도 동일 기본값으로 복구한다.
+
+영속화 규칙(v0.2):
+- `icon` 런타임 정보는 save 대상이다.
+- 기존 `FormatMinor=1`을 유지하며, 필드 누락은 하위 호환 기본값으로 처리한다.
 
 ---
