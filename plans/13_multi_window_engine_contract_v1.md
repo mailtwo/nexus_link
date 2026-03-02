@@ -47,7 +47,7 @@
   - **Network Topology viewer**
   - **월드 맵 및 네트워크 트레이싱창**
   - **프로세서 목록**
-- 코딩 에디터 윈도우는 알파 범위에서 제외하고 추후 구현한다(§12 참조).
+- 코딩 에디터 윈도우는 알파 범위에서 제외하고 추후 구현한다(§13 참조).
 
 ### 2.2 전역 제약 (MUST)
 
@@ -150,7 +150,7 @@
   - 금지: `WINDOW_MODE_FULLSCREEN`, `WINDOW_MODE_EXCLUSIVE_FULLSCREEN`
 - Primary/Secondary 게임 창은 **OS 기본 프레임(타이틀바/테두리)을 유지**해야 한다.
   - 즉, `borderless`는 금지(= false 유지).
-  - DesktopOverlay는 이 제약에서 제외된다(§15 참조).
+  - DesktopOverlay는 이 제약에서 제외된다(§16 참조).
 
 #### B) VIRTUAL_DESKTOP 모드
 - 메인 창은 다음을 허용한다.
@@ -179,7 +179,7 @@
   - 목적:
     - 게임 종료 시 모든 Secondary 창이 함께 닫힌다.
     - (가능하다면) 작업표시줄/Alt+Tab에서 Secondary 창 노출을 줄인다.
-- DesktopOverlay 창은 transient 설정을 적용하지 않는다(§15.4 참조).
+- DesktopOverlay 창은 transient 설정을 적용하지 않는다(§16.4 참조).
 
 ### 4.2 작업표시줄 억제는 Best effort (SHOULD)
 - 작업표시줄(아래 바) 및 Alt+Tab에 Secondary 창이 별도 엔트리로 나타나지 않도록 **최선을 다한다**.
@@ -298,6 +298,7 @@
 |---|---:|---:|---:|---|---:|---:|---|---|---|
 | SSH_LOGIN | YES | NO | NO | Passthrough | YES | NO | 520×240 | 120,80 | 120,80 |
 | FILE_TRANSFER_QUEUE | YES | NO | NO | Passthrough | YES | NO | 520×240 | 120,80 | 120,80 |
+| WORLD_MAP_TRACE | YES | NO | NO | Passthrough | NO | NO | 556×300 | 120,80 | 120,80 |
 | WEB_VIEWER | YES | YES | YES | Exclusive | NO | YES | 520×240 | 120,80 | 120,80 |
 | CODE_EDITOR (Reserved/Future) | YES | TBD | TBD | TBD | NO | YES | TBD | TBD | TBD |
 
@@ -343,9 +344,9 @@
 - 모드별 지오메트리 저장/복원
 - Secondary 창 노출 억제 정책(transient/작업표시줄/Alt+Tab) 적용
 - 서브 윈도우 생성/닫기/포커스/전면화
-- 모드 전환 및 화면 모드 전환 시 안전한 재생성 절차 수행(§10 참조)
+- 모드 전환 및 화면 모드 전환 시 안전한 재생성 절차 수행(§11 참조)
 - SSH 로그인 시도 이벤트 수신 → SSH 로그인 창 표시/갱신
-- DesktopOverlay 생명주기 관리(§15 참조)
+- DesktopOverlay 생명주기 관리(§16 참조)
 
 ### 8.2 공개 API (권장)
 - `set_windowing_mode(mode) -> void`
@@ -369,7 +370,7 @@
   - `serialize_state() -> Dictionary` — 현재 창의 런타임 상태를 Dictionary로 반환한다.
   - `restore_state(data: Dictionary) -> void` — Dictionary로부터 런타임 상태를 복원한다.
 - Dictionary의 키/값 구성은 각 WindowKind가 자유롭게 정의한다. WindowManager는 내부 구조를 알지 않으며, 불투명(opaque) 데이터로 취급한다.
-- WindowManager는 §10.2의 모드 전환 절차에서 이 인터페이스를 통해 State를 획득/복원한다.
+- WindowManager는 §11.2의 모드 전환 절차에서 이 인터페이스를 통해 State를 획득/복원한다.
 - State가 없는 창(상태를 보존할 필요가 없는 경우)은 빈 Dictionary(`{}`)를 반환해도 된다.
 
 ### 8.5 Host-ready 경계 (MUST)
@@ -380,7 +381,7 @@
 - 지오메트리/상태 저장 키는 논리 식별자(WindowKind/CoreWindowKind) 기준으로 관리하고, HWND 같은 OS 핸들에 직접 의존하지 않는다.
 - 작업표시줄/Alt+Tab/transient/소유자 설정은 `PlatformWindowAdapter` 계층으로 격리하고, gameplay/UI 레이어에서 Win32 직접 호출을 금지한다.
 - 입력 라우팅 대상은 "현재 Primary Core Window"를 조회해 결정하며, 특정 창 이름 하드코딩을 금지한다.
-- 모드 전환/재생성 절차(§10)는 "Primary가 교체될 수 있음"을 전제로 작성한다.
+- 모드 전환/재생성 절차(§11)는 "Primary가 교체될 수 있음"을 전제로 작성한다.
 
 ---
 
@@ -421,20 +422,110 @@
 
 ---
 
-## 10. 모드 전환/재생성 절차 (리스크 대응) (MUST)
+## 10. 월드 맵 및 네트워크 트레이싱창(WORLD_MAP_TRACE) — 기능 계약 (Alpha)
 
-### 10.1 왜 필요한가
+### 10.1 목적 (MUST)
+- WORLD_MAP_TRACE는 “월드맵 기반 네트워크 뷰 + 트레이스 필터링 + 노드 정리 보기”를 제공하는 서브 윈도우다.
+- 본 창은 아래 UI 요소를 반드시 제공한다:
+  - 상단 탭 2종(서로 배타): `map`, `nodes`
+  - 좌측 토글 3종(독립 on/off): `hot`, `forensic`, `lock-on`
+  - 확대 토글 버튼: `크게 보기` / `작게 보기`
+- 상단 탭/좌측 토글/확대 토글 버튼은 **작게 보기/크게 보기** 모든 상태에서 항상 유지되어야 한다 (MUST).
+- 상단 탭/좌측 토글 라벨은 현재는 “영문 1단어 텍스트”로 노출하되, 추후 아이콘 형태로 교체 가능하다 (MAY).
+
+### 10.2 WindowKind 속성 (MUST)
+- `Resizable=NO`
+- `Focus Mode=Passthrough`
+- `AutoFocus=NO`
+- `Volatile=NO`
+- 작게 보기(collapse) default 창 크기: **556×300**
+- 작게 보기 map viewport 크기: **512×256** (월드맵 원본 2048×1024의 25%)
+
+### 10.3 초기값 (MUST)
+- 상단 탭 기본 선택: `map`
+- 좌측 토글 기본값: `hot=ON`, `forensic=ON`, `lock-on=ON`
+
+### 10.4 탭/토글 동작 (MUST)
+- 상단 탭 전환은 “표시 방식(map/nodes)”만 전환한다. 좌측 토글 상태 및 확대/축소 상태는 전환 전후로 유지된다.
+- 좌측 토글은 해당 trace 타입의 “표시 여부”만 제어한다. 토글이 OFF여도 trace 데이터 자체를 삭제/변형하지 않는다.
+
+### 10.5 표시 모드
+#### 10.5.1 `map` (지도 보기) (MUST)
+- 월드맵 배경 + 서버 노드/연결 + trace overlay를 표시한다.
+- 지도/노드/trace 렌더링은 “현재 크기 모드(작게/크게)”의 스케일을 따른다(§11.7).
+
+#### 10.5.2 `nodes` (노드만 보기) (MUST)
+- 월드맵 이미지는 표시하지 않고, 노드 그래프만 표시한다.
+- Trace overlay 표현은 `map` 탭과 동일하게 `04_attack_routes_and_missions.md`(§6)에서 정의된 시각 표현(빨간 실선, 흰 점선, 회색 점선 등)을 그대로 사용한다 (MUST).
+- 노드 레이아웃은 `SpineLayout_v0`를 사용한다 (임시). 이 레이아웃은 기획에 따라 언제든지 교체될 수 있다 (MAY).
+- 작게 보기 map viewport(512×256)에서의 nodes 탭 표시 방식은 미확정이다. 추후 기획에서 결정한다 (TBD).
+- `SpineLayout_v0` 최소 요구사항 (MUST):
+  - `Workstation` → 현재 바운싱 체인(경로)을 1개의 spine으로 표현한다.
+  - Spine 상의 일부 노드에 대해, 1-hop 근접 노드를 branch로 표현할 수 있다.
+  - 근접 노드의 근접 노드(2-hop)는 표시하지 않는다.
+
+### 10.6 Trace 데이터 모델 (SSOT 참조) (MUST)
+- WORLD_MAP_TRACE는 trace “표시/필터링”만 담당한다.
+- trace 가능한 오브젝트(정의/생성 조건/수명/종류)는 `04_attack_routes_and_missions.md`를 SSOT로 참조한다 (MUST).
+- 좌측 토글(`hot/forensic/lock-on`)은 SSOT에서 정의된 trace type과 1:1로 매핑된다 (MUST).
+
+### 10.7 크게/작게 보기(확대 토글) — 지오메트리/스케일 계약 (MUST)
+- WORLD_MAP_TRACE는 사용자 리사이즈를 허용하지 않으며(Resizable=NO), 아래 토글 버튼으로만 2단계 전환을 제공한다:
+  - 작게 보기: 버튼 라벨 `크게 보기`
+  - 크게 보기: 버튼 라벨 `작게 보기`
+- 월드맵 원본 크기(1:1): **2048×1024 px**
+- 작게 보기(collapse):
+  - 창 크기: **556×300 px**
+  - map viewport 크기: **512×256 px**
+- 크게 보기(expand):
+  - 목표 크기: **2048×1024 (1:1)** 이나, 모니터 usable rect를 초과하면 그 한도 내로 축소(clamp)한다.
+  - clamp가 발생하면 “창만 줄이는 것”이 아니라 **맵(및 노드/trace)도 동일 비율로 축소**되어 창 내부에 fit되어야 한다.
+  - 모니터가 매우 커도 **1:1을 초과 확대하지 않는다**(= 1:1에서 멈춤).
+- nodes 탭에서도 창 크기는 map 탭과 동일하며, 노드 그래프가 해당 영역 내에 fit된다.
+
+#### 10.7.1 확장 크기 계산 (MUST)
+- `desired_map_size = (2048, 1024)`
+- `chrome_w = 556 - 512 = 44`
+- `chrome_h = 300 - 256 = 44`
+- 선택된 기준 영역을 `reference_usable_rect`라고 할 때:
+  - `scale = min(1.0, (reference_usable_rect.w - chrome_w) / 2048, (reference_usable_rect.h - chrome_h) / 1024)`
+  - `expanded_window_size = (round(2048 * scale) + chrome_w, round(1024 * scale) + chrome_h)`
+  - 렌더링 스케일은 `scale`을 사용하고, x/y 동일 비율로 스케일한다(비율 왜곡 금지).
+
+#### 10.7.2 모니터 선택 및 중앙 기준 배치 (MUST)
+- `크게 보기` 전환 시 기준 모니터(영역)는 “작게 보기 시점의 창이 있던 모니터(들)”로 결정한다.
+  - NATIVE_OS: 작게 보기 창 rect와 교차(intersect)하는 모든 모니터의 `screen_get_usable_rect`를 union하여 `reference_usable_rect`를 만든다.
+  - VIRTUAL_DESKTOP: `VirtualDesktopRoot`의 visible rect를 `reference_usable_rect`로 사용한다.
+- `크게 보기` 전환 시, 창의 중심이 `reference_usable_rect`의 중심에 오도록 배치한다.
+- 배치 후 창이 `reference_usable_rect` 밖으로 벗어나면 `reference_usable_rect` 내부로 클램핑한다.
+
+#### 10.7.3 작게 보기 원본 위치 복원 및 UI 상태(State) (MUST)
+- `크게 보기`를 누르는 순간의 “작게 보기 지오메트리(위치/크기)”를 `serialize_state()`에 포함한다 (MUST).
+- `작게 보기` 전환 시, 위 저장값으로 **정확히 복원**한다 (MUST).
+- 상단 탭 선택 상태(`map`/`nodes`)와 좌측 토글 상태(`hot`/`forensic`/`lock-on`)도 `serialize_state()`에 포함한다 (MUST).
+- 권장 State 키(예시):
+  - `collapsed_geometry: { pos:(x,y), size:(w,h) }`
+  - `active_tab: “map” | “nodes”`
+  - `toggles: { hot: bool, forensic: bool, lock_on: bool }`
+  - NATIVE_OS: pos/size는 물리 픽셀 기반 스크린 절대 좌표
+  - VIRTUAL_DESKTOP: pos/size는 VirtualDesktopRoot 내부 좌표
+
+---
+
+## 11. 모드 전환/재생성 절차 (리스크 대응) (MUST)
+
+### 11.1 왜 필요한가
 - `embed_subwindows`(임베디드/비임베디드) 전환은 **이미 떠 있는 창에 즉시/일관되게 적용되지 않을 수 있다**.
 - 따라서 모드 전환 시 서브 윈도우를 "닫고 재생성"하는 방식이 가장 안정적이다.
 
-### 10.2 절차 (MUST)
+### 11.2 절차 (MUST)
 모드 전환 또는 메인 창 화면 모드 전환 시, 아래 절차를 따른다.
 
 1) 모든 서브 윈도우에 대해:
    - 지오메트리 저장
    - 각 서브 윈도우의 상태 (State) 데이터 획득. §8.4의 serialize_state()를 호출하여 State를 획득한다.
    - 닫기(hide/queue_free 등 프로젝트 정책)
-2) 활성화된 모든 DesktopOverlay 비활성화(§15.5 전환 절차 참조)
+2) 활성화된 모든 DesktopOverlay 비활성화(§16.5 전환 절차 참조)
 3) `embed_subwindows` 설정 변경
 4) 메인 창 화면 모드(Display Mode) 설정 변경
 5) 새 모드의 레이아웃 로드
@@ -451,18 +542,18 @@
 
 ---
 
-## 11. EXCLUSIVE_FULLSCREEN 상태 제약 (리스크 대응) (MUST)
+## 12. EXCLUSIVE_FULLSCREEN 상태 제약 (리스크 대응) (MUST)
 
 - `WINDOW_MODE_EXCLUSIVE_FULLSCREEN` 상태에서는:
   - **OS 윈도우 호출(네이티브 파일 다이얼로그, OS 서브윈도우 생성 등)을 금지**한다.
   - 이유: 독점 풀스크린은 OS/드라이버/윈도우 매니저에 따라 "전환/블랙스크린/모드 변화"가 발생할 수 있다.
 - 필요한 경우:
   - 인게임 UI로 대체(가상 다이얼로그)
-  - 또는 EXCLUSIVE 해제 후 호출(상태 전환 절차는 §10 준수)
+  - 또는 EXCLUSIVE 해제 후 호출(상태 전환 절차는 §11 준수)
 
 ---
 
-## 11.5 멀티 윈도우 알파 구현 목표 목록 (중요도 순)
+## 12.5 멀티 윈도우 알파 구현 목표 목록 (중요도 순)
 1) 월드 맵 및 네트워크 트레이싱창
 2) Network Topology viewer
 3) 파일 전송 대기줄(큐/대역폭/실패/재시도)
@@ -471,16 +562,16 @@
 
 ---
 
-## 12. (추후) 멀티 윈도우 옵션 목록 (중요도 순)
+## 13. (추후) 멀티 윈도우 옵션 목록 (중요도 순)
 1) 유출된 CCTV 모니터링
 2) 패킷 스니핑 창
 3) 코딩 에디터 윈도우(탭 기반 다중 문서)
 
 ---
 
-## 13. 수용 기준(테스트 시나리오)
+## 14. 수용 기준(테스트 시나리오)
 
-### 13.1 모드 전환 및 재생성 (§10)
+### 14.1 모드 전환 및 재생성 (§11)
 - NATIVE_OS → VIRTUAL_DESKTOP 전환 시:
   - 모든 서브 윈도우가 닫힌 후 재생성된다.
   - 각 모드의 저장된 지오메트리가 정확히 복원된다.
@@ -490,7 +581,7 @@
 - 전환 중 경과 시간이 Volatile 창 자동 닫힘 타이머에서 차감되지 않는다.
 - 가상 모드 진입 시 WINDOWED → embed 설정 → MAXIMIZED → 서브 윈도우 생성 순서가 지켜진다.
 
-### 13.2 네이티브 OS 모드 (§3.2A, §4)
+### 14.2 네이티브 OS 모드 (§3.2A, §4)
 - Primary Core Window가 WINDOWED / MAXIMIZED에서 동작한다.
 - FULLSCREEN / EXCLUSIVE_FULLSCREEN 진입 시 자동으로 VIRTUAL_DESKTOP으로 전환된다.
 - 서브 윈도우(WindowKind)는 OS 프레임(타이틀바/테두리)을 유지한다. borderless가 아니다.
@@ -502,7 +593,7 @@
 - 작업표시줄/Alt+Tab 억제는 best effort이며, 실패 시 폴백 정책이 동작한다.
 - Secondary 창은 Primary Core Window에 transient으로 종속되어, 게임 종료 시 함께 닫힌다.
 
-### 13.3 가상 데스크톱 모드 (§3.2B, §5)
+### 14.3 가상 데스크톱 모드 (§3.2B, §5)
 - 메인 창이 MAXIMIZED 이상 상태를 유지한다. WINDOWED는 금지된다.
 - unmaximize 발생 시 즉시 MAXIMIZED로 복귀한다.
 - 에뮬레이티드 배경이 표시된다.
@@ -510,14 +601,14 @@
 - 알파 구현에서 최소화 버튼은 표시되지 않는다.
 - usable rect 변경(모니터 전환, 해상도 변경 등) 시 서브 창이 메인 창 밖으로 벗어나지 않도록 클램핑된다. 클램핑 시 크기는 유지되고 위치만 조정된다.
 
-### 13.4 Z-order 및 전면화 (§5.2)
+### 14.4 Z-order 및 전면화 (§5.2)
 - 서브 창 내부(콘텐츠, 타이틀바, 리사이즈 핸들)를 마우스 클릭하면 해당 창이 Z-order 최상위로 올라간다.
 - `open_window(kind)` 호출로 기존 창이 전면화된다.
 - Primary Core Window는 모든 서브 창 아래에 위치한다.
 - 서브 창 바깥 영역 클릭 시 Primary Core Window가 포커스를 받되, 서브 창의 Z-order는 변경되지 않는다.
 - Z-order는 저장/복원 대상이 아니다. 재시작 시 서브 창은 열린 순서대로 쌓인다.
 
-### 13.5 Focus Mode (§2.2-7, §4.5, §5.2-4)
+### 14.5 Focus Mode (§2.2-7, §4.5, §5.2-4)
 
 **Passthrough 창:**
 - VIRTUAL_DESKTOP: Passthrough 창이 Z-order 최상위여도 키보드 입력이 Primary Core Window에 전달된다. 서브 창에는 키보드 입력이 전달되지 않는다.
@@ -532,11 +623,11 @@
 - Exclusive 창과 Passthrough 창이 동시에 열려 있을 때, Passthrough 창이 Z-order 최상위여도 키보드 포커스는 Z-order가 가장 높은 Exclusive 창이 갖는다.
 - Exclusive 창이 하나도 없으면 Primary Core Window가 포커스를 갖는다.
 
-### 13.6 자동 포커싱 (§2.2-6)
+### 14.6 자동 포커싱 (§2.2-6)
 - autoFocus=true 창은 열릴 때 포커스가 해당 창으로 이동한다.
 - autoFocus=false 창은 열릴 때 포커스가 이동하지 않는다 (best effort). Fail-safe로 다음 프레임에 Primary Core Window로 포커스가 복귀한다.
 
-### 13.7 지오메트리 저장/복원 (§2.2-3, §6)
+### 14.7 지오메트리 저장/복원 (§2.2-3, §6)
 
 - 저장 트리거/범위/포맷은 `12_save_load_persistence_spec_v0_1.md`를 따른다(See DOCS_INDEX.md → 12).
 
@@ -551,7 +642,7 @@
 **최초 진입:**
 - 저장값이 없는 모드로 최초 진입 시 Kind별 default 위치/크기에서 표시된다.
 
-### 13.8 SSH_LOGIN (§9)
+### 14.8 SSH_LOGIN (§9)
 - `ssh.connect` 호출 또는 SSH로 판별된 `connect` 시도 시 자동으로 창이 열린다.
 - Host, User, Password(원문)가 표시된다. 비밀번호가 null이면 Passwd 필드는 비어 있다.
 - 각 시도에 대한 결과(`success/failure`, `OK/ERR_*`) 정보가 SSH_LOGIN으로 전달된다.
@@ -559,10 +650,10 @@
 - SSH_LOGIN은 Passthrough 모드이며, 창이 떠 있는 동안 Primary Core Window 입력이 방해받지 않는다.
 - SSH_LOGIN은 autoFocus=false이며, 열릴 때 Primary Core Window 포커스를 뺏지 않는다.
 
-### 13.9 단일 인스턴스 (§2.2-2)
+### 14.9 단일 인스턴스 (§2.2-2)
 - 이미 열려 있는 Kind에 대해 `open_window`를 재호출하면 새 창이 생기지 않고, 기존 창이 전면화/포커스되며 내용이 갱신된다.
 
-### 13.10 파일 전송 대기줄 다중 항목 (§2.2-2, §7.3)
+### 14.10 파일 전송 대기줄 다중 항목 (§2.2-2, §7.3)
 - `FILE_TRANSFER_QUEUE` 창은 동시에 1개만 존재한다.
 - 파일 전송 작업이 여러 개일 때, 창 내부 목록에 여러 `TransferJob` 항목이 동시에 표시된다.
 - `open_window(FILE_TRANSFER_QUEUE)`를 반복 호출해도 새 창은 생기지 않고, 기존 창만 전면화/갱신된다.
@@ -570,18 +661,39 @@
 - `FILE_TRANSFER_QUEUE`에서 전송 목록 업데이트(추가/진행률/상태 변화)가 발생하면 자동 닫힘 데드라인이 리셋된다.
 - `CODE_EDITOR` 탭 기반 다중 문서 정책은 추후 구현 범위이며, 본 알파 수용 기준에서 제외된다.
 
-### 13.11 EXCLUSIVE_FULLSCREEN 제약 (§11)
+### 14.11 WORLD_MAP_TRACE (§10)
+- 플레이어가 수동으로 열며, 닫기 버튼으로 닫을 수 있다(§2.2-5).
+- `Volatile=NO`이므로 자동 닫힘이 발생하지 않는다.
+- 상단 탭(`map`/`nodes`) 전환 시 좌측 토글 상태와 확대/축소 상태가 유지된다.
+- 좌측 토글(`hot`/`forensic`/`lock-on`)을 OFF로 전환해도 해당 trace 데이터는 삭제되지 않고 표시만 숨겨진다. 다시 ON으로 전환하면 즉시 표시된다.
+- `map` 탭에서 월드맵 배경 + 노드 + trace overlay가 표시된다.
+- `nodes` 탭에서 월드맵 이미지 없이 노드 그래프만 표시되며, trace overlay는 `map` 탭과 동일한 시각 표현을 사용한다.
+- 작게 보기(창 556×300, map viewport 512×256) 상태에서 `크게 보기` 버튼을 누르면 §10.7.1의 스케일 계산에 따라 확대된다.
+- 크게 보기 상태에서 `작게 보기` 버튼을 누르면 이전 작게 보기 위치/크기로 정확히 복원된다.
+- 크게 보기 시 모니터 usable rect를 초과하면 맵과 노드/trace가 동일 비율로 축소(clamp)되어 창 내부에 fit된다.
+- 크게 보기 시 1:1(2048×1024)을 초과 확대하지 않는다.
+- 크게 보기 전환 시 창의 중심이 reference_usable_rect의 중심에 오도록 배치된다.
+- 배치 후 창이 reference_usable_rect 밖으로 벗어나면 내부로 클램핑된다.
+- 상단 탭/좌측 토글은 map viewport와 겹치지 않는 별도 영역으로 배치된다.
+- `+` 버튼은 상단 우측에서 항상 가시 상태를 유지한다.
+- 모드 전환(NATIVE_OS ↔ VIRTUAL_DESKTOP) 전후로 탭 선택, 토글 상태, 확대/축소 상태, 작게 보기 지오메트리가 보존된다.
+- 최소화 후 복귀 시 WORLD_MAP_TRACE는 `requestedVisible=true` 상태일 때 자동 재표시된다.
+- WORLD_MAP_TRACE는 Passthrough 모드이며, 창이 떠 있는 동안 Primary Core Window 입력이 방해받지 않는다.
+- WORLD_MAP_TRACE는 `autoFocus=NO`이며, 열릴 때 Primary Core Window 포커스를 뺏지 않는다.
+
+### 14.12 EXCLUSIVE_FULLSCREEN 제약 (§12)
 - EXCLUSIVE_FULLSCREEN 상태에서 OS 윈도우 호출(네이티브 파일 다이얼로그 등)이 발생하지 않는다.
 - 필요한 경우 인게임 UI로 대체되거나, EXCLUSIVE 해제 후 호출된다.
 
-### 13.12 State 직렬화 (§8.4)
+### 14.13 State 직렬화 (§8.4)
 - 모든 WindowKind가 `serialize_state()` / `restore_state()`를 구현한다.
 - State가 없는 창은 빈 Dictionary를 반환하며, 복원 시 에러가 발생하지 않는다.
 - 모드 전환 전후로 State가 정확히 보존된다 (SSH_LOGIN: host, user, password, 타이머 잔여 시간).
 - SSH_LOGIN 비밀번호 원문은 같은 프로세스 내 모드 전환/창 재생성에서만 복원 가능하며, save/load 영속 복원 대상이 아니다.
 - 모드 전환 전후로 Volatile 창의 자동 닫힘 상태도 보존된다 (예: FILE_TRANSFER_QUEUE의 타이머 잔여 시간, 활성 전송 작업 수).
+- WORLD_MAP_TRACE의 State는 탭 선택(`map`/`nodes`), 토글 상태(`hot`/`forensic`/`lock-on`), 확대/축소 상태, 작게 보기 지오메트리(`collapsed_geometry`)를 포함하며, 모드 전환 전후로 정확히 보존된다.
 
-### 13.13 DesktopOverlay (§15)
+### 14.14 DesktopOverlay (§16)
 - NATIVE_OS 모드에서만 DesktopOverlay를 활성화할 수 있다.
 - VIRTUAL_DESKTOP 모드에서 DesktopOverlay 활성화 시도는 무시된다.
 - 모니터당 독립적으로 켜고 끌 수 있다.
@@ -593,7 +705,7 @@
 
 ---
 
-## 14. 참고(엔진 동작 관련)
+## 15. 참고(엔진 동작 관련)
 - Transient 창은 부모와 생명주기가 연결되며, 플랫폼에 따라 동작이 다를 수 있다.
 - Fullscreen 진입 시 borderless가 강제로 설정될 수 있으므로, 모드 복귀 시 원복이 필요할 수 있다.
 - 임베디드/비임베디드 혼합은 별도의 Viewport 구성 없이는 어렵고, 런타임 전환은 "재생성"이 안전하다.
@@ -601,14 +713,14 @@
 
 ---
 
-## 15. DesktopOverlay (배경 오버레이 창)
+## 16. DesktopOverlay (배경 오버레이 창)
 
-### 15.1 개요
+### 16.1 개요
 - **적용 모드**: NATIVE_OS 전용. VIRTUAL_DESKTOP 모드에서는 비활성 상태를 유지한다.
 - **분류**: WindowKind 체계와 별개인 시스템 레이어. WindowManager가 별도 관리한다.
 - **목적**: 인게임 옵션(프로그램 형태 포함)으로 켜고 끌 수 있는 borderless 배경 창. 게임 창이 다른 앱 위로 올라갈 일이 없도록 데스크톱을 덮는다.
 
-### 15.2 모니터 단위 관리
+### 16.2 모니터 단위 관리
 
 - DesktopOverlay는 **모니터 1개당 1개**의 창으로 구성된다.
 - 각 창의 UI 표시명은 `background_0`, `background_1`, ... 으로 모니터 인덱스 기반 순서를 따른다.
@@ -619,7 +731,7 @@
 - 모니터가 분리되면 해당 DesktopOverlay는 자동으로 비활성화한다.
 - 분리된 모니터가 재연결되면 저장된 활성 상태를 복원한다.
 
-### 15.3 창 속성 (MUST)
+### 16.3 창 속성 (MUST)
 
 - **Borderless**: `true` (OS 프레임 없음)
 - **포커스 불가**: `Window.FLAG_NO_FOCUS = true`
@@ -631,7 +743,7 @@
 - **작업표시줄 노출**: 숨김 처리를 권장한다(SHOULD). `transient` 설정 또는 Win32 확장 스타일 조정으로 억제한다.
 - **생명주기**: 게임 종료 시 자동으로 닫힌다.
 
-### 15.4 토글 동작 (MUST)
+### 16.4 토글 동작 (MUST)
 
 ```
 [켜기]
@@ -647,7 +759,7 @@
 - 토글 시 다른 창을 순회하거나 Z-order를 재조정하지 않는다.
 - 배경을 껐다가 다시 켜도 위 절차만 반복한다.
 
-### 15.5 모드 전환 시 처리 (MUST)
+### 16.5 모드 전환 시 처리 (MUST)
 
 - NATIVE_OS → VIRTUAL_DESKTOP 전환 시:
   1. 활성화된 모든 DesktopOverlay를 비활성화(hide/queue_free)한다.
@@ -657,13 +769,13 @@
   1. NATIVE_OS 전환이 완료된 후, 보존된 활성 상태를 기반으로 DesktopOverlay를 복원한다.
   2. 저장된 핑거프린트에 해당하는 모니터가 현재 연결되어 있는 경우에만 복원한다.
 
-### 15.6 클릭 처리 (MUST)
+### 16.6 클릭 처리 (MUST)
 
 - DesktopOverlay 영역을 클릭하면 포커스가 Primary Core Window로 전달된다.
 - `FLAG_NO_FOCUS` 설정으로 인해 클릭이 OS 레벨에서 DesktopOverlay에 흡수되지 않고 하위 창(또는 바탕화면)으로 통과되는 경우, 별도 처리 없이 그대로 허용한다.
   - 단, 클릭이 게임 외부 창(실제 바탕화면이나 다른 앱)으로 전달되지 않도록 주의한다. 문제가 발생하면 마우스 이벤트를 명시적으로 캡처해 Primary Core Window로 전달하는 방식으로 보완한다(SHOULD).
 
-### 15.7 구현 참고 (Win32 P/Invoke)
+### 16.7 구현 참고 (Win32 P/Invoke)
 
 ```csharp
 [DllImport("user32.dll")]
@@ -684,7 +796,7 @@ void PinToBottom(int godotWindowId) {
 }
 ```
 
-### 15.8 저장/복원
+### 16.8 저장/복원
 
 - DesktopOverlay의 on/off 상태 저장 정책은 별도로 결정한다(미확정).
 - 저장 정책이 확정될 때까지 WindowManager는 런타임 중 상태를 메모리에만 유지한다.

@@ -86,9 +86,9 @@ internal static class WindowCapabilityRegistry
                 Minimizable: true),
             [WindowKind.WorldMapTrace] = new(
                 SingleInstance: true,
-                Resizable: true,
-                AutoFocus: true,
-                FocusMode: WindowFocusMode.Exclusive,
+                Resizable: false,
+                AutoFocus: false,
+                FocusMode: WindowFocusMode.Passthrough,
                 Volatile: false,
                 Minimizable: false),
             [WindowKind.NetworkTopology] = new(
@@ -147,6 +147,80 @@ public sealed partial class WindowManager : Node
     private const long SshLoginAutoCloseDelayMs = 3000;
     private static readonly Vector2I SshLoginDefaultSize = new(520, 240);
     private static readonly Vector2I SshLoginDefaultPosition = new(120, 80);
+    private static readonly Vector2I WorldMapTraceDefaultSize = new(556, 300);
+    private static readonly Vector2I WorldMapTraceDefaultPosition = new(120, 80);
+    private static readonly Vector2I WorldMapTraceMapViewportSize = new(512, 256);
+    private const string WorldMapTraceTexturePath = "res://gui/images/min_world_map_subtle_glow.png";
+    /// <summary>Pass 1: horizontal gaussian blur with brightness extraction. Renders into an off-screen SubViewport.</summary>
+    private const string WorldMapTraceGlowHBlurShaderCode = @"shader_type canvas_item;
+
+uniform float blur_radius : hint_range(1.0, 50.0) = 50.0;
+uniform float threshold : hint_range(0.0, 1.0) = 0.08;
+
+void fragment() {
+    float px = TEXTURE_PIXEL_SIZE.x;
+    float sigma = blur_radius * 0.4;
+    float inv_s2 = 1.0 / (2.0 * sigma * sigma);
+    float accum = 0.0;
+    float wt = 0.0;
+    for (int i = -16; i <= 16; i++) {
+        float offs = float(i) / 16.0 * blur_radius;
+        float sx = UV.x + offs * px;
+        float mask = step(0.0, sx) * step(sx, 1.0);
+        float w = exp(-(offs * offs) * inv_s2) * mask;
+        vec3 sc = texture(TEXTURE, vec2(clamp(sx, 0.0, 1.0), UV.y)).rgb;
+        float b = max(max(sc.r, sc.g), sc.b);
+        accum += smoothstep(threshold, threshold + 0.25, b) * b * w;
+        wt += w;
+    }
+    COLOR = vec4(vec3(accum / max(wt, 0.001)), 1.0);
+}";
+    /// <summary>Pass 2: vertical gaussian blur + tint + additive blend. Reads the h-blur SubViewport output.</summary>
+    private const string WorldMapTraceGlowVBlurShaderCode = @"shader_type canvas_item;
+render_mode unshaded, blend_add;
+
+uniform vec4 glow_tint : source_color = vec4(0.35, 0.93, 1.0, 1.0);
+uniform float glow_strength : hint_range(0.0, 5.0) = 2.5;
+uniform float blur_radius : hint_range(1.0, 50.0) = 50.0;
+uniform float compress : hint_range(0.05, 1.0) = 0.7;
+
+void fragment() {
+    float px = TEXTURE_PIXEL_SIZE.y;
+    float sigma = blur_radius * 0.4;
+    float inv_s2 = 1.0 / (2.0 * sigma * sigma);
+    float accum = 0.0;
+    float wt = 0.0;
+    for (int i = -16; i <= 16; i++) {
+        float offs = float(i) / 16.0 * blur_radius;
+        float sy = UV.y + offs * px;
+        float mask = step(0.0, sy) * step(sy, 1.0);
+        float w = exp(-(offs * offs) * inv_s2) * mask;
+        accum += texture(TEXTURE, vec2(UV.x, clamp(sy, 0.0, 1.0))).r * w;
+        wt += w;
+    }
+    float raw = accum / max(wt, 0.001);
+    float tone = raw / (raw + compress);
+    float intensity = clamp(tone * glow_strength, 0.0, 1.0);
+    COLOR = vec4(glow_tint.rgb * intensity, intensity);
+}";
+    private const string WorldMapTraceDefaultTabId = "map";
+    private const int WorldMapTraceOuterPadding = 8;
+    private const int WorldMapTraceRowColumnGap = 4;
+    private const int WorldMapTraceTopBarHeight = 24;
+    private const int WorldMapTraceLeftRailWidth = 24;
+    private static readonly IReadOnlyList<WorldMapTraceTabDefinition> WorldMapTraceTabDefinitions =
+        new[]
+        {
+            new WorldMapTraceTabDefinition("map", "map", DefaultSelected: true, IncludeInPhaseOneUi: true),
+            new WorldMapTraceTabDefinition("nodes", "nodes", DefaultSelected: false, IncludeInPhaseOneUi: false),
+        };
+    private static readonly IReadOnlyList<WorldMapTraceToggleDefinition> WorldMapTraceToggleDefinitions =
+        new[]
+        {
+            new WorldMapTraceToggleDefinition("hot", "hot", DefaultEnabled: true, IncludeInPhaseOneUi: true),
+            new WorldMapTraceToggleDefinition("forensic", "forensic", DefaultEnabled: true, IncludeInPhaseOneUi: false),
+            new WorldMapTraceToggleDefinition("lock-on", "lock-on", DefaultEnabled: true, IncludeInPhaseOneUi: false),
+        };
 
     private WindowManagerController? controller;
     private readonly SshLoginVolatilePolicy sshLoginVolatilePolicy = new(SshLoginAutoCloseDelayMs);
@@ -159,12 +233,37 @@ public sealed partial class WindowManager : Node
     private string sshLoginLastResultCode = string.Empty;
     private bool sshLoginWindowRequestedVisible;
     private readonly WindowReactivationPolicy sshLoginReactivationPolicy = new(8);
+    private Window? worldMapTraceWindow;
+    private HBoxContainer? worldMapTraceTopTabsContainer;
+    private VBoxContainer? worldMapTraceLeftTogglesContainer;
+    private TextureRect? worldMapTraceMapTextureRect;
+    private Button? worldMapTraceExpandButton;
+    private ButtonGroup? worldMapTraceTabGroup;
+    private readonly Dictionary<string, Button> worldMapTraceTabButtons = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Button> worldMapTraceToggleButtons = new(StringComparer.Ordinal);
+    private string worldMapTraceActiveTabId = WorldMapTraceDefaultTabId;
+    private bool worldMapTraceWindowRequestedVisible;
+    private readonly WindowReactivationPolicy worldMapTraceReactivationPolicy = new(8);
+
+    private readonly record struct WorldMapTraceTabDefinition(
+        string Id,
+        string Label,
+        bool DefaultSelected,
+        bool IncludeInPhaseOneUi);
+
+    private readonly record struct WorldMapTraceToggleDefinition(
+        string Id,
+        string Label,
+        bool DefaultEnabled,
+        bool IncludeInPhaseOneUi);
 
     /// <inheritdoc/>
     public override void _Ready()
     {
         EnforceNativeSubwindowEmbedding();
         _ = EnsureController();
+        EnsureWorldMapTraceWindowCreated();
+        ShowWorldMapTraceWindow();
     }
 
     /// <inheritdoc/>
@@ -174,6 +273,7 @@ public sealed partial class WindowManager : Node
         activeController.Tick();
         PumpSshLoginAttempts();
         TickSshLoginWindow(activeController.GetWindowingMode());
+        TickWorldMapTraceWindow(activeController.GetWindowingMode());
     }
 
     /// <summary>Requests a windowing mode change.</summary>
@@ -204,6 +304,50 @@ public sealed partial class WindowManager : Node
     public bool SetMainWindowDisplayMode(DisplayServer.WindowMode mode)
     {
         return EnsureController().SetMainWindowDisplayMode(mode);
+    }
+
+    /// <summary>Shows the WORLD_MAP_TRACE window.</summary>
+    public void ShowWorldMapTraceWindow()
+    {
+        EnsureWorldMapTraceWindowCreated();
+        worldMapTraceWindowRequestedVisible = true;
+        ShowWorldMapTraceWindow(forceVisibilityEdge: false);
+    }
+
+    /// <summary>Hides the WORLD_MAP_TRACE window.</summary>
+    public void HideWorldMapTraceWindow()
+    {
+        worldMapTraceWindowRequestedVisible = false;
+        worldMapTraceReactivationPolicy.Reset();
+        if (worldMapTraceWindow is not null)
+        {
+            worldMapTraceWindow.Hide();
+        }
+    }
+
+    private void ShowWorldMapTraceWindow(bool forceVisibilityEdge)
+    {
+        if (worldMapTraceWindow is null)
+        {
+            return;
+        }
+
+        if (worldMapTraceWindow.Mode == Window.ModeEnum.Minimized)
+        {
+            worldMapTraceWindow.Mode = Window.ModeEnum.Windowed;
+        }
+
+        if (worldMapTraceWindow.Visible && !forceVisibilityEdge)
+        {
+            return;
+        }
+
+        if (worldMapTraceWindow.Visible && forceVisibilityEdge)
+        {
+            worldMapTraceWindow.Hide();
+        }
+
+        worldMapTraceWindow.Show();
     }
 
     private WindowManagerController EnsureController()
@@ -326,6 +470,398 @@ public sealed partial class WindowManager : Node
         }
 
         HideSshLoginWindow(resetPolicy: true, reason: "volatile_timeout");
+    }
+
+    private void TickWorldMapTraceWindow(WindowingMode mode)
+    {
+        if (worldMapTraceWindow is null)
+        {
+            worldMapTraceWindowRequestedVisible = false;
+            worldMapTraceReactivationPolicy.Reset();
+            return;
+        }
+
+        var decision = worldMapTraceReactivationPolicy.Tick(
+            requestedVisible: worldMapTraceWindowRequestedVisible,
+            subWindowVisible: worldMapTraceWindow.Visible,
+            mainWindowMinimized: IsMainWindowMinimized(),
+            mainWindowFocused: IsMainWindowFocused(),
+            subWindowFocused: IsWorldMapTraceWindowFocused());
+        if (decision.StopTick)
+        {
+            return;
+        }
+
+        if (decision.ShouldShow)
+        {
+            ShowWorldMapTraceWindow(decision.ForceVisibilityEdge);
+        }
+
+        if (!worldMapTraceWindowRequestedVisible)
+        {
+            worldMapTraceReactivationPolicy.Reset();
+            return;
+        }
+
+        if (!worldMapTraceWindow.Visible)
+        {
+            ShowWorldMapTraceWindow(forceVisibilityEdge: false);
+            if (!worldMapTraceWindow.Visible)
+            {
+                return;
+            }
+        }
+
+        if (mode != WindowingMode.NativeOs)
+        {
+            return;
+        }
+    }
+
+    private void EnsureWorldMapTraceWindowCreated()
+    {
+        if (worldMapTraceWindow is not null)
+        {
+            return;
+        }
+
+        var worldMapTraceCapability = WindowCapabilityRegistry.Get(WindowKind.WorldMapTrace);
+        var window = new Window
+        {
+            Name = "WorldMapTraceWindow",
+            Title = "World Map Trace",
+            Borderless = false,
+            Unresizable = !worldMapTraceCapability.Resizable,
+            Unfocusable = worldMapTraceCapability.FocusMode == WindowFocusMode.Passthrough,
+            Transient = true,
+            Visible = false,
+            Size = WorldMapTraceDefaultSize,
+            Position = WorldMapTraceDefaultPosition,
+        };
+        window.Connect("close_requested", Callable.From(HandleWorldMapTraceCloseRequested));
+
+        var rootBackground = new ColorRect
+        {
+            Name = "RootBackground",
+            AnchorRight = 1.0f,
+            AnchorBottom = 1.0f,
+            Color = Colors.Black,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        window.AddChild(rootBackground);
+
+        var rootMargin = new MarginContainer
+        {
+            Name = "RootMargin",
+            AnchorRight = 1.0f,
+            AnchorBottom = 1.0f,
+            OffsetLeft = WorldMapTraceOuterPadding,
+            OffsetTop = WorldMapTraceOuterPadding,
+            OffsetRight = -WorldMapTraceOuterPadding,
+            OffsetBottom = -WorldMapTraceOuterPadding,
+        };
+        window.AddChild(rootMargin);
+
+        var rootLayout = new VBoxContainer
+        {
+            Name = "RootLayout",
+            AnchorRight = 1.0f,
+            AnchorBottom = 1.0f,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+        };
+
+        rootLayout.AddThemeConstantOverride("separation", WorldMapTraceRowColumnGap);
+        rootMargin.AddChild(rootLayout);
+
+        var topBar = new HBoxContainer
+        {
+            Name = "TopBar",
+            CustomMinimumSize = new Vector2(0, WorldMapTraceTopBarHeight),
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+        };
+        topBar.AddThemeConstantOverride("separation", WorldMapTraceRowColumnGap);
+        rootLayout.AddChild(topBar);
+
+        var topLeftRailSpacer = new Control
+        {
+            Name = "TopLeftRailSpacer",
+            CustomMinimumSize = new Vector2(WorldMapTraceLeftRailWidth, 0),
+            SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin,
+        };
+        topBar.AddChild(topLeftRailSpacer);
+
+        var topTabsContainer = new HBoxContainer
+        {
+            Name = "TopTabs",
+            CustomMinimumSize = new Vector2(0, WorldMapTraceTopBarHeight),
+            SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin,
+        };
+        topTabsContainer.AddThemeConstantOverride("separation", WorldMapTraceRowColumnGap);
+        topBar.AddChild(topTabsContainer);
+
+        var topSpacer = new Control
+        {
+            Name = "TopSpacer",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+        };
+        topBar.AddChild(topSpacer);
+
+        var expandButton = new Button
+        {
+            Name = "ExpandButton",
+            Text = "+",
+            CustomMinimumSize = new Vector2(WorldMapTraceTopBarHeight, WorldMapTraceTopBarHeight),
+            SizeFlagsHorizontal = Control.SizeFlags.ShrinkEnd,
+            SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
+            Alignment = HorizontalAlignment.Center,
+            ClipText = true,
+        };
+        expandButton.AddThemeFontSizeOverride("font_size", 14);
+        expandButton.Connect("pressed", Callable.From(HandleWorldMapTraceExpandRequested));
+        topBar.AddChild(expandButton);
+
+        var bodyRow = new HBoxContainer
+        {
+            Name = "BodyRow",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+        };
+        bodyRow.AddThemeConstantOverride("separation", WorldMapTraceRowColumnGap);
+        rootLayout.AddChild(bodyRow);
+
+        var leftTogglesContainer = new VBoxContainer
+        {
+            Name = "LeftToggles",
+            CustomMinimumSize = new Vector2(WorldMapTraceLeftRailWidth, 0),
+            SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin,
+            SizeFlagsVertical = Control.SizeFlags.ShrinkBegin,
+        };
+        leftTogglesContainer.AddThemeConstantOverride("separation", WorldMapTraceRowColumnGap);
+        bodyRow.AddChild(leftTogglesContainer);
+
+        var mapViewport = new ColorRect
+        {
+            Name = "MapViewport",
+            Color = Colors.Black,
+            CustomMinimumSize = new Vector2(WorldMapTraceMapViewportSize.X, WorldMapTraceMapViewportSize.Y),
+            SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin,
+            SizeFlagsVertical = Control.SizeFlags.ShrinkBegin,
+        };
+        bodyRow.AddChild(mapViewport);
+
+        var mapTextureRect = new TextureRect
+        {
+            Name = "MapTexture",
+            AnchorRight = 1.0f,
+            AnchorBottom = 1.0f,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+        };
+        var mapTexture = GD.Load<Texture2D>(WorldMapTraceTexturePath);
+        if (mapTexture is null)
+        {
+            GD.PushWarning($"WindowManager: failed to load WORLD_MAP_TRACE map texture '{WorldMapTraceTexturePath}'.");
+        }
+        else
+        {
+            mapTextureRect.Texture = mapTexture;
+        }
+
+        // Two-pass separable gaussian glow: SubViewport (h-blur) → overlay TextureRect (v-blur + tint + blend_add).
+        // Render h-blur at half resolution; bilinear upscale in the v-blur pass smooths out grid artifacts.
+        var glowHalfSize = new Vector2I(WorldMapTraceMapViewportSize.X / 2, WorldMapTraceMapViewportSize.Y / 2);
+        var glowHBlurViewport = new SubViewport
+        {
+            Name = "GlowHBlurViewport",
+            Size = glowHalfSize,
+            TransparentBg = false,
+            RenderTargetUpdateMode = SubViewport.UpdateMode.Always,
+        };
+        var glowHBlurSource = new TextureRect
+        {
+            Name = "GlowHBlurSource",
+            Position = Vector2.Zero,
+            Size = new Vector2(glowHalfSize.X, glowHalfSize.Y),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.Scale,
+            Material = CreateWorldMapTraceGlowHBlurMaterial(),
+        };
+        if (mapTexture is not null)
+        {
+            glowHBlurSource.Texture = mapTexture;
+        }
+        glowHBlurViewport.AddChild(glowHBlurSource);
+
+        var mapGlowTextureRect = new TextureRect
+        {
+            Name = "MapGlowOverlay",
+            AnchorRight = 1.0f,
+            AnchorBottom = 1.0f,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            Material = CreateWorldMapTraceGlowVBlurMaterial(),
+        };
+
+        mapViewport.AddChild(mapTextureRect);
+        mapViewport.AddChild(mapGlowTextureRect);
+        window.AddChild(glowHBlurViewport);
+
+        AddChild(window);
+
+        // Assign SubViewport texture after it enters the tree.
+        mapGlowTextureRect.Texture = glowHBlurViewport.GetTexture();
+        worldMapTraceWindow = window;
+        worldMapTraceTopTabsContainer = topTabsContainer;
+        worldMapTraceLeftTogglesContainer = leftTogglesContainer;
+        worldMapTraceMapTextureRect = mapTextureRect;
+        worldMapTraceExpandButton = expandButton;
+
+        BuildWorldMapTraceTabButtons();
+        BuildWorldMapTraceToggleButtons();
+    }
+
+    private void BuildWorldMapTraceTabButtons()
+    {
+        if (worldMapTraceTopTabsContainer is null)
+        {
+            return;
+        }
+
+        worldMapTraceTabGroup = new ButtonGroup();
+        worldMapTraceTabButtons.Clear();
+
+        string? fallbackTabId = null;
+        string? defaultTabId = null;
+        foreach (var definition in WorldMapTraceTabDefinitions)
+        {
+            fallbackTabId ??= definition.Id;
+            if (!definition.IncludeInPhaseOneUi)
+            {
+                continue;
+            }
+
+            var tabButton = new Button
+            {
+                Name = BuildWorldMapTraceControlName("Tab", definition.Id),
+                Text = definition.Label,
+                ToggleMode = true,
+                ButtonGroup = worldMapTraceTabGroup,
+                CustomMinimumSize = new Vector2(WorldMapTraceTopBarHeight, WorldMapTraceTopBarHeight),
+                SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin,
+                SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
+                ClipText = true,
+                TooltipText = definition.Label,
+            };
+            tabButton.AddThemeFontSizeOverride("font_size", 10);
+            tabButton.Connect("pressed", Callable.From(() => HandleWorldMapTraceTabPressed(definition.Id)));
+            worldMapTraceTopTabsContainer.AddChild(tabButton);
+            worldMapTraceTabButtons[definition.Id] = tabButton;
+
+            if (definition.DefaultSelected)
+            {
+                defaultTabId = definition.Id;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(defaultTabId))
+        {
+            defaultTabId = fallbackTabId ?? WorldMapTraceDefaultTabId;
+        }
+
+        HandleWorldMapTraceTabPressed(defaultTabId);
+    }
+
+    private void BuildWorldMapTraceToggleButtons()
+    {
+        if (worldMapTraceLeftTogglesContainer is null)
+        {
+            return;
+        }
+
+        worldMapTraceToggleButtons.Clear();
+        foreach (var definition in WorldMapTraceToggleDefinitions)
+        {
+            if (!definition.IncludeInPhaseOneUi)
+            {
+                continue;
+            }
+
+            var toggleButton = new Button
+            {
+                Name = BuildWorldMapTraceControlName("Toggle", definition.Id),
+                Text = definition.Label,
+                ToggleMode = true,
+                ButtonPressed = definition.DefaultEnabled,
+                CustomMinimumSize = new Vector2(WorldMapTraceLeftRailWidth, WorldMapTraceTopBarHeight),
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
+                ClipText = true,
+                TooltipText = definition.Label,
+            };
+            toggleButton.AddThemeFontSizeOverride("font_size", 10);
+            toggleButton.Connect("toggled", Callable.From<bool>(enabled => HandleWorldMapTraceToggleChanged(definition.Id, enabled)));
+            worldMapTraceLeftTogglesContainer.AddChild(toggleButton);
+            worldMapTraceToggleButtons[definition.Id] = toggleButton;
+            HandleWorldMapTraceToggleChanged(definition.Id, definition.DefaultEnabled);
+        }
+    }
+
+    private void HandleWorldMapTraceTabPressed(string tabId)
+    {
+        if (string.IsNullOrWhiteSpace(tabId))
+        {
+            return;
+        }
+
+        worldMapTraceActiveTabId = tabId;
+        foreach (var pair in worldMapTraceTabButtons)
+        {
+            pair.Value.SetPressedNoSignal(string.Equals(pair.Key, worldMapTraceActiveTabId, StringComparison.Ordinal));
+        }
+
+        worldMapTraceWindow?.SetMeta("world_map_trace_active_tab", worldMapTraceActiveTabId);
+    }
+
+    private void HandleWorldMapTraceToggleChanged(string toggleId, bool isEnabled)
+    {
+        if (worldMapTraceWindow is null || string.IsNullOrWhiteSpace(toggleId))
+        {
+            return;
+        }
+
+        worldMapTraceWindow.SetMeta($"world_map_trace_toggle_{toggleId}", isEnabled);
+    }
+
+    private void HandleWorldMapTraceExpandRequested()
+    {
+        // Phase 1 intentionally wires only the UI shell. Expand/collapse behavior is implemented later.
+        GD.Print("WindowManager: WORLD_MAP_TRACE '+' button pressed (placeholder; no resize behavior in phase 1).");
+    }
+
+    private void HandleWorldMapTraceCloseRequested()
+    {
+        HideWorldMapTraceWindow();
+    }
+
+    private static string BuildWorldMapTraceControlName(string prefix, string id)
+    {
+        var safeId = string.IsNullOrWhiteSpace(id) ? "unknown" : id.Trim().Replace('-', '_');
+        return $"{prefix}_{safeId}";
+    }
+
+    private static ShaderMaterial CreateWorldMapTraceGlowHBlurMaterial()
+    {
+        var shader = new Shader { Code = WorldMapTraceGlowHBlurShaderCode };
+        return new ShaderMaterial { Shader = shader };
+    }
+
+    private static ShaderMaterial CreateWorldMapTraceGlowVBlurMaterial()
+    {
+        var shader = new Shader { Code = WorldMapTraceGlowVBlurShaderCode };
+        return new ShaderMaterial { Shader = shader };
     }
 
     private void EnsureSshLoginWindowCreated()
@@ -543,6 +1079,11 @@ public sealed partial class WindowManager : Node
     private bool IsSshLoginWindowFocused()
     {
         return sshLoginWindow is not null && sshLoginWindow.HasFocus();
+    }
+
+    private bool IsWorldMapTraceWindowFocused()
+    {
+        return worldMapTraceWindow is not null && worldMapTraceWindow.HasFocus();
     }
 
     private static bool IsEffectiveSubWindowMinimizable(WindowKind kind)
