@@ -1363,6 +1363,29 @@ public partial class WorldRuntime
         return true;
     }
 
+    internal List<SshOpenSessionRef> GetTerminalSessionRouteRefs(string terminalSessionId)
+    {
+        var stack = GetOrCreateTerminalSessionStack(terminalSessionId);
+        if (stack.Count == 0)
+        {
+            return new List<SshOpenSessionRef>();
+        }
+
+        var stackSnapshot = stack.ToArray();
+        var sessionRefs = new List<SshOpenSessionRef>(stackSnapshot.Length);
+        for (var index = stackSnapshot.Length - 1; index >= 0; index--)
+        {
+            var frame = stackSnapshot[index];
+            sessionRefs.Add(new SshOpenSessionRef
+            {
+                SessionNodeId = frame.SessionNodeId,
+                SessionId = frame.SessionId,
+            });
+        }
+
+        return sessionRefs;
+    }
+
     internal void CleanupTerminalSessionConnections(string terminalSessionId)
     {
         var normalizedSessionId = NormalizeTerminalSessionId(terminalSessionId);
@@ -1635,11 +1658,12 @@ public partial class WorldRuntime
         string userId,
         string password,
         int port,
-        string via,
+        SshOpenCallerContext callerContext,
         out SshSessionOpenResult openResult,
         out SystemCallResult failureResult)
     {
         openResult = null!;
+        var normalizedVia = callerContext?.Via?.Trim() ?? string.Empty;
         if (!TryValidateSshSessionOpen(
                 sourceServer,
                 hostOrIp,
@@ -1653,7 +1677,7 @@ public partial class WorldRuntime
                 hostOrIp,
                 userId,
                 password,
-                via,
+                normalizedVia,
                 isSuccess: false,
                 resultCode: SystemCallErrorCodeTokenMapper.ToApiToken(failureResult.Code));
             return false;
@@ -1667,7 +1691,7 @@ public partial class WorldRuntime
             Cwd = "/",
         });
 
-        EmitPrivilegeAcquireForLogin(validated.TargetNodeId, validated.TargetUserKey, via);
+        EmitPrivilegeAcquireForLogin(validated.TargetNodeId, validated.TargetUserKey, normalizedVia);
         openResult = new SshSessionOpenResult
         {
             TargetServer = validated.TargetServer,
@@ -1682,7 +1706,7 @@ public partial class WorldRuntime
             hostOrIp,
             userId,
             password,
-            via,
+            normalizedVia,
             isSuccess: true,
             resultCode: SystemCallErrorCodeTokenMapper.ToApiToken(SystemCallErrorCode.None));
         return true;
@@ -2875,6 +2899,27 @@ public partial class WorldRuntime
 
         internal string PreviousPromptHost { get; init; } = string.Empty;
 
+        internal string SessionNodeId { get; init; } = string.Empty;
+
+        internal int SessionId { get; init; }
+    }
+
+    internal sealed class SshOpenCallerContext
+    {
+        internal string Via { get; init; } = string.Empty;
+
+        internal SshOpenSourceMetadata SourceMetadata { get; init; } = new();
+
+        internal IReadOnlyList<SshOpenSessionRef> ParentSessions { get; init; } = Array.Empty<SshOpenSessionRef>();
+    }
+
+    internal sealed class SshOpenSourceMetadata
+    {
+        internal string SourceNodeId { get; init; } = string.Empty;
+    }
+
+    internal sealed class SshOpenSessionRef
+    {
         internal string SessionNodeId { get; init; } = string.Empty;
 
         internal int SessionId { get; init; }

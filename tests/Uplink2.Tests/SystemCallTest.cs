@@ -6446,6 +6446,32 @@ public sealed class SystemCallTest
         Assert.Equal("guest", session.Value.UserKey);
     }
 
+    /// <summary>Ensures terminal connection stack snapshot for SSH-open context is returned in oldest-to-newest order.</summary>
+    [Fact]
+    public void GetTerminalSessionRouteRefs_ReturnsOldestToNewestOrder()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var firstHop = AddRemoteServer(harness, "node-2", "remote-a", "10.0.1.20", AuthMode.Static, "pw");
+        var secondHop = AddRemoteServer(harness, "node-3", "remote-b", "10.0.1.30", AuthMode.Static, "pw");
+
+        var first = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-route-refs");
+        Assert.True(first.Ok);
+        var second = Execute(
+            harness,
+            "connect 10.0.1.30 guest pw",
+            nodeId: firstHop.NodeId,
+            userId: "guest",
+            cwd: "/",
+            terminalSessionId: "ts-route-refs");
+        Assert.True(second.Ok);
+
+        var routeRefs = GetTerminalSessionRouteRefs(harness.World, "ts-route-refs");
+        Assert.Equal(2, routeRefs.Count);
+        Assert.Equal(firstHop.NodeId, routeRefs[0].SessionNodeId);
+        Assert.Equal(secondHop.NodeId, routeRefs[1].SessionNodeId);
+        Assert.True(routeRefs[0].SessionId < routeRefs[1].SessionId);
+    }
+
     /// <summary>Ensures connect success prints /etc/motd when target account can read text MOTD.</summary>
     [Fact]
     public void Execute_Connect_Succeeds_PrintsMotd_WhenReadableTextExists()
@@ -9033,6 +9059,30 @@ public sealed class SystemCallTest
         }
 
         return drained;
+    }
+
+    private static IReadOnlyList<(string SessionNodeId, int SessionId)> GetTerminalSessionRouteRefs(
+        WorldRuntime world,
+        string terminalSessionId)
+    {
+        var method = typeof(WorldRuntime).GetMethod(
+            "GetTerminalSessionRouteRefs",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var raw = method!.Invoke(world, new object?[] { terminalSessionId }) as System.Collections.IEnumerable;
+        Assert.NotNull(raw);
+        var routeRefs = new List<(string SessionNodeId, int SessionId)>();
+        foreach (var entry in raw!)
+        {
+            Assert.NotNull(entry);
+            var sessionNodeId = (string?)GetPropertyValue(entry!, "SessionNodeId") ?? string.Empty;
+            var sessionIdValue = GetPropertyValue(entry!, "SessionId");
+            Assert.NotNull(sessionIdValue);
+            routeRefs.Add((sessionNodeId, (int)sessionIdValue!));
+        }
+
+        return routeRefs;
     }
 
     private static object GetPrivateField(object target, string fieldName)

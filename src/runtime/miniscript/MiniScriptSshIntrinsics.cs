@@ -204,13 +204,23 @@ internal static partial class MiniScriptSshIntrinsics
                                 connectSourceError);
                         }
 
+                        var callerContext = new WorldRuntime.SshOpenCallerContext
+                        {
+                            Via = "ssh.connect",
+                            SourceMetadata = new WorldRuntime.SshOpenSourceMetadata
+                            {
+                                SourceNodeId = connectSourceMetadata.SourceNodeId,
+                            },
+                            ParentSessions = ToSshOpenSessionRefs(parentSessions),
+                        };
+
                         if (!executionContext.World.TryOpenSshSession(
                                 sourceServer,
                                 hostOrIp,
                                 userId,
                                 password,
                                 port,
-                                via: "ssh.connect",
+                                callerContext,
                                 out var openResult,
                                 out var failureResult))
                         {
@@ -1872,6 +1882,26 @@ internal static partial class MiniScriptSshIntrinsics
         return routeSessions;
     }
 
+    private static List<WorldRuntime.SshOpenSessionRef> ToSshOpenSessionRefs(IReadOnlyList<ValMap> parentSessions)
+    {
+        var sessionRefs = new List<WorldRuntime.SshOpenSessionRef>(parentSessions.Count);
+        for (var index = 0; index < parentSessions.Count; index++)
+        {
+            if (!TryReadSessionIdentity(parentSessions[index], out var sessionNodeId, out var sessionId, out _))
+            {
+                continue;
+            }
+
+            sessionRefs.Add(new WorldRuntime.SshOpenSessionRef
+            {
+                SessionNodeId = sessionNodeId,
+                SessionId = sessionId,
+            });
+        }
+
+        return sessionRefs;
+    }
+
     private static ValMap CreateSessionMap(
         WorldRuntime.SshSessionOpenResult openResult,
         SessionSourceMetadata sourceMetadata)
@@ -2173,5 +2203,4 @@ internal static partial class MiniScriptSshIntrinsics
         internal MiniScriptSshExecutionMode Mode { get; }
     }
 }
-
 

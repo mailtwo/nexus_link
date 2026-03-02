@@ -21,20 +21,29 @@ internal sealed class ConnectCommandHandler : ISystemCallHandler
             return parseResult!;
         }
 
+        var terminalSessionId = context.World.NormalizeTerminalSessionId(context.TerminalSessionId);
+        var callerContext = new WorldRuntime.SshOpenCallerContext
+        {
+            Via = "connect",
+            SourceMetadata = new WorldRuntime.SshOpenSourceMetadata
+            {
+                SourceNodeId = context.NodeId,
+            },
+            ParentSessions = context.World.GetTerminalSessionRouteRefs(terminalSessionId),
+        };
+
         if (!context.World.TryOpenSshSession(
                 context.Server,
                 parsed.HostOrIp,
                 parsed.UserId,
                 parsed.Password,
                 parsed.Port,
-                via: "connect",
+                callerContext,
                 out var openResult,
                 out var failureResult))
         {
             return failureResult;
         }
-
-        var terminalSessionId = context.World.NormalizeTerminalSessionId(context.TerminalSessionId);
 
         context.World.PushTerminalConnectionFrame(
             terminalSessionId,
