@@ -1702,6 +1702,53 @@ public partial class WorldRuntime
         }
     }
 
+    internal IReadOnlyList<ActiveSshSessionEdgeSnapshot> GetActiveSshSessionEdgeSnapshots()
+    {
+        EnsureSessionLineageStores();
+        var snapshots = new List<ActiveSshSessionEdgeSnapshot>(activeSessionKeys!.Count);
+        foreach (var sessionKey in activeSessionKeys)
+        {
+            if (!sessionHistoryByKey!.TryGetValue(sessionKey, out var entry) ||
+                entry.ClosedAt.HasValue)
+            {
+                continue;
+            }
+
+            var sourceNodeId = entry.SourceNodeId?.Trim() ?? string.Empty;
+            var targetNodeId = entry.TargetNodeId?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(sourceNodeId) ||
+                string.IsNullOrWhiteSpace(targetNodeId))
+            {
+                continue;
+            }
+
+            snapshots.Add(new ActiveSshSessionEdgeSnapshot
+            {
+                SourceNodeId = sourceNodeId,
+                TargetNodeId = targetNodeId,
+                SessionId = sessionKey.SessionId,
+            });
+        }
+
+        snapshots.Sort(static (left, right) =>
+        {
+            var sourceCompare = StringComparer.Ordinal.Compare(left.SourceNodeId, right.SourceNodeId);
+            if (sourceCompare != 0)
+            {
+                return sourceCompare;
+            }
+
+            var targetCompare = StringComparer.Ordinal.Compare(left.TargetNodeId, right.TargetNodeId);
+            if (targetCompare != 0)
+            {
+                return targetCompare;
+            }
+
+            return left.SessionId.CompareTo(right.SessionId);
+        });
+        return snapshots;
+    }
+
     internal void CleanupSessionLineageStores(long nowMs)
     {
         EnsureSessionLineageStores();
@@ -3293,6 +3340,15 @@ public partial class WorldRuntime
     internal sealed class SshOpenSessionRef
     {
         internal string SessionNodeId { get; init; } = string.Empty;
+
+        internal int SessionId { get; init; }
+    }
+
+    internal sealed class ActiveSshSessionEdgeSnapshot
+    {
+        internal string SourceNodeId { get; init; } = string.Empty;
+
+        internal string TargetNodeId { get; init; } = string.Empty;
 
         internal int SessionId { get; init; }
     }

@@ -256,3 +256,11 @@ plans/ 문서의 설계 결정이 추가되거나 변경될 때 기록한다.
 ### [11] Session lineage TTL 기본값
 - **결정**: session lineage/forensic TTL 기준은 `worldTimeMs` 5분(`300000ms`)으로 둔다.
 - **이유**: 알파 밸런싱 단계에서 단일 상수로 빠르게 조정 가능하게 하면서도, 기본 추적 잔상 지속 시간을 확보하기 위함.
+
+### [13] WORLD_MAP_TRACE SSH 시각화 단위 확정 (session edge)
+- **결정**: WORLD_MAP_TRACE의 SSH 연결선/마커는 route 폴리라인이 아니라 session edge 단위로 렌더링한다.
+  체인 경계 edge만 source arc(`)`) / target 삼각형 마커에 부착하고,
+  중간 hop edge는 노드 중심-중심으로 렌더링한다.
+  동일 방향 `(sourceNodeId, targetNodeId)`의 다중 active 세션은 1개 edge로 집계한다.
+- **이유**: world session store(active 세션 그래프)의 기본 단위와 1:1로 대응시켜 구현/디버깅 복잡도를 낮추고,
+  렌더링 중복을 줄이면서 SSH 마커 기반 시각 계약(10.5.3)을 일관되게 유지하기 위함.

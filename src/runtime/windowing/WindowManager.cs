@@ -156,12 +156,31 @@ public sealed partial class WindowManager : Node
     private const float WorldMapNodeHaloRadius = 7.0f;
     private const float WorldMapNodeOutlineRadius = 5.25f;
     private const float WorldMapNodeOutlineWidth = 1.5f;
+    private const float WorldMapNodeBaseStrokeWidth = 1.0f;
     private const int WorldMapNodeOutlineArcPointCount = 32;
+    private const float WorldMapSshLineWidth = 1.25f;
+    private const float WorldMapSshStartArcRadiusOffset = 2.0f;
+    private const float WorldMapSshStartArcSweepDegrees = 72.0f;
+    private const float WorldMapSshStartArcHalfSweepDegrees = WorldMapSshStartArcSweepDegrees * 0.5f;
+    private const float WorldMapSshStartArcWidth = 1.5f;
+    private const float WorldMapSshTargetMarkerRadius = 7.0f;
+    private const float WorldMapSshTargetMarkerGapFromNode = 9.0f;
+    private const float WorldMapSshTargetMarkerPerpendicularScale = 0.7f;
+    private const float WorldMapSshTargetMarkerRearScale = 0.6f;
+    private const float WorldMapSshTargetMarkerOutlineWidth = 1.0f;
+    private const float WorldMapSshMinVectorLengthSquared = 0.0001f;
+    private const float WorldMapSshAngleMergeEpsilonDegrees = 0.5f;
+    private const float WorldMapSshAngleFullCoverageEpsilonDegrees = 1.0f;
     private static readonly Color WorldMapNodeFillOnlineColor = new(1f, 1f, 1f, 1f);
     private static readonly Color WorldMapNodeFillWorkstationColor = new(0.18f, 0.9f, 0.18f, 1f);
     private static readonly Color WorldMapNodeFillOfflineColor = new(0.5f, 0.5f, 0.5f, 1f);
+    private static readonly Color WorldMapNodeBaseStrokeColor = new(0.03f, 0.11f, 0.16f, 0.78f);
     private static readonly Color WorldMapNodeOutlineRedColor = new(1f, 0.2f, 0.2f, 1f);
     private static readonly Color WorldMapNodeHaloYellowColor = new(1f, 0.9f, 0.15f, 0.45f);
+    private static readonly Color WorldMapSshLineColor = new(0.35f, 0.93f, 1.0f, 0.65f);
+    private static readonly Color WorldMapSshStartArcColor = new(0.20f, 0.84f, 0.58f, 0.95f);
+    private static readonly Color WorldMapSshTargetMarkerColor = new(0.95f, 0.42f, 0.40f, 0.95f);
+    private static readonly Color WorldMapSshTargetMarkerOutlineColor = new(0.13f, 0.07f, 0.08f, 0.7f);
     /// <summary>Pass 1: horizontal gaussian blur with brightness extraction. Renders into an off-screen SubViewport.</summary>
     private const string WorldMapTraceGlowHBlurShaderCode = @"shader_type canvas_item;
 
@@ -282,6 +301,36 @@ void fragment() {
         global::Uplink2.Runtime.ServerHaloType HaloType,
         Color FillColor,
         WorldMapNodeOutlineMode OutlineMode);
+
+    private readonly record struct WorldMapSshEdgeKey(
+        string SourceNodeId,
+        string TargetNodeId);
+
+    private readonly record struct WorldMapSshLineRenderState(
+        Vector2 Start,
+        Vector2 End);
+
+    private readonly record struct WorldMapSshEdgeGeometry(
+        string SourceNodeId,
+        string TargetNodeId,
+        Vector2 SourcePosition,
+        Vector2 TargetPosition,
+        Vector2 Direction,
+        float DirectionAngle);
+
+    private readonly record struct WorldMapAngleRange(
+        float Start,
+        float End);
+
+    private readonly record struct WorldMapSshStartArcRenderState(
+        Vector2 Center,
+        float StartAngle,
+        float EndAngle,
+        bool IsFullRing);
+
+    private readonly record struct WorldMapSshTargetMarkerRenderState(
+        Vector2 Center,
+        float DirectionAngle);
 
     /// <inheritdoc/>
     public override void _Ready()
@@ -913,14 +962,22 @@ void fragment() {
         worldMapTraceNodeOverlay.Visible = isMapTabActive;
         if (!isMapTabActive)
         {
-            worldMapTraceNodeOverlay.SetRenderNodes(Array.Empty<WorldMapNodeRenderState>());
+            worldMapTraceNodeOverlay.SetRenderData(
+                Array.Empty<WorldMapNodeRenderState>(),
+                Array.Empty<WorldMapSshLineRenderState>(),
+                Array.Empty<WorldMapSshStartArcRenderState>(),
+                Array.Empty<WorldMapSshTargetMarkerRenderState>());
             return;
         }
 
         var runtime = global::Uplink2.Runtime.WorldRuntime.Instance;
         if (runtime is null)
         {
-            worldMapTraceNodeOverlay.SetRenderNodes(Array.Empty<WorldMapNodeRenderState>());
+            worldMapTraceNodeOverlay.SetRenderData(
+                Array.Empty<WorldMapNodeRenderState>(),
+                Array.Empty<WorldMapSshLineRenderState>(),
+                Array.Empty<WorldMapSshStartArcRenderState>(),
+                Array.Empty<WorldMapSshTargetMarkerRenderState>());
             return;
         }
 
@@ -931,28 +988,31 @@ void fragment() {
         }
 
         if (!runtime.TryRunViaWorldLock(
-                () => BuildWorldMapNodeRenderStates(runtime, viewportSize),
-                out var renderStates,
+                () => BuildWorldMapRenderStates(runtime, viewportSize),
+                out var renderBundle,
                 out _))
         {
-            worldMapTraceNodeOverlay.SetRenderNodes(Array.Empty<WorldMapNodeRenderState>());
+            worldMapTraceNodeOverlay.SetRenderData(
+                Array.Empty<WorldMapNodeRenderState>(),
+                Array.Empty<WorldMapSshLineRenderState>(),
+                Array.Empty<WorldMapSshStartArcRenderState>(),
+                Array.Empty<WorldMapSshTargetMarkerRenderState>());
             return;
         }
 
-        if (renderStates is null)
-        {
-            worldMapTraceNodeOverlay.SetRenderNodes(Array.Empty<WorldMapNodeRenderState>());
-            return;
-        }
-
-        worldMapTraceNodeOverlay.SetRenderNodes(renderStates);
+        worldMapTraceNodeOverlay.SetRenderData(
+            renderBundle.Nodes,
+            renderBundle.SshLines,
+            renderBundle.SshStartArcs,
+            renderBundle.SshTargetMarkers);
     }
 
-    private static List<WorldMapNodeRenderState> BuildWorldMapNodeRenderStates(
+    private static WorldMapRenderBundle BuildWorldMapRenderStates(
         global::Uplink2.Runtime.WorldRuntime runtime,
         Vector2 viewportSize)
     {
-        var renderStates = new List<WorldMapNodeRenderState>();
+        var nodes = new List<WorldMapNodeRenderState>();
+        var projectedNodePositions = new Dictionary<string, Vector2>(StringComparer.Ordinal);
         var workstationNodeId = runtime.PlayerWorkstationServer?.NodeId ?? string.Empty;
         var nodeIds = CollectWorldMapTraceNodeIds(runtime.KnownNodesByNet, workstationNodeId);
         foreach (var nodeId in nodeIds)
@@ -968,15 +1028,227 @@ void fragment() {
                 isWorkstation: string.Equals(nodeId, workstationNodeId, StringComparison.Ordinal));
             var outlineMode = ResolveWorldMapNodeOutlineMode(server.Reason);
             var projectedPosition = ProjectWorldMapLocation(server.Location.Lat, server.Location.Lng, viewportSize);
-            renderStates.Add(new WorldMapNodeRenderState(
+            nodes.Add(new WorldMapNodeRenderState(
                 projectedPosition,
                 iconInfo.IconType,
                 iconInfo.HaloType,
                 fillColor,
                 outlineMode));
+            projectedNodePositions[nodeId] = projectedPosition;
         }
 
-        return renderStates;
+        var sshEdges = runtime.GetActiveSshSessionEdgeSnapshots();
+        BuildWorldMapSshRenderStates(
+            sshEdges,
+            projectedNodePositions,
+            out var sshLines,
+            out var sshStartArcs,
+            out var sshTargetMarkers);
+        return new WorldMapRenderBundle(
+            nodes,
+            sshLines,
+            sshStartArcs,
+            sshTargetMarkers);
+    }
+
+    private readonly record struct WorldMapRenderBundle(
+        IReadOnlyList<WorldMapNodeRenderState> Nodes,
+        IReadOnlyList<WorldMapSshLineRenderState> SshLines,
+        IReadOnlyList<WorldMapSshStartArcRenderState> SshStartArcs,
+        IReadOnlyList<WorldMapSshTargetMarkerRenderState> SshTargetMarkers);
+
+    private static void BuildWorldMapSshRenderStates(
+        IReadOnlyList<global::Uplink2.Runtime.WorldRuntime.ActiveSshSessionEdgeSnapshot> sshEdges,
+        IReadOnlyDictionary<string, Vector2> projectedNodePositions,
+        out List<WorldMapSshLineRenderState> sshLines,
+        out List<WorldMapSshStartArcRenderState> sshStartArcs,
+        out List<WorldMapSshTargetMarkerRenderState> sshTargetMarkers)
+    {
+        sshLines = new List<WorldMapSshLineRenderState>();
+        sshStartArcs = new List<WorldMapSshStartArcRenderState>();
+        sshTargetMarkers = new List<WorldMapSshTargetMarkerRenderState>();
+        if (sshEdges.Count == 0 || projectedNodePositions.Count == 0)
+        {
+            return;
+        }
+
+        var dedupedEdgeKeys = new HashSet<WorldMapSshEdgeKey>();
+        var dedupedEdges = new List<WorldMapSshEdgeGeometry>();
+        var incomingEdgeCountByNodeId = new Dictionary<string, int>(StringComparer.Ordinal);
+        var outgoingEdgeCountByNodeId = new Dictionary<string, int>(StringComparer.Ordinal);
+        var sourceAngleRanges = new Dictionary<string, List<WorldMapAngleRange>>(StringComparer.Ordinal);
+        var startArcRadius = WorldMapNodeOutlineRadius + WorldMapSshStartArcRadiusOffset;
+        foreach (var sshEdge in sshEdges)
+        {
+            var sourceNodeId = sshEdge.SourceNodeId?.Trim() ?? string.Empty;
+            var targetNodeId = sshEdge.TargetNodeId?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(sourceNodeId) ||
+                string.IsNullOrWhiteSpace(targetNodeId) ||
+                string.Equals(sourceNodeId, targetNodeId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!projectedNodePositions.TryGetValue(sourceNodeId, out var sourcePosition) ||
+                !projectedNodePositions.TryGetValue(targetNodeId, out var targetPosition))
+            {
+                continue;
+            }
+
+            var edgeKey = new WorldMapSshEdgeKey(sourceNodeId, targetNodeId);
+            if (!dedupedEdgeKeys.Add(edgeKey))
+            {
+                continue;
+            }
+
+            var directionVector = targetPosition - sourcePosition;
+            if (directionVector.LengthSquared() <= WorldMapSshMinVectorLengthSquared)
+            {
+                continue;
+            }
+
+            var direction = directionVector.Normalized();
+            var theta = Mathf.Atan2(direction.Y, direction.X);
+            dedupedEdges.Add(new WorldMapSshEdgeGeometry(
+                sourceNodeId,
+                targetNodeId,
+                sourcePosition,
+                targetPosition,
+                direction,
+                theta));
+            outgoingEdgeCountByNodeId[sourceNodeId] = outgoingEdgeCountByNodeId.TryGetValue(sourceNodeId, out var outgoingCount)
+                ? outgoingCount + 1
+                : 1;
+            incomingEdgeCountByNodeId[targetNodeId] = incomingEdgeCountByNodeId.TryGetValue(targetNodeId, out var incomingCount)
+                ? incomingCount + 1
+                : 1;
+        }
+
+        foreach (var edge in dedupedEdges)
+        {
+            var sourceHasPreviousEdge = incomingEdgeCountByNodeId.TryGetValue(edge.SourceNodeId, out var sourceIncomingCount) &&
+                                        sourceIncomingCount > 0;
+            var targetHasNextEdge = outgoingEdgeCountByNodeId.TryGetValue(edge.TargetNodeId, out var targetOutgoingCount) &&
+                                    targetOutgoingCount > 0;
+
+            var startAnchor = sourceHasPreviousEdge
+                ? edge.SourcePosition
+                : edge.SourcePosition + (edge.Direction * startArcRadius);
+            var endAnchor = targetHasNextEdge
+                ? edge.TargetPosition
+                : edge.TargetPosition - (edge.Direction * (WorldMapSshTargetMarkerRadius + WorldMapSshTargetMarkerGapFromNode));
+            if ((endAnchor - startAnchor).LengthSquared() <= WorldMapSshMinVectorLengthSquared)
+            {
+                continue;
+            }
+
+            sshLines.Add(new WorldMapSshLineRenderState(startAnchor, endAnchor));
+            if (!sourceHasPreviousEdge)
+            {
+                AddSshStartArcAngleRange(edge.SourceNodeId, edge.DirectionAngle, sourceAngleRanges);
+            }
+
+            if (!targetHasNextEdge)
+            {
+                sshTargetMarkers.Add(new WorldMapSshTargetMarkerRenderState(endAnchor, edge.DirectionAngle));
+            }
+        }
+
+        var fullCoverageEpsilon = Mathf.DegToRad(WorldMapSshAngleFullCoverageEpsilonDegrees);
+        foreach (var pair in sourceAngleRanges)
+        {
+            if (!projectedNodePositions.TryGetValue(pair.Key, out var sourceCenter))
+            {
+                continue;
+            }
+
+            var mergedRanges = MergeWorldMapAngleRanges(pair.Value);
+            var coverage = 0f;
+            foreach (var mergedRange in mergedRanges)
+            {
+                coverage += Math.Max(0f, mergedRange.End - mergedRange.Start);
+            }
+
+            if (coverage >= Mathf.Tau - fullCoverageEpsilon)
+            {
+                sshStartArcs.Add(new WorldMapSshStartArcRenderState(sourceCenter, 0f, Mathf.Tau, IsFullRing: true));
+                continue;
+            }
+
+            foreach (var mergedRange in mergedRanges)
+            {
+                sshStartArcs.Add(new WorldMapSshStartArcRenderState(
+                    sourceCenter,
+                    mergedRange.Start,
+                    mergedRange.End,
+                    IsFullRing: false));
+            }
+        }
+    }
+
+    private static void AddSshStartArcAngleRange(
+        string sourceNodeId,
+        float directionAngle,
+        Dictionary<string, List<WorldMapAngleRange>> sourceAngleRanges)
+    {
+        if (!sourceAngleRanges.TryGetValue(sourceNodeId, out var ranges))
+        {
+            ranges = new List<WorldMapAngleRange>();
+            sourceAngleRanges[sourceNodeId] = ranges;
+        }
+
+        var halfSweepRadians = Mathf.DegToRad(WorldMapSshStartArcHalfSweepDegrees);
+        var startAngle = NormalizeWorldMapAngle(directionAngle - halfSweepRadians);
+        var endAngle = NormalizeWorldMapAngle(directionAngle + halfSweepRadians);
+        if (endAngle < startAngle)
+        {
+            ranges.Add(new WorldMapAngleRange(startAngle, Mathf.Tau));
+            ranges.Add(new WorldMapAngleRange(0f, endAngle));
+            return;
+        }
+
+        ranges.Add(new WorldMapAngleRange(startAngle, endAngle));
+    }
+
+    private static List<WorldMapAngleRange> MergeWorldMapAngleRanges(List<WorldMapAngleRange> ranges)
+    {
+        var merged = new List<WorldMapAngleRange>();
+        if (ranges.Count == 0)
+        {
+            return merged;
+        }
+
+        ranges.Sort(static (left, right) => left.Start.CompareTo(right.Start));
+        var epsilon = Mathf.DegToRad(WorldMapSshAngleMergeEpsilonDegrees);
+        var currentStart = ranges[0].Start;
+        var currentEnd = ranges[0].End;
+        for (var index = 1; index < ranges.Count; index++)
+        {
+            var nextRange = ranges[index];
+            if (nextRange.Start <= currentEnd + epsilon)
+            {
+                currentEnd = Math.Max(currentEnd, nextRange.End);
+                continue;
+            }
+
+            merged.Add(new WorldMapAngleRange(currentStart, currentEnd));
+            currentStart = nextRange.Start;
+            currentEnd = nextRange.End;
+        }
+
+        merged.Add(new WorldMapAngleRange(currentStart, currentEnd));
+        return merged;
+    }
+
+    private static float NormalizeWorldMapAngle(float angle)
+    {
+        var normalized = angle % Mathf.Tau;
+        if (normalized < 0f)
+        {
+            normalized += Mathf.Tau;
+        }
+
+        return normalized;
     }
 
     private static List<string> CollectWorldMapTraceNodeIds(
@@ -1053,22 +1325,35 @@ void fragment() {
 
     private sealed partial class WorldMapNodeOverlay : Control
     {
-        private IReadOnlyList<WorldMapNodeRenderState> renderStates = Array.Empty<WorldMapNodeRenderState>();
+        private IReadOnlyList<WorldMapNodeRenderState> renderNodes = Array.Empty<WorldMapNodeRenderState>();
+        private IReadOnlyList<WorldMapSshLineRenderState> renderSshLines = Array.Empty<WorldMapSshLineRenderState>();
+        private IReadOnlyList<WorldMapSshStartArcRenderState> renderSshStartArcs = Array.Empty<WorldMapSshStartArcRenderState>();
+        private IReadOnlyList<WorldMapSshTargetMarkerRenderState> renderSshTargetMarkers = Array.Empty<WorldMapSshTargetMarkerRenderState>();
 
-        internal void SetRenderNodes(IReadOnlyList<WorldMapNodeRenderState> states)
+        internal void SetRenderData(
+            IReadOnlyList<WorldMapNodeRenderState> nodes,
+            IReadOnlyList<WorldMapSshLineRenderState> sshLines,
+            IReadOnlyList<WorldMapSshStartArcRenderState> sshStartArcs,
+            IReadOnlyList<WorldMapSshTargetMarkerRenderState> sshTargetMarkers)
         {
-            renderStates = states ?? Array.Empty<WorldMapNodeRenderState>();
+            renderNodes = nodes ?? Array.Empty<WorldMapNodeRenderState>();
+            renderSshLines = sshLines ?? Array.Empty<WorldMapSshLineRenderState>();
+            renderSshStartArcs = sshStartArcs ?? Array.Empty<WorldMapSshStartArcRenderState>();
+            renderSshTargetMarkers = sshTargetMarkers ?? Array.Empty<WorldMapSshTargetMarkerRenderState>();
             QueueRedraw();
         }
 
         public override void _Draw()
         {
-            if (renderStates.Count == 0)
+            if (renderNodes.Count == 0 &&
+                renderSshLines.Count == 0 &&
+                renderSshStartArcs.Count == 0 &&
+                renderSshTargetMarkers.Count == 0)
             {
                 return;
             }
 
-            foreach (var state in renderStates)
+            foreach (var state in renderNodes)
             {
                 if (state.HaloType != global::Uplink2.Runtime.ServerHaloType.Yellow)
                 {
@@ -1078,13 +1363,45 @@ void fragment() {
                 DrawCircle(state.Position, WorldMapNodeHaloRadius, WorldMapNodeHaloYellowColor);
             }
 
-            foreach (var state in renderStates)
+            foreach (var sshLine in renderSshLines)
+            {
+                DrawLine(
+                    sshLine.Start,
+                    sshLine.End,
+                    WorldMapSshLineColor,
+                    WorldMapSshLineWidth,
+                    antialiased: true);
+            }
+
+            var startArcRadius = WorldMapNodeOutlineRadius + WorldMapSshStartArcRadiusOffset;
+            foreach (var startArc in renderSshStartArcs)
+            {
+                var startAngle = startArc.IsFullRing ? 0f : startArc.StartAngle;
+                var endAngle = startArc.IsFullRing ? Mathf.Tau : startArc.EndAngle;
+                DrawArc(
+                    startArc.Center,
+                    startArcRadius,
+                    startAngle,
+                    endAngle,
+                    WorldMapNodeOutlineArcPointCount,
+                    WorldMapSshStartArcColor,
+                    WorldMapSshStartArcWidth,
+                    antialiased: true);
+            }
+
+            foreach (var targetMarker in renderSshTargetMarkers)
+            {
+                DrawSshTargetTriangle(targetMarker.Center, targetMarker.DirectionAngle);
+            }
+
+            foreach (var state in renderNodes)
             {
                 DrawFillShape(state.Position, state.IconType, state.FillColor);
+                DrawBaseShapeOutline(state.Position, state.IconType);
             }
 
             var nowSeconds = Time.GetTicksMsec() / 1000d;
-            foreach (var state in renderStates)
+            foreach (var state in renderNodes)
             {
                 var outlineColor = ResolveOutlineColor(state.OutlineMode, nowSeconds);
                 if (!outlineColor.HasValue)
@@ -1136,11 +1453,47 @@ void fragment() {
             }
         }
 
+        private void DrawBaseShapeOutline(Vector2 center, global::Uplink2.Runtime.ServerIconType iconType)
+        {
+            switch (iconType)
+            {
+                case global::Uplink2.Runtime.ServerIconType.Triangle:
+                    DrawTriangleOutline(center);
+                    break;
+                case global::Uplink2.Runtime.ServerIconType.Square:
+                    DrawSquareOutline(center);
+                    break;
+                default:
+                    DrawArc(
+                        center,
+                        WorldMapNodeFillRadius,
+                        0f,
+                        Mathf.Tau,
+                        WorldMapNodeOutlineArcPointCount,
+                        WorldMapNodeBaseStrokeColor,
+                        WorldMapNodeBaseStrokeWidth,
+                        antialiased: true);
+                    break;
+            }
+        }
+
         private void DrawSquare(Vector2 center, Color fillColor)
         {
             var side = WorldMapNodeFillRadius * 2f;
             var topLeft = center - new Vector2(WorldMapNodeFillRadius, WorldMapNodeFillRadius);
             DrawRect(new Rect2(topLeft, new Vector2(side, side)), fillColor, filled: true);
+        }
+
+        private void DrawSquareOutline(Vector2 center)
+        {
+            var side = WorldMapNodeFillRadius * 2f;
+            var topLeft = center - new Vector2(WorldMapNodeFillRadius, WorldMapNodeFillRadius);
+            DrawRect(
+                new Rect2(topLeft, new Vector2(side, side)),
+                WorldMapNodeBaseStrokeColor,
+                filled: false,
+                width: WorldMapNodeBaseStrokeWidth,
+                antialiased: true);
         }
 
         private void DrawTriangle(Vector2 center, Color fillColor)
@@ -1162,6 +1515,46 @@ void fragment() {
                 fillColor,
             };
             DrawPolygon(points, colors);
+        }
+
+        private void DrawTriangleOutline(Vector2 center)
+        {
+            var radius = WorldMapNodeFillRadius;
+            var halfBase = radius * 0.95f;
+            var tipHeight = radius * 1.05f;
+            var baseY = center.Y + (radius * 0.75f);
+            var top = new Vector2(center.X, center.Y - tipHeight);
+            var right = new Vector2(center.X + halfBase, baseY);
+            var left = new Vector2(center.X - halfBase, baseY);
+            DrawLine(top, right, WorldMapNodeBaseStrokeColor, WorldMapNodeBaseStrokeWidth, antialiased: true);
+            DrawLine(right, left, WorldMapNodeBaseStrokeColor, WorldMapNodeBaseStrokeWidth, antialiased: true);
+            DrawLine(left, top, WorldMapNodeBaseStrokeColor, WorldMapNodeBaseStrokeWidth, antialiased: true);
+        }
+
+        private void DrawSshTargetTriangle(Vector2 center, float directionAngle)
+        {
+            var radius = WorldMapSshTargetMarkerRadius;
+            var direction = new Vector2(Mathf.Cos(directionAngle), Mathf.Sin(directionAngle));
+            var perpendicular = new Vector2(-direction.Y, direction.X);
+            var tip = center + (direction * radius);
+            var rearCenter = center - (direction * (radius * WorldMapSshTargetMarkerRearScale));
+            var halfWidth = radius * WorldMapSshTargetMarkerPerpendicularScale;
+            var points = new Vector2[]
+            {
+                tip,
+                rearCenter + (perpendicular * halfWidth),
+                rearCenter - (perpendicular * halfWidth),
+            };
+            var colors = new Color[]
+            {
+                WorldMapSshTargetMarkerColor,
+                WorldMapSshTargetMarkerColor,
+                WorldMapSshTargetMarkerColor,
+            };
+            DrawPolygon(points, colors);
+            DrawLine(points[0], points[1], WorldMapSshTargetMarkerOutlineColor, WorldMapSshTargetMarkerOutlineWidth, antialiased: true);
+            DrawLine(points[1], points[2], WorldMapSshTargetMarkerOutlineColor, WorldMapSshTargetMarkerOutlineWidth, antialiased: true);
+            DrawLine(points[2], points[0], WorldMapSshTargetMarkerOutlineColor, WorldMapSshTargetMarkerOutlineWidth, antialiased: true);
         }
     }
 

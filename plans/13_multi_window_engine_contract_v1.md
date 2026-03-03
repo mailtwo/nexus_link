@@ -453,7 +453,7 @@
 #### 10.5.1 `map` (지도 보기) (MUST)
 - 월드맵 배경 + 서버 노드/연결 + trace overlay를 표시한다.
 - 지도/노드/trace 렌더링은 “현재 크기 모드(작게/크게)”의 스케일을 따른다(§11.7).
-- 현재 구현 단계에서는 `map` 탭에서 `workstation + KnownNodesByNet["internet"]` 노드 아이콘만 렌더링하며, trace/SSH 마커는 제외한다.
+- `map` 탭에서는 `workstation + KnownNodesByNet["internet"]` 범위의 서버 노드 아이콘과 SSH 연결선/SSH 마커를 렌더링한다.
 
 #### 10.5.2 `nodes` (노드만 보기) (MUST)
 - 월드맵 이미지는 표시하지 않고, 노드 그래프만 표시한다.
@@ -484,7 +484,7 @@
 - underlay halo(노드 뒤 글로우):
   - 미션 목표 노드는 노란색 blur halo를 표시한다.
 - 레이어 렌더 순서(아래에서 위):
-  - `halo -> 아이콘 채움 -> 상태 외곽선 -> 연결선/SSH 마커 -> 라벨`
+  - `halo -> 연결선/SSH 마커 -> 아이콘 채움 -> 상태 외곽선 -> 라벨`
 - 외곽선 반지름 규칙:
   - 상태 외곽선은 노드 채움 경계에 붙이지 않고, 약간 이격된 반지름에 그린다.
   - SSH 시작 마커 arc(`)`)는 상태 외곽선보다 더 바깥 반지름에 그린다.
@@ -494,12 +494,23 @@
   - 시작 arc는 source 노드 중심에서 target 방향 각도 기반으로 생성한다.
   - source 노드에 대해 여러 SSH 시작 arc가 겹치면 각도 구간을 누적/병합한다.
   - 누적 구간이 360도(허용오차 포함)를 덮으면 arc를 닫힌 원형 링으로 렌더링한다.
+- SSH 연결선(anchor) 규칙:
+  - SSH 연결선은 route 폴리라인이 아니라 session edge 단위로 렌더링한다.
+  - 현재 edge의 source에 이전 edge(들어오는 edge)가 없으면, 연결선 시작점은 source arc(`)`) 마커에 붙는다.
+  - 현재 edge의 source에 이전 edge가 있으면, 연결선 시작점은 source 노드 중심에 붙는다.
+  - 현재 edge의 target에 다음 edge(나가는 edge)가 없으면, 연결선 종료점은 target 삼각형 마커에 붙는다.
+  - 현재 edge의 target에 다음 edge가 있으면, 연결선 종료점은 target 노드 중심에 붙는다.
+  - 즉 체인 중간 hop 구간은 노드 중심-중심 직선 segment로 연결되며, 체인 경계에서만 SSH 마커에 부착된다.
 - 크게 보기에서는 hostname 라벨 표시 토글을 추가할 수 있다(MAY). 작게 보기에서는 라벨을 생략할 수 있다(MAY).
 
 ### 10.6 Trace 데이터 모델 (SSOT 참조) (MUST)
 - WORLD_MAP_TRACE는 trace “표시/필터링”만 담당한다.
 - trace 가능한 오브젝트(정의/생성 조건/수명/종류)는 `04_attack_routes_and_missions.md`를 SSOT로 참조한다 (MUST).
 - 좌측 토글(`hot/forensic/lock-on`)은 SSOT에서 정의된 trace type과 1:1로 매핑된다 (MUST).
+- trace 논리 시작점이 hidden hop(비가시 노드)에 있을 때, `map` 탭은 첫 visible frontier부터 라인을 표시할 수 있다 (MAY).
+- subnet/domain 기반 trace 시간 가중치가 활성화된 경우, WORLD_MAP_TRACE는 가중치 계산을 재구현하지 않고 runtime이 제공한 진행 상태를 그대로 렌더링한다 (MUST).
+  - 시간 가중치 규칙의 SSOT는 `04_attack_routes_and_missions.md`(게임 규칙)와
+    `11_event_handler_spec_v0_1.md`(런타임 계산 규칙)를 따른다.
 
 ### 10.7 크게/작게 보기(확대 토글) — 지오메트리/스케일 계약 (MUST)
 - WORLD_MAP_TRACE는 사용자 리사이즈를 허용하지 않으며(Resizable=NO), 아래 토글 버튼으로만 2단계 전환을 제공한다:
@@ -699,7 +710,7 @@
 - 상단 탭(`map`/`nodes`) 전환 시 좌측 토글 상태와 확대/축소 상태가 유지된다.
 - 좌측 토글(`hot`/`forensic`/`lock-on`)을 OFF로 전환해도 해당 trace 데이터는 삭제되지 않고 표시만 숨겨진다. 다시 ON으로 전환하면 즉시 표시된다.
 - `map` 탭에서 월드맵 배경 + 노드 + trace overlay가 표시된다.
-- 현재 구현 단계에서는 `map` 탭에서 `workstation + KnownNodesByNet["internet"]` 노드 아이콘만 렌더링하며, trace/SSH 마커는 표시하지 않는다.
+- `map` 탭에서 `workstation + KnownNodesByNet["internet"]` 노드 아이콘과 SSH 연결선/SSH 마커가 표시된다.
 - `nodes` 탭에서 월드맵 이미지 없이 노드 그래프만 표시되며, trace overlay는 `map` 탭과 동일한 시각 표현을 사용한다.
 - 작게 보기(창 556×300, map viewport 512×256) 상태에서 `크게 보기` 버튼을 누르면 §10.7.1의 스케일 계산에 따라 확대된다.
 - 크게 보기 상태에서 `작게 보기` 버튼을 누르면 이전 작게 보기 위치/크기로 정확히 복원된다.
@@ -717,8 +728,12 @@
 - `reboot` 상태 노드는 1초 주기의 알파 pulse 빨간 외곽선을 표시하고, `disabled/crashed`는 고정 빨간 외곽선을 표시한다.
 - 상태 외곽선은 아이콘 채움 경계와 이격되어 렌더링되며, SSH 시작 arc(`)`)는 상태 외곽선보다 더 바깥 반지름에 렌더링된다.
 - SSH 연결 마커는 source에 녹색 arc(`)`), target에 빨간 삼각형을 표시한다.
+- SSH 연결선은 session edge 단위이며, 체인 경계 edge는 SSH 마커(anchor)에 부착되고 중간 hop edge는 노드 중심-중심으로 렌더링된다.
 - 동일 source에서 다수 SSH 시작 arc가 각도 병합으로 누적되어 360도(허용오차 포함)를 덮으면, 시작 마커는 닫힌 원형 링으로 전환된다.
 - 미션 목표 노드는 노란 underlay halo를 표시하며, halo는 아이콘 채움보다 아래 레이어에 렌더링된다.
+- 연결선/SSH 마커는 서버 노드 아이콘 채움/외곽선보다 아래 레이어에 렌더링된다.
+- trace 논리 시작점이 hidden hop인 경우, `map` 탭에서는 첫 visible frontier부터 trace 라인이 시작되어 표시될 수 있다(MAY).
+- subnet/domain 기반 trace 시간 가중치 기능이 켜진 경우, WORLD_MAP_TRACE는 runtime 진행값을 그대로 반영하며 UI 단에서 별도 시간 재계산을 하지 않는다.
 
 ### 14.12 EXCLUSIVE_FULLSCREEN 제약 (§12)
 - EXCLUSIVE_FULLSCREEN 상태에서 OS 윈도우 호출(네이티브 파일 다이얼로그 등)이 발생하지 않는다.

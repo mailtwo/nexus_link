@@ -461,3 +461,14 @@ close 경로와 무관하게 공통으로 아래를 수행한다.
   - incident buffer keys
   - active forensic origin session keys
 - 보호 키의 `parentSessionKey` 조상 체인까지 보호한 뒤, 보호되지 않은 `closedAt + TTL` 만료 history만 삭제한다.
+
+### 11.9 Trace 구간 시간 가중치 (MAY)
+
+- 기본값은 trace edge 시간 가중치 `1.0`(동일 시간 처리)이다.
+- 확장 구현에서는 `TraceEdgeKey` 또는 edge 메타데이터(subnet/domain crossing)를 기준으로
+  구간 시간 배율을 적용할 수 있다 (MAY).
+  - 같은 subnet/domain 내부 구간: 압축 배율(`<1.0`) 적용 가능
+  - subnet/domain 경계 구간: 최소 지연 보장 또는 페널티(`>=1.0`) 적용 가능
+- 이 가중치는 Hot/Forensic/Lock-on 진행 시간 계산에 공통 적용할 수 있다 (MAY).
+- map UI가 visible frontier부터 라인을 그리더라도, 런타임 시간 계산은 논리 route 전체를 기준으로 수행한다.
+- 계수 기본값/상한/정확한 계산식은 `04_attack_routes_and_missions.md`의 튜닝 파라미터를 따른다.

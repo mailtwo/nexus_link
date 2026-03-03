@@ -359,6 +359,163 @@ public sealed class WindowManagerPolicyTest
         Assert.Equal("None", okOutline?.ToString());
     }
 
+    /// <summary>Ensures SSH render builder filters non-visible endpoints and dedupes directed edges.</summary>
+    [Fact]
+    public void BuildWorldMapSshRenderStates_FiltersVisibleEndpoints_DedupesDirectedEdges_AndAnchorsToMarkers()
+    {
+        var windowManagerType = typeof(WindowManager);
+        var snapshotType = windowManagerType.Assembly.GetType("Uplink2.Runtime.WorldRuntime+ActiveSshSessionEdgeSnapshot");
+        Assert.NotNull(snapshotType);
+        var buildMethod = windowManagerType.GetMethod(
+            "BuildWorldMapSshRenderStates",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(buildMethod);
+
+        var sshEdgeSnapshots = CreateTypedList(
+            snapshotType!,
+            CreateSshEdgeSnapshot(snapshotType!, "node-a", "node-b", 1),
+            CreateSshEdgeSnapshot(snapshotType!, "node-a", "node-b", 2),
+            CreateSshEdgeSnapshot(snapshotType!, "node-a", "node-c", 3),
+            CreateSshEdgeSnapshot(snapshotType!, "node-b", "node-a", 4));
+        var projectedPositions = new Dictionary<string, Vector2>(StringComparer.Ordinal)
+        {
+            ["node-a"] = new Vector2(0f, 0f),
+            ["node-b"] = new Vector2(30f, 0f),
+        };
+        var args = new object?[] { sshEdgeSnapshots, projectedPositions, null, null, null };
+        _ = buildMethod!.Invoke(null, args);
+
+        Assert.NotNull(args[2]);
+        Assert.NotNull(args[3]);
+        Assert.NotNull(args[4]);
+        var lines = ToObjectList(args[2]!);
+        var startArcs = ToObjectList(args[3]!);
+        var targetMarkers = ToObjectList(args[4]!);
+
+        Assert.Equal(2, lines.Count);
+        Assert.Empty(startArcs);
+        Assert.Empty(targetMarkers);
+
+        var hasForwardLine = false;
+        var hasReverseLine = false;
+        foreach (var line in lines)
+        {
+            var start = GetPropertyValue<Vector2>(line, "Start");
+            var end = GetPropertyValue<Vector2>(line, "End");
+            if (Math.Abs(start.X - 0f) <= 0.001f && Math.Abs(end.X - 30f) <= 0.001f)
+            {
+                hasForwardLine = true;
+            }
+
+            if (Math.Abs(start.X - 30f) <= 0.001f && Math.Abs(end.X - 0f) <= 0.001f)
+            {
+                hasReverseLine = true;
+            }
+        }
+
+        Assert.True(hasForwardLine);
+        Assert.True(hasReverseLine);
+    }
+
+    /// <summary>Ensures only chain boundaries use SSH markers while middle hops connect center-to-center.</summary>
+    [Fact]
+    public void BuildWorldMapSshRenderStates_UsesMarkersOnlyAtChainBoundaries()
+    {
+        var windowManagerType = typeof(WindowManager);
+        var snapshotType = windowManagerType.Assembly.GetType("Uplink2.Runtime.WorldRuntime+ActiveSshSessionEdgeSnapshot");
+        Assert.NotNull(snapshotType);
+        var buildMethod = windowManagerType.GetMethod(
+            "BuildWorldMapSshRenderStates",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(buildMethod);
+
+        var sshEdgeSnapshots = CreateTypedList(
+            snapshotType!,
+            CreateSshEdgeSnapshot(snapshotType!, "node-a", "node-b", 1),
+            CreateSshEdgeSnapshot(snapshotType!, "node-b", "node-c", 2),
+            CreateSshEdgeSnapshot(snapshotType!, "node-c", "node-d", 3));
+        var projectedPositions = new Dictionary<string, Vector2>(StringComparer.Ordinal)
+        {
+            ["node-a"] = new Vector2(0f, 0f),
+            ["node-b"] = new Vector2(30f, 0f),
+            ["node-c"] = new Vector2(60f, 0f),
+            ["node-d"] = new Vector2(90f, 0f),
+        };
+        var args = new object?[] { sshEdgeSnapshots, projectedPositions, null, null, null };
+        _ = buildMethod!.Invoke(null, args);
+
+        var lines = ToObjectList(args[2]!);
+        var startArcs = ToObjectList(args[3]!);
+        var targetMarkers = ToObjectList(args[4]!);
+        Assert.Equal(3, lines.Count);
+        Assert.Equal(2, startArcs.Count);
+        Assert.Single(targetMarkers);
+
+        var hasFirstSegment = false;
+        var hasMiddleSegment = false;
+        var hasLastSegment = false;
+        foreach (var line in lines)
+        {
+            var start = GetPropertyValue<Vector2>(line, "Start");
+            var end = GetPropertyValue<Vector2>(line, "End");
+            if (Math.Abs(start.X - 7.25f) <= 0.001f && Math.Abs(end.X - 30f) <= 0.001f)
+            {
+                hasFirstSegment = true;
+            }
+
+            if (Math.Abs(start.X - 30f) <= 0.001f && Math.Abs(end.X - 60f) <= 0.001f)
+            {
+                hasMiddleSegment = true;
+            }
+
+            if (Math.Abs(start.X - 60f) <= 0.001f && Math.Abs(end.X - 74f) <= 0.001f)
+            {
+                hasLastSegment = true;
+            }
+        }
+
+        Assert.True(hasFirstSegment);
+        Assert.True(hasMiddleSegment);
+        Assert.True(hasLastSegment);
+    }
+
+    /// <summary>Ensures source arc coverage merges into a full ring when angle ranges cover 360 degrees.</summary>
+    [Fact]
+    public void BuildWorldMapSshRenderStates_ConvertsFullCoverageToRingArc()
+    {
+        var windowManagerType = typeof(WindowManager);
+        var snapshotType = windowManagerType.Assembly.GetType("Uplink2.Runtime.WorldRuntime+ActiveSshSessionEdgeSnapshot");
+        Assert.NotNull(snapshotType);
+        var buildMethod = windowManagerType.GetMethod(
+            "BuildWorldMapSshRenderStates",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(buildMethod);
+
+        var sshEdgeSnapshots = CreateTypedList(
+            snapshotType!,
+            CreateSshEdgeSnapshot(snapshotType!, "source", "n0", 1),
+            CreateSshEdgeSnapshot(snapshotType!, "source", "n72", 2),
+            CreateSshEdgeSnapshot(snapshotType!, "source", "n144", 3),
+            CreateSshEdgeSnapshot(snapshotType!, "source", "n216", 4),
+            CreateSshEdgeSnapshot(snapshotType!, "source", "n288", 5));
+        var projectedPositions = new Dictionary<string, Vector2>(StringComparer.Ordinal)
+        {
+            ["source"] = Vector2.Zero,
+            ["n0"] = new Vector2(100f, 0f),
+            ["n72"] = new Vector2(30.9017f, 95.1057f),
+            ["n144"] = new Vector2(-80.9017f, 58.7785f),
+            ["n216"] = new Vector2(-80.9017f, -58.7785f),
+            ["n288"] = new Vector2(30.9017f, -95.1057f),
+        };
+        var args = new object?[] { sshEdgeSnapshots, projectedPositions, null, null, null };
+        _ = buildMethod!.Invoke(null, args);
+
+        Assert.NotNull(args[3]);
+        var startArcs = ToObjectList(args[3]!);
+        Assert.Single(startArcs);
+        Assert.True(GetPropertyValue<bool>(startArcs[0], "IsFullRing"));
+    }
+
     private static object CreateController(FakePlatformWindowAdapter adapter, Action<string> warningLogger)
     {
         var controllerType = typeof(WindowManager).Assembly.GetType("Uplink2.Runtime.Windowing.WindowManagerController");
@@ -420,6 +577,55 @@ public sealed class WindowManagerPolicyTest
         var value = property!.GetValue(target);
         Assert.NotNull(value);
         return (T)value!;
+    }
+
+    private static object CreateSshEdgeSnapshot(Type snapshotType, string sourceNodeId, string targetNodeId, int sessionId)
+    {
+        var snapshot = Activator.CreateInstance(snapshotType);
+        Assert.NotNull(snapshot);
+        SetPropertyValue(snapshot!, "SourceNodeId", sourceNodeId);
+        SetPropertyValue(snapshot!, "TargetNodeId", targetNodeId);
+        SetPropertyValue(snapshot!, "SessionId", sessionId);
+        return snapshot!;
+    }
+
+    private static object CreateTypedList(Type itemType, params object[] items)
+    {
+        var listType = typeof(List<>).MakeGenericType(itemType);
+        var list = Activator.CreateInstance(listType);
+        Assert.NotNull(list);
+        var addMethod = listType.GetMethod("Add");
+        Assert.NotNull(addMethod);
+        foreach (var item in items)
+        {
+            addMethod!.Invoke(list, new[] { item });
+        }
+
+        return list!;
+    }
+
+    private static List<object> ToObjectList(object enumerable)
+    {
+        Assert.IsAssignableFrom<System.Collections.IEnumerable>(enumerable);
+        var result = new List<object>();
+        foreach (var item in (System.Collections.IEnumerable)enumerable)
+        {
+            if (item is not null)
+            {
+                result.Add(item);
+            }
+        }
+
+        return result;
+    }
+
+    private static void SetPropertyValue(object target, string propertyName, object? value)
+    {
+        var property = target.GetType().GetProperty(
+            propertyName,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        Assert.NotNull(property);
+        property!.SetValue(target, value);
     }
 
     private static T InvokeMethod<T>(object target, string methodName, params object[] args)

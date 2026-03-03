@@ -1,0 +1,85 @@
+---
+ServerSpec:
+  linkTerminal1Server:
+    initialStatus: online
+    initialReason: OK
+    hostname: link_terminal1
+    users:
+      linkTerminal1User1:
+        userId: root
+        passwd: "1"
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
+    location: AUTO:North_America
+  linkTerminal2Server:
+    initialStatus: online
+    initialReason: OK
+    hostname: link_terminal2
+    users:
+      linkTerminal2User1:
+        userId: root
+        passwd: "1"
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
+    location: AUTO:North_America
+  linkTerminal3Server:
+    initialStatus: online
+    initialReason: OK
+    hostname: link_terminal3
+    users:
+      linkTerminal3User1:
+        userId: root
+        passwd: "1"
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
+    location: AUTO:North_America
+  linkTerminal4Server:
+    initialStatus: online
+    initialReason: OK
+    hostname: link_terminal4
+    users:
+      linkTerminal4User1:
+        userId: root
+        passwd: "1"
+        authMode: static
+        privilege:
+          read: true
+          write: true
+          execute: true
+    location: AUTO:North_America
+Scenario:
+  linkScenario:
+    servers:
+      linkScenario/linkTerminal1Server:
+        specId: linkTerminal1Server
+        role: terminal
+        interfaces:
+          - netId: internet
+            initiallyExposed: true
+      linkScenario/linkTerminal2Server:
+        specId: linkTerminal2Server
+        role: terminal
+        interfaces:
+          - netId: internet
+            initiallyExposed: true
+      linkScenario/linkTerminal3Server:
+        specId: linkTerminal3Server
+        role: terminal
+        interfaces:
+          - netId: internet
+            initiallyExposed: true
+      linkScenario/linkTerminal4Server:
+        specId: linkTerminal4Server
+        role: terminal
+        interfaces:
+          - netId: internet
+            initiallyExposed: true

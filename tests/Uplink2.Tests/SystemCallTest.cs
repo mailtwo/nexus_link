@@ -6472,6 +6472,95 @@ public sealed class SystemCallTest
         Assert.True(routeRefs[0].SessionId < routeRefs[1].SessionId);
     }
 
+    /// <summary>Ensures active SSH edge snapshots include newly opened terminal connect sessions.</summary>
+    [Fact]
+    public void GetActiveSshSessionEdgeSnapshots_IncludesTerminalConnectEdge()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var connect = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-active-edge-terminal");
+        Assert.True(connect.Ok);
+        var session = Assert.Single(remote.Sessions);
+
+        var edges = GetActiveSshSessionEdgeSnapshots(harness.World);
+        Assert.Contains(
+            edges,
+            edge =>
+                string.Equals(edge.SourceNodeId, harness.Server.NodeId, StringComparison.Ordinal) &&
+                string.Equals(edge.TargetNodeId, remote.NodeId, StringComparison.Ordinal) &&
+                edge.SessionId == session.Key);
+    }
+
+    /// <summary>Ensures disconnect removes closed sessions from active SSH edge snapshots.</summary>
+    [Fact]
+    public void GetActiveSshSessionEdgeSnapshots_RemovesClosedEdgesAfterDisconnect()
+    {
+        var harness = CreateHarness(includeVfsModule: false, includeConnectModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+
+        var connect = Execute(harness, "connect 10.0.1.20 guest pw", terminalSessionId: "ts-active-edge-disconnect");
+        Assert.True(connect.Ok);
+        var session = Assert.Single(remote.Sessions);
+        Assert.Contains(
+            GetActiveSshSessionEdgeSnapshots(harness.World),
+            edge =>
+                string.Equals(edge.SourceNodeId, harness.Server.NodeId, StringComparison.Ordinal) &&
+                string.Equals(edge.TargetNodeId, remote.NodeId, StringComparison.Ordinal) &&
+                edge.SessionId == session.Key);
+
+        var disconnect = Execute(
+            harness,
+            "disconnect",
+            nodeId: remote.NodeId,
+            userId: "guest",
+            cwd: "/",
+            terminalSessionId: "ts-active-edge-disconnect");
+        Assert.True(disconnect.Ok);
+        Assert.DoesNotContain(
+            GetActiveSshSessionEdgeSnapshots(harness.World),
+            edge =>
+                string.Equals(edge.TargetNodeId, remote.NodeId, StringComparison.Ordinal) &&
+                edge.SessionId == session.Key);
+    }
+
+    /// <summary>Ensures miniscript ssh.connect route chain snapshots keep parent source-target edges.</summary>
+    [Fact]
+    public void GetActiveSshSessionEdgeSnapshots_IncludesMiniscriptRouteEdges()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/miniscript", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(harness, "node-2", "remote-a", "10.1.0.20", AuthMode.Static, "pw");
+        AddRemoteServer(harness, "node-3", "remote-b", "10.1.0.30", AuthMode.Static, "pw");
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/active_edges.ms",
+            """
+            r1 = ssh.connect("10.1.0.20", "guest", "pw")
+            opts = {}
+            opts["session"] = r1.session
+            r2 = ssh.connect("10.1.0.30", "guest", "pw", opts)
+            print "ok"
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var result = Execute(harness, "miniscript /scripts/active_edges.ms");
+        Assert.True(result.Ok);
+        Assert.Contains(result.Lines, static line => string.Equals(line, "ok", StringComparison.Ordinal));
+
+        var edges = GetActiveSshSessionEdgeSnapshots(harness.World);
+        Assert.Contains(
+            edges,
+            edge =>
+                string.Equals(edge.SourceNodeId, harness.Server.NodeId, StringComparison.Ordinal) &&
+                string.Equals(edge.TargetNodeId, "node-2", StringComparison.Ordinal));
+        Assert.Contains(
+            edges,
+            edge =>
+                string.Equals(edge.SourceNodeId, "node-2", StringComparison.Ordinal) &&
+                string.Equals(edge.TargetNodeId, "node-3", StringComparison.Ordinal));
+    }
+
     /// <summary>Ensures successful connect registers lineage history and active-session indexes.</summary>
     [Fact]
     public void Execute_Connect_RegistersSessionLineageHistoryAndActiveIndex()
@@ -9314,6 +9403,29 @@ public sealed class SystemCallTest
         }
 
         return routeRefs;
+    }
+
+    private static IReadOnlyList<(string SourceNodeId, string TargetNodeId, int SessionId)> GetActiveSshSessionEdgeSnapshots(
+        WorldRuntime world)
+    {
+        var method = typeof(WorldRuntime).GetMethod(
+            "GetActiveSshSessionEdgeSnapshots",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var raw = method!.Invoke(world, Array.Empty<object?>()) as System.Collections.IEnumerable;
+        Assert.NotNull(raw);
+        var snapshots = new List<(string SourceNodeId, string TargetNodeId, int SessionId)>();
+        foreach (var entry in raw!)
+        {
+            Assert.NotNull(entry);
+            var sourceNodeId = (string?)GetPropertyValue(entry!, "SourceNodeId") ?? string.Empty;
+            var targetNodeId = (string?)GetPropertyValue(entry!, "TargetNodeId") ?? string.Empty;
+            var sessionId = (int)GetPropertyValue(entry!, "SessionId")!;
+            snapshots.Add((sourceNodeId, targetNodeId, sessionId));
+        }
+
+        return snapshots;
     }
 
     private static void RecordForensicIncidentForSession(
