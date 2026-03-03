@@ -213,12 +213,30 @@ plans/ 문서의 설계 결정이 추가되거나 변경될 때 기록한다.
 - **이유**: forensic TTL/중첩 trace/경로 스냅샷 참조를 유지하면서,
   live 세션 판정은 active 인덱스로 분리해 단순화하기 위함.
 
-### [04][11] Forensic 시작 시점 및 route disconnect 판정
-- **결정**: forensic는 incident 탐지와 분리해 disconnect/handoff 시점에 시작한다.
+### [04][11] Forensic 시작 시점 및 route disconnect 판정 (대체됨: 2026-03-03)
+- **결정(구버전)**: forensic는 incident 탐지와 분리해 disconnect/handoff 시점에 시작한다.
   같은 체인에서는 Hot Trace와 forensic 동시 진행을 금지하며, hot 종료 후 forensic를 시작한다.
   `ssh.disconnect(route)`는 닫힌 각 session별 incident를 조회해 forensic를 개별 생성한다.
-- **이유**: 즉시 동시 추적으로 인한 과도한 처벌/가독성 저하를 막고,
+- **이유(구버전)**: 즉시 동시 추적으로 인한 과도한 처벌/가독성 저하를 막고,
   다중 hop 종료 시 실제 닫힌 세션 단위 책임 추적을 일관되게 유지하기 위함.
+- **대체 사유**: 04/11 SSOT가 "Hot 도달 즉시 Lock-on 전환" 규칙으로 변경되어,
+  same-chain Hot 도달 케이스의 forensic handoff는 생략/무효화 정책으로 대체되었다.
+
+### [04][11] Hot 도달 즉시 Lock-on 전환 + same-chain forensic 무효화
+- **결정**: Hot Trace가 워크스테이션에 도달하면 해당 체인을 즉시 강제 disconnect하고,
+  Forensic보다 우선하여 Lock-on Trace로 전환한다.
+  이 전환이 발생한 same-chain에서는 forensic을 시작하지 않으며,
+  incident buffer/forensic 후보를 즉시 무효화한다.
+- **이유**: Hot 탐지 도달을 명확한 고위험 상태로 승격해 패널티를 강화하고,
+  같은 체인에서 forensic/lock-on 중복 상태를 제거해 규칙 일관성과 구현 단순성을 확보하기 위함.
+
+### [04] Lock-on sourceBonus 정책 (Hot 가중)
+- **결정**: Lock-on 속도는 `finalSpeed = overlapSpeed * sourceBonus`를 사용한다.
+  `overlapSpeed`는 기존 overlap 상한(최대 3배)을 적용하고,
+  `sourceBonus`는 그 이후 추가 곱으로 적용한다.
+  기본값은 `fromForensic=1.0`, `fromHot=1.3`으로 고정한다.
+- **이유**: Forensic 기반 Lock-on은 기존 밸런스를 유지하고,
+  Hot 도달 기반 Lock-on은 추가 가중(최대 3.9배)으로 즉시 탐지의 위험도를 체감 가능하게 만들기 위함.
 
 ### [12] Session lineage/forensic 영속화 deferred
 - **결정**: v0.1 save/load에서는 session lineage/forensic runtime state를 상세 설계하지 않고 deferred로 남긴다.

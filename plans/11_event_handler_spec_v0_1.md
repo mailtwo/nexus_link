@@ -383,7 +383,7 @@ Session lineage/forensic runtime state 영속화 상세는 이번 버전에서 d
 - [ ] ActionExecutor: 부분 성공 + warn
 - [ ] (선택) privilegeAcquire(execute) 시스템 훅 적용 시점(시나리오 actions보다 선행)
 - [ ] SessionHistoryStore/ActiveSessionIndex 갱신 훅(connect/disconnect) 구현
-- [ ] incident buffer 집계 + hot->forensic handoff 규칙 구현
+- [ ] incident buffer 집계 + hot->lockOn 우선 handoff/forensic 무효화 규칙 구현
 - [ ] `ssh.disconnect(route)` 닫힌 세션별 forensic 후보 판정 구현
 
 ---
@@ -410,7 +410,8 @@ close 경로와 무관하게 공통으로 아래를 수행한다.
 1. 대상 `sessionKey`를 history에서 조회한다.
 2. history 엔트리의 `closedAt`을 현재 `worldTimeMs`로 기록한다.
 3. active 인덱스에서 `sessionKey`를 제거한다.
-4. 해당 `sessionKey`에 incident buffer가 있으면 forensic trace를 생성하고 incident buffer를 소비(삭제)한다.
+4. 해당 `sessionKey`에 incident buffer가 있으면 forensic trace 후보로 처리한다.
+   단, same-chain lock-on이 이미 선점된 상태면 forensic을 생성하지 않고 incident/forensic 후보를 무효화한다.
 5. history 엔트리는 즉시 삭제하지 않는다(forensic TTL/참조 정책에 따라 유지).
 
 ### 11.3 Close 진입점별 규칙
@@ -427,11 +428,13 @@ close 경로와 무관하게 공통으로 아래를 수행한다.
 - 버퍼는 세션 단위 집계(`incidentCount`, `firstIncidentAt`, `lastIncidentAt`, `incidentKinds`)를 유지한다.
 - 부모/자식 세션 간 버퍼 자동 전파는 하지 않는다.
 
-### 11.5 Hot/Forensic 전환 규칙
+### 11.5 Hot/Forensic/Lock-on 전환 우선순위
 
-- 같은 체인에서 Hot Trace와 Forensic Trace의 동시 활성은 허용하지 않는다.
+- 같은 체인에서 Hot Trace, Forensic Trace, Lock-on Trace의 동시 활성은 허용하지 않는다.
 - Hot Trace가 활성인 동안 forensic 시작을 보류한다.
-- Hot Trace 종료(체인 단절/disconnect) 후, 닫힌 세션에 incident 버퍼가 있으면 forensic handoff를 시작한다.
+- Hot Trace가 워크스테이션에 도달하면 즉시 강제 disconnect 후 Lock-on을 생성한다(Forensic보다 우선).
+- Hot->LockOn 전환 시 해당 체인의 incident buffer/forensic 후보를 즉시 무효화한다.
+- same-chain에 Lock-on이 active면 forensic 생성을 금지한다.
 
 ### 11.6 Forensic 시작 알고리즘
 
@@ -439,12 +442,14 @@ close 경로와 무관하게 공통으로 아래를 수행한다.
 - 루트 hop에서는 `sourceNodeId`를 포함해 workstation 방향 경로를 완성한다.
 - 복원 결과를 `routeNodeIds`/`routeEdgeKeys(TraceEdgeKey)`로 스냅샷한다.
 - `startedAt`, `expiresAt(TTL)`를 설정해 forensic trace 인스턴스를 생성한다.
+- same-chain Lock-on이 이미 active면 forensic 인스턴스를 생성하지 않는다.
 
 ### 11.7 Route Close 시 forensic 후보 판정
 
 - `ssh.disconnect(route)`의 닫힌 세션 집합 각각에 대해 incident 버퍼를 조회한다.
 - incident가 있는 세션마다 forensic trace를 개별 생성한다.
 - incident가 부모 hop에만 있고 현재 닫힌 세션에는 없는 경우 forensic를 시작하지 않는다.
+- Hot 전환으로 Lock-on이 선점된 체인의 세션은 forensic 후보 판정에서 제외한다.
 
 ### 11.8 Session Lineage TTL Cleanup
 
