@@ -197,8 +197,40 @@ TerminalScene (Control)
 
 ### 6.4 코딩/프로그램
 - `edit <path>`: 에디터 오버레이를 열어 파일을 편집한다. 파일이 없고 부모 경로가 유효하면 빈 버퍼로 연다.
+- `run <programOrPath> [args...]`: 프로그램을 명시적으로 실행하는 shell built-in launcher다.
+  - 예시:
+    - `run nexus_shell`
+    - `run inspect 10.0.1.20 root`
+    - `run ./local_tool arg1 arg2`
+  - 목적:
+    - 플레이어에게 “이 명령은 시스템콜이 아니라 실행 가능한 프로그램을 실행한다”는 점을 명확히 보여준다.
+    - 초반 온보딩/튜토리얼/README에서는 프로그램 실행의 대표 문법으로 `run ...` 형태를 우선 사용한다.
+  - 해석 규칙:
+    - `programOrPath`에 `/`가 포함되면 직접 경로 실행으로 해석한다.
+    - `/`가 없으면 프로그램 이름으로 해석하고, 프로그램 탐색 규칙은 `14_official_programs.md`의 프로그램 탐색 규칙을 따른다.
+  - 실패 처리:
+    - 실행 가능한 프로그램을 찾지 못하면 `ERR_UNKNOWN_COMMAND`에 대응하는 사용자 메시지를 출력한다.
+    - 프로그램은 존재하지만 실행 권한이 없으면 `ERR_PERMISSION_DENIED`를 반환할 수 있다.
+  - 인자 전달:
+    - `run` 뒤의 나머지 토큰은 대상 프로그램의 argv로 그대로 전달한다.
+  - 주의:
+    - `run` 자체는 launcher이며, 개별 프로그램의 동작/출력/에러 계약은 각 프로그램의 contract 문서를 따른다.
+    - 예: `nexus_shell`, `inspect`, `miniscript`, `password_breaker`의 세부 계약은 `14_official_programs.md`를 참조한다.
+
+- `./<program> [args...]`: 현재 경로 기준의 직접 실행 문법도 지원한다.
+  - 예시:
+    - `./nexus_shell`
+    - `./password_breaker 6 10.0.1.20 root`
+  - 목적:
+    - VFS 상 실행 파일을 직접 실행하는 리눅스풍 UX를 유지한다.
+  - 해석 규칙:
+    - command token에 `/`가 포함된 경우 shell은 이를 경로 실행으로 해석한다.
+    - 따라서 `./foo`, `/opt/bin/foo`, `tools/foo` 형태는 모두 직접 경로 실행으로 취급한다.
+  - 권장 UX:
+    - 초반 플레이어 유도/문서/README에서는 `run ...` 문법을 우선 사용하고,
+      `./...` 문법은 고급/저수준 실행 문법으로 함께 지원한다.
 - `[옵션: DEBUG]` `DEBUG_miniscript <script>`: 개발/검증 전용 시스템콜이다. `DebugOption`이 켜진 런타임에서만 활성화된다.
-- `miniscript`, `inspect` 등 **프로그램 실행 계약(시스템콜 아님)** 은 `14_official_programs.md`를 따른다.  
+- `run`, 직접 경로 실행(`./...`)을 통해 호출되는 **프로그램 실행 계약(시스템콜 아님)** 은 `14_official_programs.md`를 따른다.  
   See DOCS_INDEX.md → 14.
 - MiniScript 전역 `import(name, alias?)` intrinsic의 계약/탐색/오류코드는 `03_game_api_modules.md`가 SSOT다.  
   See DOCS_INDEX.md → 03.

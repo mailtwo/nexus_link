@@ -36,6 +36,8 @@
   3) (fallback) 플레이어 로컬 워크스테이션의 `/opt/bin/<command>` (global toolchain)
 - 실행은 `read + execute` 권한이 모두 필요합니다.
 - 위 global fallback은 **터미널 직접 명령**, `term.exec`, `ssh.exec`의 명령 해석 경로에 적용합니다.
+- `run <programOrPath> [args...]`는 shell built-in launcher이며, 프로그램 해석/탐색은 본 절의 규칙을 따른다.
+- 직접 경로 실행(`./foo`, `dir/foo`, `/opt/bin/foo`) 역시 동일한 실행 파일 탐색/권한 규칙을 따른다.
 
 ### 0.3 `ExecutableHardcode` 디스패처 오류 처리
 - `exec:<executableId>` 형식이 아니거나, `<executableId>`가 등록되지 않은 경우 실행 실패로 처리한다.

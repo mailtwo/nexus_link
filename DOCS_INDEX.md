@@ -1,177 +1,223 @@
-# DOCS_INDEX.md — Documentation Routing (SSOT)
+# DOCS_INDEX.md — Documentation Routing (2-Tier)
 
-This file is the **single source of truth** for:
-- What each document covers
-- Where new/updated information must be written (SSOT routing)
-- What **must not** be duplicated elsewhere
+This file is the single entry point for:
+- Where canonical facts/rules live (**Tier 1: Domain SSOT**)
+- Where to start reading by cross-cutting feature (**Tier 2: Feature Hub**)
+- What may be defined vs what may only be linked by reference
 
-If you are implementing a feature, modifying specs, or updating docs, **start here**.
-
----
-
-## Global rules
-
-1) **Write specs only in the SSOT doc for that topic.**  
-2) Other docs may mention the topic **only by reference** (link + one-line context).  
-3) Legacy/deprecated docs are **read-only** unless explicitly stated.  
-4) When you discover a mismatch, report it as:  
-   `DocA <section> vs DocB <section> — conflict: <1–2 lines>`.
+If you are implementing, modifying, or refactoring a feature, start here.
 
 ---
 
-## Quick routing table
+## Core rules
 
-| You are changing… | SSOT doc to edit |
-|---|---|
-| Market/genre research & differentiation | `01_existing_hacking_games.md` |
-| MiniScript language embedding / interpreter integration (not API list) | `02_miniscript_interpreter_and_constraints.md` |
-| MiniScript **intrinsics** (public API surface, ResultMap shapes, error codes) | `03_game_api_modules.md` |
-| Player strategies / missions / routes / gameplay ideas | `04_attack_routes_and_missions.md` |
-| Terminal UX + **system calls** + command behavior | `07_ui_terminal_prototype_godot.md` |
-| Virtual File System (overlay/permissions/path resolution/data model) | `08_vfs_overlay_design_v0.md` |
-| Runtime storage schema for server nodes (what gets stored) | `09_server_node_runtime_schema_v0.md` |
-| Blueprint/schema (how designers author scenarios; how blueprints map into runtime init) | `10_blueprint_schema_v0.md` |
-| Runtime simulation logic (process scheduler + event handlers) | `11_event_handler_spec_v0_1.md` |
-| Save/Load and persistence boundaries | `12_save_load_persistence_spec_v0_1.md` |
-| Multi-window engine contract | `13_multi_window_engine_contract_v1.md` |
-| Official programs (ExecutableHardcode/ExecutableScript) and their contracts | `14_official_programs.md` |
-| 게임 플로우 / 온보딩 / 튜토리얼 / 플레이어 여정 설계 | `15_game_flow_design.md` |
+1) **Concrete rules live only in Tier 1 Domain SSOT docs.**
+- field definitions
+- enum values
+- return shapes
+- command syntax
+- persistence boundaries
+- runtime algorithms
+- engine/layout contracts
 
----
+2) **Tier 2 Feature Hubs do not redefine low-level rules.**
+They may contain:
+- feature purpose
+- player-facing goals
+- design boundaries
+- reading order
+- which Tier 1 docs own which facts
+- current open questions / implementation status
 
-## Document map (00–14)
+3) **If a feature repeatedly touches 3 or more Tier 1 docs, create or update a Tier 2 Feature Hub.**
 
-### 00 — `00_overview.md` (ACTIVE)
-**Purpose:** Project overview, philosophy, and the “big picture” (what the game is, and what it is not).  
-**SSOT for:** High-level vision only (pillars, scope boundaries, non-goals).  
-**Must include:** A prominent reference to `DOCS_INDEX.md` as the SSOT router for all documentation.  
-**Must NOT include:** Any routing table, per-doc scope descriptions, schemas, APIs, system calls, persistence rules, or program contracts. Those belong in `DOCS_INDEX.md` and the topic SSOT docs.
+4) **When a Tier 2 hub needs a new concrete rule, write that rule in the correct Tier 1 doc and link to it from the hub.**
+Never define the same rule in both places.
 
----
-
-### 01 — `01_existing_hacking_games.md` (ACTIVE)
-**Purpose:** Research on existing hacking/coding games and this game’s differentiation.  
-**SSOT for:** Competitive analysis, reference mechanics, design positioning.  
-**Must NOT include:** Implementation specs, runtime schemas, API definitions.
+5) **Legacy / deprecated docs are read-only unless explicitly reactivated.**
 
 ---
 
-### 02 — `02_miniscript_interpreter_and_constraints.md` (ACTIVE)
-**Purpose:** How MiniScript is integrated into the project (embedding approach, constraints, safety/time-slicing constraints at a conceptual level).  
-**SSOT for:** Interpreter integration decisions and constraints (project-level).  
-**Must NOT include:** Concrete intrinsic/API list (belongs to 03), terminal system calls (07), runtime engine schemas (09/10), or program contracts (14).
+## How to use this index
+
+### If you are changing a concrete fact/rule
+Go to **Tier 1 Domain SSOT** and edit the owning doc only.
+
+### If you are designing or implementing a feature that spans multiple systems
+Start with the matching **Tier 2 Feature Hub**, then follow its linked Tier 1 docs in order.
+
+### If you are unsure
+Ask:
+- “Am I changing a rule?” -> Tier 1
+- “Am I coordinating multiple rule-owning docs for one feature?” -> Tier 2
 
 ---
 
-### 03 — `03_game_api_modules.md` (ACTIVE, SSOT)
-**Purpose:** MiniScript intrinsic API reference (player-facing API surface).  
-**SSOT for:** Modules/functions, argument/return shapes, error codes, ResultMap conventions, shared limits, trace/cost conventions **for intrinsics**.  
-**Must NOT include:** Terminal system call UI/UX details (07), VFS internal implementation (08), runtime schema (09), blueprint authoring rules (10), program-level contracts (14) except by reference.
+# TIER 1 — DOMAIN SSOT
+
+These docs own canonical rules.
+
+## A. Product / Experience / Content
+
+### 00 — `00_overview.md`
+**Purpose:** Project vision, pillars, scope boundaries, non-goals.  
+**Owns:** High-level product identity only.  
+**Must NOT own:** implementation contracts, schemas, API details.
+
+### 01 — `01_existing_hacking_games.md`
+**Purpose:** Competitive/reference research and positioning.  
+**Owns:** differentiation rationale, external references.  
+**Must NOT own:** implementation rules.
+
+### 04 — `04_attack_routes_and_missions.md`
+**Purpose:** mission templates, attack-route design, gameplay route ideas.  
+**Owns:** mission/route design patterns, trace gameplay concept, hint-system design intent.  
+**Must NOT own:** API/system-call/runtime schema details.
+
+### 15 — `15_game_flow_design.md`
+**Purpose:** player journey, onboarding, progression flow, early-to-late play structure.  
+**Owns:** onboarding flow, unlock timing, player journey structure, restart/load flow from experience perspective.  
+**Must NOT own:** low-level API/UI/runtime contracts.
 
 ---
 
-### 04 — `04_attack_routes_and_missions.md` (ACTIVE)
-**Purpose:** Gameplay/mission ideas and player routes (design notebook).  
-**SSOT for:** Player strategy concepts, mission structure, route templates,
-힌트 시스템 및 hint agent 설계 (§7).  
-**Must NOT include:** Definitive API/system-call specs (03/07), schemas (08–12), engine contracts (13).
+## B. Player-Facing Interfaces / Interaction Contracts
+
+### 03 — `03_game_api_modules.md`
+**Purpose:** MiniScript intrinsic API contract.  
+**Owns:** module/function surface, ResultMap shapes, error codes, API-side cost/trace conventions.  
+**Must NOT own:** terminal command UX, shell layout, runtime schema internals.
+
+### 07 — `07_ui_terminal_prototype_godot.md`
+**Purpose:** terminal UX and system-call / command contract.  
+**Owns:** command syntax, command behavior, terminal parsing, terminal-side UX tied to commands.  
+**Must NOT own:** official-program contracts, persistence policy, runtime schema.
+
+### 13 — `13_nexus_shell_workspace_contract.md`
+**Purpose:** Shell workspace / layout / pane-system contract.  
+**Owns:** shell layout rules, pane lifecycle, toast/activity popup/docked pane behavior, workspace-level UI persistence requirements.  
+**Note:** current file can be re-scoped into this role even if the filename stays temporarily unchanged.  
+**Must NOT own:** save data format, command syntax, official-program behavior.
+
+### 14 — `14_official_programs.md`
+**Purpose:** contracts for shipped programs (`ExecutableHardcode` / `ExecutableScript`).  
+**Owns:** official program behavior, program-level gating, error semantics, execution contracts for shipped tools/programs.  
+**Must NOT own:** intrinsic API shapes, shell layout, persistence format.
 
 ---
 
-### 05 — `05_ui_terminal_prototype.md` (LEGACY, READ-ONLY)
-**Purpose:** Legacy UI/terminal prototype notes (Unity-era).  
-**SSOT for:** Nothing (historical reference only).  
-**Update policy:** Do not update. If something is still relevant, migrate to `07` and leave a short note here if needed.
+## C. Runtime / Engine / Data Contracts
+
+### 02 — `02_miniscript_interpreter_and_constraints.md`
+**Purpose:** MiniScript embedding/integration constraints.  
+**Owns:** interpreter integration model, execution constraints, project-level scripting limitations.  
+**Must NOT own:** public API list, command syntax, content-authoring rules.
+
+### 08 — `08_vfs_overlay_design_v0.md`
+**Purpose:** VFS data/overlay contract.  
+**Owns:** path normalization, VFS permissions, file kinds, overlay semantics.  
+**Must NOT own:** terminal command UX, persistence policy, shell UI rules.
+
+### 09 — `09_server_node_runtime_schema_v0.md`
+**Purpose:** runtime server/node storage schema.  
+**Owns:** server runtime fields, indexes, caches, persisted runtime-facing data structures.  
+**Must NOT own:** scheduler rules, command syntax, feature-flow intent.
+
+### 11 — `11_event_handler_spec_v0_1.md`
+**Purpose:** runtime event/scheduler semantics.  
+**Owns:** dispatch, execution ordering, handler behavior, process/event runtime rules.  
+**Must NOT own:** persistence format, mission-flow intent.
+
+### 12 — `12_save_load_persistence_spec_v0_1.md`
+**Purpose:** persistence boundaries and save/load policy.  
+**Owns:** what is saved, what is transient, versioning, load reconstruction rules.  
+**Must NOT own:** UI layout interaction rules except by reference to owning UI contract docs.
 
 ---
 
-### 06 — `06_server_nodes_design_v0.md` (DEPRECATED, READ-ONLY)
-**Purpose:** Deprecated prototype scenario notes / early server node design.  
-**SSOT for:** Nothing (deprecated).  
-**Update policy:** Do not add new rules/specs. If a concept remains valid, rewrite it in the proper SSOT doc and reference it from here.
+## D. Scenario / Content Authoring
+
+### 10 — `10_blueprint_schema_v0.md`
+**Purpose:** scenario/blueprint authoring schema.  
+**Owns:** designer-authored scenario format, blueprint->runtime initialization mapping.  
+**Must NOT own:** runtime execution semantics, command syntax, feature-hub coordination.
 
 ---
 
-### 07 — `07_ui_terminal_prototype_godot.md` (ACTIVE, SSOT)
-**Purpose:** Godot terminal implementation + **system call** definitions + command UX.  
-**SSOT for:** System call list/behavior, terminal parsing rules, command outputs/format, UI interactions tied to system calls.  
-**Must NOT include:** Program contracts (ExecutableHardcode/Script) and official tools (14), intrinsic API details (03), VFS internals (08) except by reference.
+## E. Legacy / Deprecated
+
+### 05 — `05_ui_terminal_prototype.md`
+**Status:** LEGACY, READ-ONLY  
+**Purpose:** historical prototype notes only.  
+**Owns:** nothing.
+
+### 06 — `06_server_nodes_design_v0.md`
+**Status:** DEPRECATED, READ-ONLY  
+**Purpose:** historical/deprecated node-design notes only.  
+**Owns:** nothing.
 
 ---
 
-### 08 — `08_vfs_overlay_design_v0.md` (ACTIVE, SSOT)
-**Purpose:** Virtual File System implementation design.  
-**SSOT for:** VFS overlay model, permissions, tombstones, dir deltas, path normalization rules (VFS-level), file kinds and execution flags **as VFS data model**.  
-**Must NOT include:** Terminal system call behaviors (`ls/cd/cat/edit/...`) beyond what is strictly required to define VFS semantics (route to 07), intrinsic wrappers (03), save/load policy (12) except by reference.
+# TIER 2 — FEATURE HUBS
+
+These docs are not the place for low-level rule definitions.
+They are the place to start reading and planning.
+
+## 16 — `16_nexus_shell_workspace_hub.md`
+**Purpose:** NEXUS Shell as the player’s main workspace.  
+**Covers:** terminal-only start -> shell unlock, start menu, taskbar, pane taxonomy, activity popups, settings access, command parity.  
+**Read Tier 1 docs in order:** 15 -> 13 -> 07 -> 14 -> 12
+
+## 17 — `17_onboarding_first_license_hub.md`
+**Purpose:** from first boot to first license promotion.  
+**Covers:** README follow-up, early mission chain, shell unlock timing, tutorial pacing, first “real intrusion” loop.  
+**Read Tier 1 docs in order:** 15 -> 07 -> 14 -> 03 -> 04 -> 13 -> 12
+
+## 18 — `18_contracts_and_license_progression_hub.md`
+**Purpose:** contract board / mission board / license progression structure.  
+**Covers:** why the player takes the next job, what counts toward promotion, how world-feel side contracts differ from critical progression.  
+**Read Tier 1 docs in order:** 15 -> 04 -> 14 -> 03 -> 10 -> 11
+
+## 19 — `19_trace_and_risk_feedback_hub.md`
+**Purpose:** hot trace / forensic / lock-on as a player feedback loop.  
+**Covers:** risk readability, map feedback, route pressure, log-breaking feedback, how trace feels to the player.  
+**Read Tier 1 docs in order:** 04 -> 03 -> 11 -> 09 -> 13 -> 12
+
+## 20 — `20_remote_operations_and_route_execution_hub.md`
+**Purpose:** remote connection, route execution, ftp/ssh/world-state operations as one coherent feature.  
+**Covers:** connect/disconnect, route/session mental model, remote file movement, command vs intrinsic parity, chain-based play feel.  
+**Read Tier 1 docs in order:** 03 -> 07 -> 14 -> 08 -> 09 -> 11 -> 04
+
+## 21 — `21_scenario_authoring_pipeline_hub.md`
+**Purpose:** content-authoring path from scenario blueprint to running mission behavior.  
+**Covers:** how authored content becomes runtime state and event-driven mission logic.  
+**Read Tier 1 docs in order:** 10 -> 09 -> 11 -> 08 -> 03 -> 04
+
+## 22 — `22_persistence_and_workspace_restore_hub.md`
+**Purpose:** what the player expects to resume after save/load/reboot.  
+**Covers:** workspace layout restore, shell state restore, program/process visibility after load, boot vs load experience.  
+**Read Tier 1 docs in order:** 12 -> 13 -> 07 -> 14 -> 15 -> 09
+
+## 23 — `23_toolchain_and_program_progression_hub.md`
+**Purpose:** tools/programs/automation as progression, not just commands.  
+**Covers:** why players script, when official tools unlock, how automation replaces manual repetition, how “tool-building” becomes power.  
+**Read Tier 1 docs in order:** 14 -> 03 -> 15 -> 02 -> 07 -> 04
 
 ---
 
-### 09 — `09_server_node_runtime_schema_v0.md` (ACTIVE, SSOT)
-**Purpose:** Server runtime data schema (what each server stores while running).  
-**SSOT for:** Runtime storage fields/structures, indexes, caches, persistence-related schema details.  
-**Must NOT include:** Runtime scheduling/execution semantics (11), blueprint authoring and mapping rules (10), API semantics (03) except by reference.
+## Reference style
+
+When a Tier 2 hub mentions a concrete rule, link the Tier 1 owner and do not restate the rule.
+
+Preferred style:
+- `Canonical rule: See Tier 1 -> 07 (07_ui_terminal_prototype_godot.md)`
+- `Persistence boundary: See Tier 1 -> 12 (12_save_load_persistence_spec_v0_1.md)`
 
 ---
 
-### 10 — `10_blueprint_schema_v0.md` (ACTIVE, SSOT)
-**Purpose:** Scenario/blueprint authoring schema + rules for loading/initializing runtime from blueprint.  
-**SSOT for:** Blueprint schema, designer-facing authoring rules, blueprint→runtime initialization mapping.  
-**Must NOT include:** Runtime processing engine semantics (11), intrinsic API details (03), VFS internals (08) except by reference.
+## Editing checklist
 
----
-
-### 11 — `11_event_handler_spec_v0_1.md` (ACTIVE, SSOT)
-**Purpose:** Runtime simulation logic: processes + event handlers.  
-**SSOT for:** Scheduling model, time slicing, handler dispatch, guard rules, once-only semantics, runtime execution policies.  
-**Must NOT include:** Persistence format/boundaries (12) except by reference; schema-only storage fields (09) except by reference.
-
----
-
-### 12 — `12_save_load_persistence_spec_v0_1.md` (ACTIVE, SSOT)
-**Purpose:** Save/Load and persistence boundaries.  
-**SSOT for:** What is persisted, snapshot format, versioning, excluded transient state, load reconstruction rules.  
-**Must NOT include:** UI/multi-window implementation details (13) beyond what must be persisted (reference-only).
-
----
-
-### 13 — `13_multi_window_engine_contract_v1.md` (ACTIVE, SSOT)
-**Purpose:** Multi-window support contract (engine-facing).  
-**SSOT for:** Window lifecycle, mode switching requirements, layout persistence requirements **as an engine contract**.  
-**Must NOT include:** Save/load format or persistence policy (12 is SSOT; reference-only).
-
----
-
-### 14 — `14_official_programs.md` (ACTIVE, SSOT)
-**Purpose:** Official programs shipped as `ExecutableHardcode` / `ExecutableScript`, and their contracts.  
-**SSOT for:** Program behavior contracts (e.g., inspect), program-level error semantics, gating rules, trace/cost behavior for official tools.  
-**Must NOT include:** Intrinsic API definitions (03) except “API wrapper references program contract”.
-
----
-
-### 15 — `15_game_flow_design.md` (ACTIVE)
-**Purpose:** 플레이어 전체 여정 설계 (온보딩, 코딩 유도, 중반 흐름, 최종 미션 유도).  
-**SSOT for:** 게임 시작 연출, 재시작/로드 정책, 타겟 플레이어 정의, 플레이어 여정 흐름 설계.  
-**Must NOT include:** 개별 미션 재료/공격 루트 (04), 힌트 시스템/hint agent 상세 (04 §7),
-인게임 API (03), 공식 프로그램 계약 (14).
-
----
-
-## Reference style (use this when writing non-SSOT docs)
-
-When a non-SSOT doc needs to mention another domain, use a short pointer:
-
-- **Preferred:** `See DOCS_INDEX.md → <DocID> (<filename>)`  
-- **Optional:** Add one line of context, but do **not** restate rules/specs.
-
-Example:
-> “SSH inspect hint semantics are defined in `14_official_programs.md` (SSOT). See DOCS_INDEX.md → 14.”
-
----
-
-## Editing checklist (for Codex)
-
-When you need to change something:
-1) Identify the topic → use **Quick routing table**.
-2) Edit **only** the SSOT doc.
-3) Update other docs with **reference-only** notes if needed.
-4) If you touched interfaces between domains (e.g., 10→09 init mapping), ensure both SSOT docs still align, but keep each fact in its SSOT location.
+1) Is this a concrete rule change? -> edit Tier 1 only  
+2) Is this a cross-system feature coordination change? -> update Tier 2 hub first, then edit linked Tier 1 docs  
+3) Does the feature now touch 3+ Tier 1 docs repeatedly? -> create/update a Tier 2 hub  
+4) If a Tier 2 hub and Tier 1 doc disagree, Tier 1 wins for low-level rules
