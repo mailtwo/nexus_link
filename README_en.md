@@ -142,7 +142,7 @@ See **`plans/DOCS_INDEX.md`** for document routing rules.
 | `10_blueprint_schema_v0.md` | Blueprint schema / world generation rules |
 | `11_event_handler_spec_v0_1.md` | Event system / guard execution contract |
 | `12_save_load_persistence_spec_v0_1.md` | Save/load persistence spec |
-| `13_multi_window_engine_contract_v1.md` | Multi-window + DesktopOverlay engine contract |
+| `13_nexus_shell_workspace_contract.md` | Multi-window + DesktopOverlay engine contract |
 | `14_official_programs.md` | Official program contracts (`scripts`, etc.) |
 | `15_game_flow_design.md` | Game flow / onboarding / player journey design |
 

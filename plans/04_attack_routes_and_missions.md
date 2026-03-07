@@ -6,7 +6,7 @@
 - 실제 공격 문자열/페이로드/절차 재현을 피한다.
 - 대신, **(단서 수집 → 가설 → 적절한 툴 선택/코딩 → 리스크 관리)**로 재미를 만든다.
 - 공격은 “가상 시스템의 규칙”을 공략하는 퍼즐이다.
-- 본 문서의 Trace/경보/대응 루프는 **알파 버전 구현 범위**다. 터미널은 `13_multi_window_engine_contract_v1.md` 기준의 서브창 형태로 운용하되, 터미널 명령/동작 계약은 계속 `07_ui_terminal_prototype_godot.md`를 따른다.
+- 본 문서의 Trace/경보/대응 루프는 **알파 버전 구현 범위**다. 터미널은 `13_nexus_shell_workspace_contract.md` 기준의 Nexus Shell 형태로 운용하되, 터미널 명령/동작 계약은 계속 `07_ui_terminal_prototype_godot.md`를 따른다.
 
 ---
 

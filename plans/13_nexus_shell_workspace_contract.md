@@ -4,7 +4,6 @@
 - 대상 엔진: Godot 4.6
 - 타겟 플랫폼: PC / Windows
 - 문서 목적: NEXUS Shell workspace의 레이아웃, pane 타입, 상태 모델, taskbar/start menu, toast/activity popup, settings system pane, 저장/복원 요구사항을 구현 가능한 수준으로 명문화한다.
-- 본 문서는 기존 `13_multi_window_engine_contract_v1.md`의 범위를 재정의한 초안이다.
 
 > 관련 문서
 > - 터미널 명령 / system call 계약: `07_ui_terminal_prototype_godot.md`

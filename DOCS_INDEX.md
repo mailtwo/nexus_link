@@ -163,7 +163,7 @@ These docs own canonical rules.
 These docs are not the place for low-level rule definitions.
 They are the place to start reading and planning.
 
-## 16 — `16_nexus_shell_workspace_hub.md`
+## 16 — `16_nexus_shell_feature_hub.md`
 **Purpose:** NEXUS Shell as the player’s main workspace.  
 **Covers:** terminal-only start -> shell unlock, start menu, taskbar, pane taxonomy, activity popups, settings access, command parity.  
 **Read Tier 1 docs in order:** 15 -> 13 -> 07 -> 14 -> 12

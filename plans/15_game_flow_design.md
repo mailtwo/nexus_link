@@ -8,7 +8,7 @@
 > - 공격 루트 / 미션 템플릿: `04_attack_routes_and_missions.md`
 > - 터미널 명령 / system call 계약: `07_ui_terminal_prototype_godot.md`
 > - 저장 / 로드 정책: `12_save_load_persistence_spec_v0_1.md`
-> - NEXUS Shell workspace 규칙: `13_multi_window_engine_contract_v1.md` (재정의본 기준)
+> - NEXUS Shell workspace 규칙: `13_nexus_shell_workspace_contract.md` (재정의본 기준)
 > - 공식 프로그램 계약: `14_official_programs.md`
 > - NEXUS Shell feature hub: `16_nexus_shell_feature_hub.md`
 

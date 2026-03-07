@@ -4,7 +4,7 @@
 - 문서 역할: **Tier 2 Feature Hub**
 - 상태: ACTIVE (draft)
 - 관련 Tier 1 문서:
-  - `13_multi_window_engine_contract_v1.md` — NEXUS Shell workspace / pane / taskbar / toast / activity popup / system pane 계약
+  - `13_nexus_shell_workspace_contract.md` — NEXUS Shell workspace / pane / taskbar / toast / activity popup / system pane 계약
   - `07_ui_terminal_prototype_godot.md` — 터미널 명령 / system call / command UX 계약
   - `14_official_programs.md` — `nexus_shell` 및 관련 공식 프로그램 계약
   - `12_save_load_persistence_spec_v0_1.md` — shell/workspace 복원 경계 및 persistence 정책
@@ -145,7 +145,7 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 
 ## 7. 관련 Tier 1 문서와 소유권
 
-### 7.1 `13_multi_window_engine_contract_v1.md`
+### 7.1 `13_nexus_shell_workspace_contract.md`
 **소유 내용:**
 - shell workspace layout
 - dock slot / dock stack / active pane
@@ -183,14 +183,14 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 
 ### 8.1 shell 자체를 이해할 때
 1. 이 문서 (`16_nexus_shell_feature_hub.md`)
-2. `13_multi_window_engine_contract_v1.md`
+2. `13_nexus_shell_workspace_contract.md`
 3. `07_ui_terminal_prototype_godot.md`
 4. `14_official_programs.md`
 5. `12_save_load_persistence_spec_v0_1.md`
 6. `15_game_flow_design.md`
 
 ### 8.2 shell 구현을 시작할 때
-1. `13_multi_window_engine_contract_v1.md`
+1. `13_nexus_shell_workspace_contract.md`
 2. `07_ui_terminal_prototype_godot.md`
 3. `14_official_programs.md`
 4. `12_save_load_persistence_spec_v0_1.md`
@@ -198,7 +198,7 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 ### 8.3 shell unlock / 온보딩을 설계할 때
 1. `15_game_flow_design.md`
 2. 이 문서 (`16_nexus_shell_feature_hub.md`)
-3. `13_multi_window_engine_contract_v1.md`
+3. `13_nexus_shell_workspace_contract.md`
 4. `14_official_programs.md`
 5. `07_ui_terminal_prototype_godot.md`
 
@@ -249,7 +249,7 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 ### 10.5 panel catalog 고정 범위
 - 알파에 실제로 어떤 pane들이 포함되는지
 - 베타 이후 reserved pane은 무엇인지
-- 정확한 소유 문서: `13_multi_window_engine_contract_v1.md` + `15_game_flow_design.md`
+- 정확한 소유 문서: `13_nexus_shell_workspace_contract.md` + `15_game_flow_design.md`
 
 ---
 
@@ -266,7 +266,7 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 
 현재 상태에서 다음 작업은 아래 순서가 자연스럽다.
 
-1. `13_multi_window_engine_contract_v1.md`를 shell workspace contract 방향으로 재정의/정리
+1. `13_nexus_shell_workspace_contract.md`를 shell workspace contract 방향으로 재정의/정리
 2. `15_game_flow_design.md`에 shell unlock / shell 통합 흐름 반영
 3. `14_official_programs.md`에 `nexus_shell` 프로그램 계약 반영
 4. `07_ui_terminal_prototype_godot.md`에 shell 관련 command parity/entry point 반영
