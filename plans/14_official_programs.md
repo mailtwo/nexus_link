@@ -294,7 +294,47 @@ passwd.mask: ??A?x
 
 실패 시, `2.2 실패 로그` 규칙을 따릅니다.
 
-### 4.2 `miniscript` (MiniScript 실행기)
+### 4.2 `nexus_shell` (NEXUS Shell workspace launcher)
+- 권장 위치: `/opt/bin/nexus_shell`
+- fileKind: `ExecutableHardcode`
+- 내용: `exec:nexus_shell`
+
+#### 사용법
+```text
+nexus_shell
+```
+
+- 인자를 받지 않습니다. 인자가 전달되면 usage failure로 종료합니다.
+- `run nexus_shell`, `./nexus_shell`, `/opt/bin/nexus_shell` 등 어떤 실행 문법으로 호출되더라도 동일한 프로그램 계약을 적용합니다.
+
+#### 실행 계약
+1. 프로그램 탐색, 존재 체크, `read + execute` 권한 체크는 본 문서 `0) 프로그램 실행/해석 규칙`의 공통 규칙을 그대로 따릅니다.
+2. `nexus_shell`은 **플레이어 로컬 워크스테이션 전용 프로그램**입니다.
+   - 현재 실행 endpoint가 플레이어 로컬 워크스테이션이 아니면, workspace를 열지 않고 경고만 출력한 뒤 종료합니다.
+   - 이 규칙은 파일을 다른 서버로 옮겨 실행한 경우에도 동일하게 적용됩니다.
+3. 현재 실행 endpoint가 플레이어 로컬 워크스테이션이고 NEXUS Shell이 아직 열려 있지 않다면, NEXUS Shell workspace를 엽니다.
+4. NEXUS Shell이 이미 열려 있다면 새 인스턴스를 만들지 않고, 경고만 출력한 뒤 no-op로 종료합니다.
+
+#### 경고 출력(권장)
+- 비호환 시스템 실행:
+```text
+warning: NEXUS Shell is not compatible with this system.
+```
+- 이미 실행 중:
+```text
+warning: NEXUS Shell is already running.
+```
+
+#### 추가 규칙
+- `nexus_shell` 실행은 터미널 endpoint/cwd/prompt를 바꾸지 않습니다.
+- `nexus_shell`은 shell workspace의 **진입 프로그램**일 뿐이며, pane layout / taskbar / maximize / restore / focus / persistence 세부 규칙은 `13_nexus_shell_workspace_contract.md`를 따릅니다.
+  See DOCS_INDEX.md -> 13.
+- `nexus_shell` 파일이 언제 제공되는지, 시작 시점에 존재하는지, 어떤 온보딩 흐름으로 복구/해금되는지는 `15_game_flow_design.md` 및 시나리오 문서를 따릅니다.
+  See DOCS_INDEX.md -> 15.
+
+---
+
+### 4.3 `miniscript` (MiniScript 실행기)
 `miniscript`는 **시스템콜이 아니라 VFS 실행 파일**입니다(권장 위치: `/opt/bin/miniscript`).
 
 ```text
@@ -309,7 +349,7 @@ miniscript <scriptPath> [args...]
 
 ---
 
-### 4.3 `password_breaker` (SSH 비밀번호 브루트포스 시뮬레이터)
+### 4.4 `password_breaker` (SSH 비밀번호 브루트포스 시뮬레이터)
 - 권장 위치: `/opt/bin/password_breaker`
 - fileKind: `ExecutableScript`
 - 내용: `res://scenario_content/resources/text/executions/password_breaker.ms`
@@ -339,5 +379,5 @@ password_breaker <num> <target> [userId]
 #### 부작용/연동 규칙
 - 이 프로그램의 각 시도는 `ssh.connect` 시도와 동일하게 취급됩니다.
   - SSH 로그인 UI 트리거, 인증 실패 로그/trace, 레이트리밋/락아웃 규칙이 동일하게 적용됩니다.
-  - 관련 상세 계약은 `03_game_api_modules.md`/`07_ui_terminal_prototype_godot.md`/`13_multi_window_engine_contract_v1.md`를 따릅니다.
+  - 관련 상세 계약은 `03_game_api_modules.md`/`07_ui_terminal_prototype_godot.md`/`13_nexus_shell_workspace_contract.md`를 따릅니다.
     See DOCS_INDEX.md → 03, 07, 13.
