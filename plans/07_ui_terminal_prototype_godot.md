@@ -240,7 +240,7 @@ TerminalScene (Control)
 - `EnablePrototypeSaveLoadSystemCalls`가 켜진 런타임에서만 노출된다.
 - `[임시-제거예정]` `save [0-9]`: 현재 진행 상태를 슬롯(0~9)에 저장한다.
 - `[임시-제거예정]` `load [0-9]`: 슬롯(0~9) 저장 상태를 불러오고 터미널 컨텍스트를 워크스테이션 기준으로 재정렬한다.
-- 저장/불러오기 정책의 SSOT는 `12_save_load_persistence_spec_v0_1.md`를 따른다.  
+- 저장/불러오기 정책의 SSOT는 `12_save_load_persistence_spec_v0_5.md`를 따른다.  
   See DOCS_INDEX.md → 12.
 
 ---

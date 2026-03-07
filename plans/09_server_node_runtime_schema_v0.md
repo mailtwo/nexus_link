@@ -7,7 +7,7 @@ Codex는 이 문서를 기준으로 런타임 데이터 컨테이너(월드 `ser
 - 플랫폼: PC
 - 엔진: Godot(로직 C#)
 - 실제 OS/네트워크 접근 없음(전부 가상)
-- 저장/로드 범위/포맷/재구축 경계는 `12_save_load_persistence_spec_v0_1.md`를 따른다(See DOCS_INDEX.md → 12).
+- 저장/로드 범위/포맷/재구축 경계는 `12_save_load_persistence_spec_v0_5.md`를 따른다(See DOCS_INDEX.md → 12).
 - 이번 문서는 런타임 메모리 **스키마 구조**만 정의한다.
 - `lanNeighbors`는 유지하되 내부 참조 키는 `nodeId`를 사용
 

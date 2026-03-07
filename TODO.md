@@ -13,8 +13,8 @@ plans/ 문서에 정의되어 있으나, 현재 기준으로 명시적으로 보
 - [10] Campaign `flowMeta` YAML 작성/로더 초기화 매핑 구현 (`plans/10_blueprint_schema_v0.md` §5, 상세 스테이지 설계는 See DOCS_INDEX.md -> 15).
 - [10] ServerSpec `location` 월드 빌드 단계 구현: `AUTO:<regionId>` region 존재 검증 + `RuntimeLocationInfo` 생성/저장 (`plans/10_blueprint_schema_v0.md` §7 3), (`plans/09_server_node_runtime_schema_v0.md` §11).
 - [11] Action -> Event emit reentrancy 구현: tail append + tick budget 기반 같은 tick 처리/이월 (`plans/11_event_handler_spec_v0_1.md` §7.3).
-- [12] Save/Load 엔진 API + 저장/로드 UI 연동 구현 (`plans/12_save_load_persistence_spec_v0_1.md` line 9, §8.1).
-- [12] Session lineage/forensic runtime state 영속화 상세 설계 및 구현(deferred) (`plans/12_save_load_persistence_spec_v0_1.md` §1.2, §7).
+- [12] Save/Load 엔진 API + 저장/로드 UI 연동 구현 (`plans/12_save_load_persistence_spec_v0_5.md` line 9, §8.1).
+- [12] Session lineage/forensic runtime state 영속화 상세 설계 및 구현(deferred) (`plans/12_save_load_persistence_spec_v0_5.md` §1.2, §7).
 - [13] DesktopOverlay 상태 영속 저장 정책 확정 및 Save/Load 연계 (`plans/13_nexus_shell_workspace_contract.md` §16.8, See DOCS_INDEX.md -> 12).
 - [13] 알파 구현 목표 창 5종 WindowKind 속성 정의/레지스트리 확장 (`plans/13_nexus_shell_workspace_contract.md` §7.2).
 - [13] 멀티 윈도우 알파 구현 목표 창 구현(우선순위): 월드 맵+네트워크 트레이싱, topology viewer, 파일 전송 대기줄, 웹페이지 뷰어(CEF), 프로세서 목록 (`plans/13_nexus_shell_workspace_contract.md` §12.5).

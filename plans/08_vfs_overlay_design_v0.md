@@ -232,7 +232,7 @@
 ---
 
 ## 8) 저장/로드 참조
-- 저장 대상/제외, 스냅샷 포맷, 재구축 경계는 `12_save_load_persistence_spec_v0_1.md`가 SSOT다.  
+- 저장 대상/제외, 스냅샷 포맷, 재구축 경계는 `12_save_load_persistence_spec_v0_5.md`가 SSOT다.  
   See DOCS_INDEX.md → 12.
 - 본 문서는 VFS **런타임 의미/자료구조**만 정의하며 저장 정책은 재정의하지 않는다.
 

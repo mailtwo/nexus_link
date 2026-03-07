@@ -128,7 +128,7 @@ These docs own canonical rules.
 **Owns:** dispatch, execution ordering, handler behavior, process/event runtime rules.  
 **Must NOT own:** persistence format, mission-flow intent.
 
-### 12 — `12_save_load_persistence_spec_v0_1.md`
+### 12 — `12_save_load_persistence_spec_v0_5.md`
 **Purpose:** persistence boundaries and save/load policy.  
 **Owns:** what is saved, what is transient, versioning, load reconstruction rules.  
 **Must NOT own:** UI layout interaction rules except by reference to owning UI contract docs.
@@ -211,7 +211,7 @@ When a Tier 2 hub mentions a concrete rule, link the Tier 1 owner and do not res
 
 Preferred style:
 - `Canonical rule: See Tier 1 -> 07 (07_ui_terminal_prototype_godot.md)`
-- `Persistence boundary: See Tier 1 -> 12 (12_save_load_persistence_spec_v0_1.md)`
+- `Persistence boundary: See Tier 1 -> 12 (12_save_load_persistence_spec_v0_5.md)`
 
 ---
 

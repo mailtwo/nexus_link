@@ -7,7 +7,7 @@
 
 > 관련 문서
 > - 터미널 명령 / system call 계약: `07_ui_terminal_prototype_godot.md`
-> - 저장/복원 경계: `12_save_load_persistence_spec_v0_1.md`
+> - 저장/복원 경계: `12_save_load_persistence_spec_v0_5.md`
 > - 공식 프로그램 계약: `14_official_programs.md`
 > - 플레이어 여정 / 온보딩: `15_game_flow_design.md`
 

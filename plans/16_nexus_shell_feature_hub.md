@@ -7,7 +7,7 @@
   - `13_nexus_shell_workspace_contract.md` — NEXUS Shell workspace / pane / taskbar / toast / activity popup / system pane 계약
   - `07_ui_terminal_prototype_godot.md` — 터미널 명령 / system call / command UX 계약
   - `14_official_programs.md` — `nexus_shell` 및 관련 공식 프로그램 계약
-  - `12_save_load_persistence_spec_v0_1.md` — shell/workspace 복원 경계 및 persistence 정책
+  - `12_save_load_persistence_spec_v0_5.md` — shell/workspace 복원 경계 및 persistence 정책
   - `15_game_flow_design.md` — shell 도입 시점, 온보딩 흐름, 1차 라이선스까지의 플레이어 여정
 
 ---
@@ -165,7 +165,7 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 - `nexus_shell` 실행 가능 시점/형태/에러 semantics
 - 관련 공식 프로그램(예: inspect, viewer, shell launcher 등)의 계약
 
-### 7.4 `12_save_load_persistence_spec_v0_1.md`
+### 7.4 `12_save_load_persistence_spec_v0_5.md`
 **소유 내용:**
 - shell/workspace에서 저장되는 것과 저장되지 않는 것
 - layout restore boundary
@@ -186,14 +186,14 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 2. `13_nexus_shell_workspace_contract.md`
 3. `07_ui_terminal_prototype_godot.md`
 4. `14_official_programs.md`
-5. `12_save_load_persistence_spec_v0_1.md`
+5. `12_save_load_persistence_spec_v0_5.md`
 6. `15_game_flow_design.md`
 
 ### 8.2 shell 구현을 시작할 때
 1. `13_nexus_shell_workspace_contract.md`
 2. `07_ui_terminal_prototype_godot.md`
 3. `14_official_programs.md`
-4. `12_save_load_persistence_spec_v0_1.md`
+4. `12_save_load_persistence_spec_v0_5.md`
 
 ### 8.3 shell unlock / 온보딩을 설계할 때
 1. `15_game_flow_design.md`
@@ -244,7 +244,7 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 - 어떤 pane visibility/state가 save 대상인지
 - maximized context 저장 여부
 - activity popup/ toast restore 여부
-- 정확한 소유 문서: `12_save_load_persistence_spec_v0_1.md`
+- 정확한 소유 문서: `12_save_load_persistence_spec_v0_5.md`
 
 ### 10.5 panel catalog 고정 범위
 - 알파에 실제로 어떤 pane들이 포함되는지
@@ -270,7 +270,7 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 2. `15_game_flow_design.md`에 shell unlock / shell 통합 흐름 반영
 3. `14_official_programs.md`에 `nexus_shell` 프로그램 계약 반영
 4. `07_ui_terminal_prototype_godot.md`에 shell 관련 command parity/entry point 반영
-5. `12_save_load_persistence_spec_v0_1.md`에 shell restore boundary 반영
+5. `12_save_load_persistence_spec_v0_5.md`에 shell restore boundary 반영
 
 ---
 

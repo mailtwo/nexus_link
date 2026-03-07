@@ -362,7 +362,7 @@ ActionBlueprint (v0): `{ print, setFlag }`
 
 ## 9) Save/Load 참조
 
-저장/로드 범위, 포맷, 재구축 경계는 `12_save_load_persistence_spec_v0_1.md`가 SSOT다.  
+저장/로드 범위, 포맷, 재구축 경계는 `12_save_load_persistence_spec_v0_5.md`가 SSOT다.  
 See DOCS_INDEX.md → 12.
 
 본 문서는 런타임 처리 로직만 정의하며, 영속화 항목을 중복 정의하지 않는다.

@@ -141,7 +141,7 @@ godot --path .
 | `09_server_node_runtime_schema_v0.md` | 월드 런타임 스키마 |
 | `10_blueprint_schema_v0.md` | 블루프린트 스키마/월드 생성 규칙 |
 | `11_event_handler_spec_v0_1.md` | 이벤트 시스템/가드 실행 규약 |
-| `12_save_load_persistence_spec_v0_1.md` | 저장/로드 영속화 스펙 |
+| `12_save_load_persistence_spec_v0_5.md` | 저장/로드 영속화 스펙 |
 | `13_nexus_shell_workspace_contract.md` | 멀티 윈도우 + DesktopOverlay 엔진 계약 |
 | `14_official_programs.md` | 공식 제공 프로그램 계약 (`scripts` 등) |
 | `15_game_flow_design.md` | 게임 플로우/온보딩/플레이어 여정 설계 |

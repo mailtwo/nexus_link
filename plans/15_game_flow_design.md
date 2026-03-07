@@ -7,7 +7,7 @@
 > 관련 문서
 > - 공격 루트 / 미션 템플릿: `04_attack_routes_and_missions.md`
 > - 터미널 명령 / system call 계약: `07_ui_terminal_prototype_godot.md`
-> - 저장 / 로드 정책: `12_save_load_persistence_spec_v0_1.md`
+> - 저장 / 로드 정책: `12_save_load_persistence_spec_v0_5.md`
 > - NEXUS Shell workspace 규칙: `13_nexus_shell_workspace_contract.md` (재정의본 기준)
 > - 공식 프로그램 계약: `14_official_programs.md`
 > - NEXUS Shell feature hub: `16_nexus_shell_feature_hub.md`
@@ -375,4 +375,3 @@ shell은 **첫 번째 정식 계약 / 침투 과제**로 빨리 연결되어야 
 5. shell 도입 직후 플레이어는 빠르게 첫 정식 계약으로 연결된다.
 6. 1차 라이선스 승급까지의 흐름에서 shell은 계속 유용하지만, 핵심 입력을 빼앗지 않는다.
 7. 플레이어는 이 시점까지 “터미널 기반 해킹 게임을 하고 있다”는 감각을 유지한다.
-
