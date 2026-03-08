@@ -337,8 +337,6 @@ void fragment() {
     {
         EnforceNativeSubwindowEmbedding();
         _ = EnsureController();
-        EnsureWorldMapTraceWindowCreated();
-        ShowWorldMapTraceWindow();
     }
 
     /// <inheritdoc/>
