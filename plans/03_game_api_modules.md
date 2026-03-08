@@ -1,4 +1,4 @@
-﻿# 게임 API 모듈 설계 (RealWorld 요청 큐 기반, 프로토타입 v0.2)
+# 게임 API 모듈 설계 (RealWorld 요청 큐 기반, 프로토타입 v0.2)
 
 Purpose: MiniScript intrinsic API contract for player-facing runtime modules, ResultMap, and shared error semantics.
 Keywords: miniscript intrinsic, player API, result map, error code, term module, fs module, net module, ssh module, ftp module
@@ -175,7 +175,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - Manual 문서는 개념/학습 흐름을 우선하고, 세부 규칙(정밀 검증 순서, 전체 에러 매트릭스, 엄격한 전제조건)은 본 SSOT 또는 XML docstring source를 참조로 연결한다.
 - Manual 문서에서 신규 규약/신규 에러/신규 부작용을 정의하지 않는다.
 - 문서 생성 흐름은 다음 순서를 고정한다.
-  - `plans/03` 규약 변경
+  - `03` 규약 변경
   - 코드 반영
   - XML docstring 반영
   - DocFX 산출물 생성

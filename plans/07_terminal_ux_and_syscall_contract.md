@@ -1,4 +1,4 @@
-﻿# 07 — 터미널 UX 및 시스템콜 계약 (Godot / PC)
+# 07 — 터미널 UX 및 시스템콜 계약 (Godot / PC)
 
 Purpose: Terminal UX, command syntax, and system-call contract for the player-facing command surface in Godot.
 Keywords: terminal UX, terminal command, system call, command syntax, command parsing, shell built-in, run launcher, editor mode, terminal scene

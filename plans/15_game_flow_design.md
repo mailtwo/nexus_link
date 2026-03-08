@@ -1,4 +1,4 @@
-﻿# 15 — 게임 플로우 설계 (Alpha Redraft)
+# 15 — 게임 플로우 설계 (Alpha Redraft)
 
 Purpose: Player journey and progression-flow contract from first boot through early shell onboarding and first promotion.
 Keywords: game flow, onboarding, first boot, shell unlock, progression, first license, restart flow, player journey

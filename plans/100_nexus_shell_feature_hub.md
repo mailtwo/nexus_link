@@ -1,4 +1,4 @@
-﻿# 100_nexus_shell_feature_hub.md
+# 100 — NEXUS Shell 기능 허브
 
 Purpose: Tier 2 feature hub for NEXUS Shell as the main player workspace across onboarding, commands, programs, and persistence.
 Keywords: nexus shell, feature hub, shell unlock, workspace hub, taskbar, pane system, command parity, workspace restore

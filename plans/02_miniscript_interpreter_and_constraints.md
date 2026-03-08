@@ -1,4 +1,4 @@
-﻿# MiniScript 적용 + CPU/RAM 제약 설계
+# MiniScript 적용 + CPU/RAM 제약 설계
 
 Purpose: MiniScript embedding, sandbox, and execution-constraint contract for the runtime interpreter model.
 Keywords: miniscript, interpreter embedding, sandbox, cpu budget, ram budget, time slicing, execution constraint, script runtime

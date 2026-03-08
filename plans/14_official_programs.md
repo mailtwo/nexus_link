@@ -1,4 +1,4 @@
-﻿# 공식 제공 프로그램 (ExecutableHardcode / ExecutableScript) v0.2
+# 공식 제공 프로그램 (ExecutableHardcode / ExecutableScript) v0.2
 
 Purpose: Official program contract for shipped executables, program gating, and shared execution semantics.
 Keywords: official program, executable hardcode, executable script, program contract, inspect probe, run launcher, nexus shell, tool gating

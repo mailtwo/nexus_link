@@ -1,4 +1,4 @@
-﻿# Event System / Event Handler Spec v0.1 (MiniScript GuardContent)
+# Event System / Event Handler Spec v0.1 (MiniScript GuardContent)
 
 Purpose: Runtime event dispatch and handler contract for process completion, acquisition events, guard evaluation, and action execution.
 Keywords: event handler, runtime dispatch, process event, privilege acquire, file acquire, guard evaluation, action execution, scheduler

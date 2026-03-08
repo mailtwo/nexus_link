@@ -1,4 +1,4 @@
-﻿# 기존 해킹/코딩 게임 레퍼런스 정리
+# 기존 해킹/코딩 게임 레퍼런스 정리
 
 Purpose: Reference research on comparable hacking/coding games and the design lessons to adopt or avoid.
 Keywords: reference research, hacking game, coding game, uplink, hacknet, gameplay comparison, progression loop, automation risk

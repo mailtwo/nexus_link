@@ -1,4 +1,4 @@
-﻿# FS API (Managed Reference)
+# FS API (Managed Reference)
 
 <a id="fslist"></a>
 <a id="fsread"></a>

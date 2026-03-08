@@ -1,4 +1,4 @@
-﻿<a id="module-fs"></a>
+<a id="module-fs"></a>
 # FS Module (fs.*) - Manual
 
 `fs` 모듈은 가상 파일 시스템의 디렉터리 조회, 텍스트 읽기/쓰기, 삭제, 메타 조회를 제공합니다.

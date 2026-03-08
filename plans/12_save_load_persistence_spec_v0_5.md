@@ -1,4 +1,4 @@
-﻿# 12 — Save Slot Persistence Contract v0.5 (Alpha Redraft)
+# 12 — Save Slot Persistence Contract v0.5 (Alpha Redraft)
 
 Purpose: Gameplay save-slot persistence contract for world state, exclusion boundaries, versioning, and load reconstruction.
 Keywords: save slot, gameplay persistence, load reconstruction, snapshot format, world state, server state, profile boundary, save versioning

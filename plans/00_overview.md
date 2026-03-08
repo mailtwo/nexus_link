@@ -1,4 +1,4 @@
-﻿# 프로젝트 개요
+# 프로젝트 개요
 
 Purpose: Project vision, design pillars, scope boundaries, and high-level gameplay identity.
 Keywords: project overview, product vision, design pillar, game loop, scope boundary, progression, toolchain, hacking game

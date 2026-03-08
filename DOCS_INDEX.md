@@ -160,6 +160,11 @@ These docs own canonical rules.
 **Owns:** what is saved, what is transient, versioning, load reconstruction rules.  
 **Must NOT own:** UI layout interaction rules except by reference to owning UI contract docs.
 
+### 16 — `16_profile_workspace_persistence_contract.md`
+**Purpose:** profile options + workspace UI persistence contract (out-of-save-slot).  
+**Owns:** TOML-based profile/workspace persistence, options state container, workspace UI state container, hydrate/sanitize rules, pane-local opaque state tables, reset policy, and compatibility/versioning for profile/workspace data.  
+**Must NOT own:** gameplay save-slot persistence (`12`), workspace meaning/interaction rules (`13`), command syntax (`07`), or official-program behavior contracts (`14`) except by reference.
+
 ---
 
 ## D. Scenario / Content Authoring
@@ -183,36 +188,43 @@ Tier 2 Feature Hub document numbers use the `100` series to stay visually distin
 **Read Tier 1 docs in order:** 15 -> 13 -> 07 -> 14 -> 16 -> 12
 
 ## 101 — `101_onboarding_first_license_hub.md`
+**Status:** not yet created.  
 **Purpose:** from first boot to first license promotion.  
 **Covers:** README follow-up, early mission chain, shell unlock timing, tutorial pacing, first “real intrusion” loop.  
 **Read Tier 1 docs in order:** 15 -> 07 -> 14 -> 03 -> 04 -> 13 -> 12
 
 ## 102 — `102_contracts_and_license_progression_hub.md`
+**Status:** not yet created.  
 **Purpose:** contract board / mission board / license progression structure.  
 **Covers:** why the player takes the next job, what counts toward promotion, how world-feel side contracts differ from critical progression.  
 **Read Tier 1 docs in order:** 15 -> 04 -> 14 -> 03 -> 10 -> 11
 
 ## 103 — `103_trace_and_risk_feedback_hub.md`
+**Status:** not yet created.  
 **Purpose:** hot trace / forensic / lock-on as a player feedback loop.  
 **Covers:** risk readability, map feedback, route pressure, log-breaking feedback, how trace feels to the player.  
 **Read Tier 1 docs in order:** 04 -> 03 -> 11 -> 09 -> 13 -> 12
 
 ## 104 — `104_remote_operations_and_route_execution_hub.md`
+**Status:** not yet created.  
 **Purpose:** remote connection, route execution, ftp/ssh/world-state operations as one coherent feature.  
 **Covers:** connect/disconnect, route/session mental model, remote file movement, command vs intrinsic parity, chain-based play feel.  
 **Read Tier 1 docs in order:** 03 -> 07 -> 14 -> 08 -> 09 -> 11 -> 04
 
 ## 105 — `105_scenario_authoring_pipeline_hub.md`
+**Status:** not yet created.  
 **Purpose:** content-authoring path from scenario blueprint to running mission behavior.  
 **Covers:** how authored content becomes runtime state and event-driven mission logic.  
 **Read Tier 1 docs in order:** 10 -> 09 -> 11 -> 08 -> 03 -> 04
 
 ## 106 — `106_persistence_and_workspace_restore_hub.md`
+**Status:** not yet created.  
 **Purpose:** what the player expects to resume after save/load/reboot.  
 **Covers:** workspace layout restore, shell state restore, program/process visibility after load, boot vs load experience.  
 **Read Tier 1 docs in order:** 12 -> 16 -> 13 -> 07 -> 14 -> 15 -> 09
 
 ## 107 — `107_toolchain_and_program_progression_hub.md`
+**Status:** not yet created.  
 **Purpose:** tools/programs/automation as progression, not just commands.  
 **Covers:** why players script, when official tools unlock, how automation replaces manual repetition, how “tool-building” becomes power.  
 **Read Tier 1 docs in order:** 14 -> 03 -> 15 -> 02 -> 07 -> 04

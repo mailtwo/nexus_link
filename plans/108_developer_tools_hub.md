@@ -1,4 +1,4 @@
-﻿# 108_developer_tools_hub.md
+# 108 — 개발자 도구 허브
 
 Purpose: Tier 2 feature hub for developer tooling direction and debug-only startpoint override planning.
 Keywords: developer tools, feature hub, debug boot, startpoint override, direct-to-shell, development entry, boot mode, debug flow

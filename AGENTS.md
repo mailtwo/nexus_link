@@ -1,4 +1,4 @@
-﻿## The Golden Rule
+## The Golden Rule
 When unsure about implementation details, ALWAYS ask the developer.
 
 ## Development Guidelines

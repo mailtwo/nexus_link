@@ -1,4 +1,4 @@
-﻿# 가상 파일시스템(VFS) 설계 문서 (서버 노드 로컬 디스크 / v0)
+# 가상 파일시스템(VFS) 설계 문서 (서버 노드 로컬 디스크 / v0)
 
 Purpose: Virtual file system and overlay contract for server-local storage, permissions, and file mutation semantics.
 Keywords: virtual file system, VFS overlay, path normalization, file permission, directory entry, overlay merge, executable file, server storage

@@ -1,4 +1,4 @@
-﻿# 16 — Profile / Workspace Persistence Contract (Alpha Redraft)
+# 16 — Profile / Workspace Persistence Contract (Alpha Redraft)
 
 Purpose: Profile options and workspace UI persistence contract outside gameplay save slots.
 Keywords: profile persistence, workspace persistence, TOML profile, options state, workspace UI state, hydrate, sanitize, pane state

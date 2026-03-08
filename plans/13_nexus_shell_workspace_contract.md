@@ -1,4 +1,4 @@
-﻿# 13 — NEXUS Shell Workspace Contract (Alpha Redraft)
+# 13 — NEXUS Shell Workspace Contract (Alpha Redraft)
 
 Purpose: Shell workspace, layout, pane lifecycle, taskbar, and workspace-level UI behavior contract.
 Keywords: shell workspace, dock slot, dock stack, taskbar, maximized pane, toast, activity popup, system pane, pane lifecycle

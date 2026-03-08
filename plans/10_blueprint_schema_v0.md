@@ -1,4 +1,4 @@
-﻿# Blueprint 데이터 스키마 v0 (ServerSpec / Scenario / Campaign)
+# Blueprint 데이터 스키마 v0 (ServerSpec / Scenario / Campaign)
 
 Purpose: Scenario and blueprint authoring schema for generating runtime worlds, server specs, and campaign data.
 Keywords: blueprint schema, scenario authoring, campaign data, server spec, world generation, network topology, dynamic generation, world seed

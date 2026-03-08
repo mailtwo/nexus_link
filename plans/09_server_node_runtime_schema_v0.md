@@ -1,4 +1,4 @@
-﻿# 서버 노드 런타임 데이터 스키마 v0.2 (Godot/PC, C#)
+# 서버 노드 런타임 데이터 스키마 v0.2 (Godot/PC, C#)
 
 Purpose: Runtime server-node storage schema for world state containers, indexes, and mutable node data.
 Keywords: server node schema, runtime storage, world runtime, server list, ip index, process list, account data, interface data

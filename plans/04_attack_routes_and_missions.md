@@ -1,4 +1,4 @@
-﻿# 인게임 해킹 공격 루트 & 미션 템플릿
+# 인게임 해킹 공격 루트 & 미션 템플릿
 
 Purpose: Mission templates, attack-route patterns, and trace-driven gameplay structure for player-facing intrusion scenarios.
 Keywords: mission template, attack route, trace loop, recon, intrusion, privilege escalation, lateral movement, hint system
