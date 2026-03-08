@@ -171,20 +171,6 @@ These docs own canonical rules.
 
 ---
 
-## E. Legacy / Deprecated
-
-### 05 — `05_ui_terminal_prototype.md`
-**Status:** LEGACY, READ-ONLY  
-**Purpose:** historical prototype notes only.  
-**Owns:** nothing.
-
-### 06 — `06_server_nodes_design_v0.md`
-**Status:** DEPRECATED, READ-ONLY  
-**Purpose:** historical/deprecated node-design notes only.  
-**Owns:** nothing.
-
----
-
 # TIER 2 — FEATURE HUBS
 
 These docs are not the place for low-level rule definitions.

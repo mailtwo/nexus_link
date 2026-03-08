@@ -1,16 +1,17 @@
-﻿# UI 기획 문서: 터미널 기반 프로토타입 (Godot / PC)
+﻿# 07 — 터미널 UX 및 시스템콜 계약 (Godot / PC)
 
-Purpose: Terminal command UX and system-call contract for the Godot terminal prototype.
-Keywords: terminal command, system call, command parsing, shell built-in, run launcher, editor mode, terminal scene, debug command
-Aliases: terminal UX, command contract
+Purpose: Terminal UX, command syntax, and system-call contract for the player-facing command surface in Godot.
+Keywords: terminal UX, terminal command, system call, command syntax, command parsing, shell built-in, run launcher, editor mode, terminal scene
+Aliases: terminal contract, command contract
 
-목표: **가상 리눅스 터미널 1개 화면**만으로 “서버 1대 침투 시나리오”를 빠르게 검증하는 MVP를 만든다.  
-플랫폼: **PC 전용(Windows)**.  
-제약: **실시간 Trace/추적 대응 루프 UI는 알파 버전 구현 범위**, **실제 OS/네트워크 접근 없음(전부 가상)**.
+- 문서 목적: 플레이어가 사용하는 **터미널 입력 표면의 UX, 명령 문법, 시스템콜/프로그램 실행 계약**을 정의한다.  
+- 문서 성격: 초기에는 Godot 기반 터미널 프로토타입 문서로 출발했지만, 현재는 단순 프로토타입 UI 메모가 아니라 **터미널 command surface의 Tier 1 계약 문서**로 사용한다.  
+- 플랫폼: **PC 전용(Windows)**.  
+- 전제: **실시간 Trace/추적 대응 루프 UI는 알파 범위**, **실제 OS/네트워크 접근 없음(전부 가상)**.
 
 ---
 
-## 1) MVP UX 목표
+## 1) 터미널 UX 목표
 
 - 화면은 **리눅스 터미널처럼** 보인다(모노스페이스, 프롬프트, 스크롤백).
 - 유저는 명령어를 입력해 **가상 파일 시스템(VFS)**과 **가상 네트워크**를 다룬다.
