@@ -75,6 +75,41 @@ public sealed class WorkspaceStateMachine
         return changed;
     }
 
+    /// <summary>Replaces the current state with a fully sanitized effective workspace snapshot.</summary>
+    /// <param name="snapshot">Sanitized effective state to apply.</param>
+    /// <returns><see langword="true"/> when the state changed; otherwise, <see langword="false"/>.</returns>
+    public bool ReplaceState(WorkspaceStateSnapshot snapshot)
+    {
+        ValidateSnapshot(snapshot);
+
+        if (SnapshotsEquivalent(CreateSnapshot(), snapshot))
+        {
+            return false;
+        }
+
+        mode = snapshot.Mode;
+        maximizedPane = snapshot.MaximizedPane;
+        leftRatio = snapshot.LeftRatio;
+        rightTopRatio = snapshot.RightTopRatio;
+
+        pinnedSet.Clear();
+        foreach (var kind in snapshot.PinnedSet)
+        {
+            pinnedSet.Add(kind);
+        }
+
+        foreach (var slot in SlotOrder)
+        {
+            dockStacks[slot].Clear();
+            var slotState = snapshot.Slots[slot];
+            dockStacks[slot].AddRange(slotState.DockStack);
+            activeDockPaneBySlot[slot] = slotState.ActivePane;
+        }
+
+        ValidateInvariants();
+        return true;
+    }
+
     /// <summary>Activates a pane, opening it in its home slot when currently closed.</summary>
     public bool ActivatePane(WorkspacePaneKind kind)
     {
@@ -271,6 +306,43 @@ public sealed class WorkspaceStateMachine
         };
     }
 
+    private static bool SnapshotsEquivalent(WorkspaceStateSnapshot left, WorkspaceStateSnapshot right)
+    {
+        if (left.Mode != right.Mode ||
+            left.MaximizedPane != right.MaximizedPane ||
+            !left.LeftRatio.Equals(right.LeftRatio) ||
+            !left.RightTopRatio.Equals(right.RightTopRatio))
+        {
+            return false;
+        }
+
+        if (!new HashSet<WorkspacePaneKind>(left.PinnedSet).SetEquals(right.PinnedSet))
+        {
+            return false;
+        }
+
+        foreach (var slot in SlotOrder)
+        {
+            var leftSlot = left.Slots[slot];
+            var rightSlot = right.Slots[slot];
+            if (leftSlot.ActivePane != rightSlot.ActivePane ||
+                leftSlot.DockStack.Count != rightSlot.DockStack.Count)
+            {
+                return false;
+            }
+
+            for (var index = 0; index < leftSlot.DockStack.Count; index++)
+            {
+                if (leftSlot.DockStack[index] != rightSlot.DockStack[index])
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
     private bool IsDefaultState()
     {
         if (mode != WorkspaceMode.Docked ||
@@ -338,6 +410,79 @@ public sealed class WorkspaceStateMachine
     private static bool IsValidRatio(float value)
     {
         return float.IsFinite(value) && value > 0.0f && value < 1.0f;
+    }
+
+    private static void ValidateSnapshot(WorkspaceStateSnapshot snapshot)
+    {
+        if (snapshot is null)
+        {
+            throw new ArgumentNullException(nameof(snapshot));
+        }
+
+        if (!IsValidRatio(snapshot.LeftRatio))
+        {
+            throw new InvalidOperationException($"Left ratio '{snapshot.LeftRatio}' is outside the normalized range.");
+        }
+
+        if (!IsValidRatio(snapshot.RightTopRatio))
+        {
+            throw new InvalidOperationException($"Right-top ratio '{snapshot.RightTopRatio}' is outside the normalized range.");
+        }
+
+        if (snapshot.Slots.Count != SlotOrder.Length)
+        {
+            throw new InvalidOperationException(
+                $"Effective workspace snapshot must contain exactly {SlotOrder.Length} slots.");
+        }
+
+        var seenPanes = new HashSet<WorkspacePaneKind>();
+        foreach (var slot in SlotOrder)
+        {
+            if (!snapshot.Slots.TryGetValue(slot, out var slotState))
+            {
+                throw new InvalidOperationException($"Effective workspace snapshot is missing slot '{slot}'.");
+            }
+
+            if (slotState.Slot != slot)
+            {
+                throw new InvalidOperationException(
+                    $"Effective workspace snapshot slot '{slot}' contains mismatched state for '{slotState.Slot}'.");
+            }
+
+            foreach (var pane in slotState.DockStack)
+            {
+                if (!seenPanes.Add(pane))
+                {
+                    throw new InvalidOperationException($"Pane '{pane}' appears in more than one slot.");
+                }
+            }
+
+            if (slotState.ActivePane.HasValue && !slotState.DockStack.Contains(slotState.ActivePane.Value))
+            {
+                throw new InvalidOperationException(
+                    $"Active pane '{slotState.ActivePane.Value}' is not resident in slot '{slot}'.");
+            }
+        }
+
+        var uniquePinnedSet = new HashSet<WorkspacePaneKind>();
+        foreach (var pane in snapshot.PinnedSet)
+        {
+            if (!uniquePinnedSet.Add(pane))
+            {
+                throw new InvalidOperationException($"Pinned set contains duplicate pane '{pane}'.");
+            }
+        }
+
+        if (snapshot.Mode == WorkspaceMode.Maximized && snapshot.MaximizedPane is null)
+        {
+            throw new InvalidOperationException("Effective workspace snapshot cannot be maximized without a maximized pane.");
+        }
+
+        if (snapshot.MaximizedPane.HasValue && !seenPanes.Contains(snapshot.MaximizedPane.Value))
+        {
+            throw new InvalidOperationException(
+                $"Maximized pane '{snapshot.MaximizedPane.Value}' must be resident in the effective workspace snapshot.");
+        }
     }
 
     private WorkspaceStateSnapshot CreateSnapshot()

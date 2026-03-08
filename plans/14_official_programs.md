@@ -1,10 +1,14 @@
-# 공식 제공 프로그램 (ExecutableHardcode / ExecutableScript) v0.2
+﻿# 공식 제공 프로그램 (ExecutableHardcode / ExecutableScript) v0.2
+
+Purpose: Official program contract for shipped executables, program gating, and shared execution semantics.
+Keywords: official program, executable hardcode, executable script, program contract, inspect probe, run launcher, nexus shell, tool gating
+Aliases: shipped programs, program contract
 
 이 문서는 게임이 **공식 제공**하는 실행 파일(프로그램)과, 그 중 일부가 제공하는 “공식 툴/힌트 계약(Contract)”을 정의합니다.
 
 - 프로그램은 VFS 상의 실행 파일이며, `ExecutableHardcode(exec:<id>)` 또는 `ExecutableScript(MiniScript)` 형태로 제공됩니다.
 - 본 문서의 **Inspect Password Hint Contract(InspectProbe)** 는 `inspect` 프로그램과 `ssh.inspect(...)` intrinsic이 **공유**하는 동작의 source of truth입니다.
-  - `03_game_api_modules.md`(API 문서)는 `ssh.inspect`의 **시그니처/리턴 형식/추가 사전조건(툴 존재)** 만 정의하고, 그 외 의미는 본 문서를 참조합니다.
+  - `03`(API 문서)는 `ssh.inspect`의 **시그니처/리턴 형식/추가 사전조건(툴 존재)** 만 정의하고, 그 외 의미는 본 문서를 참조합니다.
 
 ---
 
@@ -24,8 +28,8 @@
 2) 미일치 시 프로그램 탐색(PATH 고정)  
 3) 최종 미해결 시 `unknown command`
 
-- 터미널 응답의 `code` 토큰 규약은 `07_ui_terminal_prototype_godot.md`가 SSOT다.  
-  See DOCS_INDEX.md → 07. (`unknown command`는 `ERR_UNKNOWN_COMMAND`에 대응)
+- 터미널 응답의 `code` 토큰 규약은 `07`가 SSOT다.  
+  See DOCS_INDEX -> 07. (`unknown command`는 `ERR_UNKNOWN_COMMAND`에 대응)
 
 프로그램 탐색 규칙(요약):
 - `PATH = ["/opt/bin"]`
@@ -327,10 +331,10 @@ warning: NEXUS Shell is already running.
 
 #### 추가 규칙
 - `nexus_shell` 실행은 터미널 endpoint/cwd/prompt를 바꾸지 않습니다.
-- `nexus_shell`은 shell workspace의 **진입 프로그램**일 뿐이며, pane layout / taskbar / maximize / restore / focus / persistence 세부 규칙은 `13_nexus_shell_workspace_contract.md`를 따릅니다.
-  See DOCS_INDEX.md -> 13.
-- `nexus_shell` 파일이 언제 제공되는지, 시작 시점에 존재하는지, 어떤 온보딩 흐름으로 복구/해금되는지는 `15_game_flow_design.md` 및 시나리오 문서를 따릅니다.
-  See DOCS_INDEX.md -> 15.
+- `nexus_shell`은 shell workspace의 **진입 프로그램**일 뿐이며, pane layout / taskbar / maximize / restore / focus / persistence 세부 규칙은 `13`를 따릅니다.
+  See DOCS_INDEX -> 13.
+- `nexus_shell` 파일이 언제 제공되는지, 시작 시점에 존재하는지, 어떤 온보딩 흐름으로 복구/해금되는지는 `15` 및 시나리오 문서를 따릅니다.
+  See DOCS_INDEX -> 15.
 
 ---
 
@@ -379,5 +383,7 @@ password_breaker <num> <target> [userId]
 #### 부작용/연동 규칙
 - 이 프로그램의 각 시도는 `ssh.connect` 시도와 동일하게 취급됩니다.
   - SSH 로그인 UI 트리거, 인증 실패 로그/trace, 레이트리밋/락아웃 규칙이 동일하게 적용됩니다.
-  - 관련 상세 계약은 `03_game_api_modules.md`/`07_ui_terminal_prototype_godot.md`/`13_nexus_shell_workspace_contract.md`를 따릅니다.
-    See DOCS_INDEX.md → 03, 07, 13.
+  - 관련 상세 계약은 `03`/`07`/`13`를 따릅니다.
+    See DOCS_INDEX -> 03, 07, 13.
+ 
+

@@ -1,13 +1,17 @@
-# 108_developer_tools_hub.md
+﻿# 108_developer_tools_hub.md
+
+Purpose: Tier 2 feature hub for developer tooling direction and debug-only startpoint override planning.
+Keywords: developer tools, feature hub, debug boot, startpoint override, direct-to-shell, development entry, boot mode, debug flow
+Aliases: dev tools hub, debug boot hub
 
 - 문서 버전: v0.1-draft
 - 문서 역할: **Tier 2 Feature Hub**
 - 상태: ACTIVE (draft)
 - 관련 Tier 1 문서:
-  - `15_game_flow_design.md` — 정식 플레이 흐름, pre-shell 온보딩, shell 도입 타이밍
-  - `13_nexus_shell_workspace_contract.md` — shell bootstrap 상태와 workspace 의미 규칙
-  - `16_profile_workspace_persistence_contract.md` — profile/workspace 복원 기반 시작점의 경계
-  - `12_save_load_persistence_spec_v0_5.md` — gameplay save/load 기반 시작점 복원의 경계
+  - `15` — 정식 플레이 흐름, pre-shell 온보딩, shell 도입 타이밍
+  - `13` — shell bootstrap 상태와 workspace 의미 규칙
+  - `16` — profile/workspace 복원 기반 시작점의 경계
+  - `12` — gameplay save/load 기반 시작점 복원의 경계
 
 ---
 
@@ -41,7 +45,7 @@
 ## 2. 현재 확정 방향
 
 ### 2.1 정식 플레이 흐름 유지
-- 배포/정식 플레이 흐름은 계속 `15_game_flow_design.md`를 따른다.
+- 배포/정식 플레이 흐름은 계속 `15`를 따른다.
 - 이 허브의 목적은 정식 시작 구조를 바꾸는 것이 아니다.
 
 ### 2.2 개발 중에만 허용
@@ -69,28 +73,28 @@
 **shell을 막 실행한 직후의 기본 작업 환경**에서 바로 테스트를 시작할 수 있어야 한다.
 
 이때 shell bootstrap의 concrete state는 이 문서가 정하지 않는다.
-Canonical rule은 `13_nexus_shell_workspace_contract.md`를 따른다.
+Canonical rule은 `13`를 따른다.
 
 ---
 
 ## 4. 문서 소유권 경계
 
-### 4.1 `15_game_flow_design.md`
+### 4.1 `15`
 소유 내용:
 - 플레이어가 실제로 어디서부터 시작하는가
 - pre-shell 온보딩과 shell 도입의 정식 경험
 
-### 4.2 `13_nexus_shell_workspace_contract.md`
+### 4.2 `13`
 소유 내용:
 - shell bootstrap 상태
 - direct-to-shell 진입 시 사용되는 canonical workspace 의미 규칙
 
-### 4.3 `16_profile_workspace_persistence_contract.md`
+### 4.3 `16`
 소유 내용:
 - profile/workspace 복원 기반 시작점
 - 저장된 UI 상태를 hydrate/sanitize하여 복원하는 경계
 
-### 4.4 `12_save_load_persistence_spec_v0_5.md`
+### 4.4 `12`
 소유 내용:
 - gameplay save/load를 통한 시작점 복원
 - world/progression/runtime state 복원 경계
@@ -136,14 +140,16 @@ Canonical rule은 `13_nexus_shell_workspace_contract.md`를 따른다.
 
 ## 7. 권장 읽기 순서
 
-1. 이 문서 (`108_developer_tools_hub.md`)
-2. `15_game_flow_design.md`
-3. `13_nexus_shell_workspace_contract.md`
-4. `16_profile_workspace_persistence_contract.md`
-5. `12_save_load_persistence_spec_v0_5.md`
+1. 이 문서 (`108`)
+2. `15`
+3. `13`
+4. `16`
+5. `12`
 
 ---
 
 ## 8. 한 줄 결론
 
 **개발자용 direct-to-shell 시작점은 정식 플레이 흐름을 대체하는 기능이 아니라, shell 반복 테스트 속도를 높이기 위한 개발 전용 우회 진입점이다.**
+ 
+

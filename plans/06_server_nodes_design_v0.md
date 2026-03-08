@@ -1,5 +1,9 @@
 ﻿# 서버 노드 설계 문서 (프로토타입 v0.2)
 
+Purpose: Historical prototype server-node scenario data examples aligned against blueprint and runtime schemas.
+Keywords: server node, scenario example, prototype data, blueprint alignment, runtime alignment, ssh service, network graph, world data
+Aliases: legacy node design
+
 목적: **쉬움 / 중간 / 어려움(v0)** 3개 시나리오를 실행하기 위한 서버 노드 데이터를 정리한다.  
 이 문서는 Blueprint(10) + Runtime(09) 정합성 기준으로 작성된 **시나리오 데이터 예시**다.
 
@@ -354,3 +358,5 @@ SessionHandler 반환 규칙(v0.2):
 - [ ] 시스템콜 미일치 시 `cwd`/`PATH(/opt/bin)` 순서로 프로그램 탐색 실행
 - [ ] 상대경로 실행(`../prog`, `./dir/prog`) 동작 확인
 - [ ] 프로젝트 `DEBUG` 옵션 ON 시에만 `DEBUG_miniscript <script>` 시스템콜 활성화(개발/검증 전용)
+ 
+

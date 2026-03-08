@@ -1,4 +1,8 @@
-# 12 — Save Slot Persistence Contract v0.5 (Alpha Redraft)
+﻿# 12 — Save Slot Persistence Contract v0.5 (Alpha Redraft)
+
+Purpose: Gameplay save-slot persistence contract for world state, exclusion boundaries, versioning, and load reconstruction.
+Keywords: save slot, gameplay persistence, load reconstruction, snapshot format, world state, server state, profile boundary, save versioning
+Aliases: save/load contract
 
 - 문서 상태: REDRAFT
 - 대상 엔진: Godot 4.6 / C#
@@ -7,12 +11,12 @@
 - 본 문서는 기존 v0.1 내용을 알파 기준으로 재정의한 v0.5 초안이다.
 
 > 관련 문서
-> - Shell workspace / pane 상태 계약: `13_nexus_shell_workspace_contract.md`
-> - 공식 프로그램 계약 (`nexus_shell` 포함): `14_official_programs.md`
-> - 플레이어 여정 / shell 도입 흐름: `15_game_flow_design.md`
-> - 터미널 명령 / `run` launcher: `07_ui_terminal_prototype_godot.md`
-> - 서버 런타임 스키마: `09_server_node_runtime_schema_v0.md`
-> - 이벤트/프로세스 런타임: `11_event_handler_spec_v0_1.md`
+> - Shell workspace / pane 상태 계약: `13`
+> - 공식 프로그램 계약 (`nexus_shell` 포함): `14`
+> - 플레이어 여정 / shell 도입 흐름: `15`
+> - 터미널 명령 / `run` launcher: `07`
+> - 서버 런타임 스키마: `09`
+> - 이벤트/프로세스 런타임: `11`
 
 ---
 
@@ -388,3 +392,5 @@ workspace restore 시 다음과 같은 sanitize는 save slot 문서가 아니라
 - [ ] `nexus_shell` 부재 save(디버그/예외 상황) 로드 시 terminal-only fallback 검증
 - [ ] profile/workspace 파일이 없어도 save slot 자체는 정상 로드되는지 검증
 - [ ] invalid workspace restore 참조가 있어도 save slot 로드 자체는 실패하지 않는지 검증
+ 
+

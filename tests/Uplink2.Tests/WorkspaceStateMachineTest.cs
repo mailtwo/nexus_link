@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Uplink2.Runtime.Workspace;
@@ -174,6 +175,115 @@ public sealed class WorkspaceStateMachineTest
         AssertInvariantHolds(snapshot);
     }
 
+    /// <summary>Ensures a sanitized effective snapshot can replace the current state in one operation.</summary>
+    [Fact]
+    public void ReplaceState_AppliesValidEffectiveSnapshot()
+    {
+        var stateMachine = new WorkspaceStateMachine();
+        var replacement = CreateSnapshot(
+            WorkspaceMode.Docked,
+            WorkspacePaneKind.WorldMapTrace,
+            0.36f,
+            0.64f,
+            new Dictionary<DockSlot, WorkspaceDockSlotState>
+            {
+                [DockSlot.Left] = CreateSlotState(
+                    DockSlot.Left,
+                    [WorkspacePaneKind.Terminal, WorkspacePaneKind.Mail],
+                    WorkspacePaneKind.Terminal),
+                [DockSlot.RightTop] = CreateSlotState(
+                    DockSlot.RightTop,
+                    [WorkspacePaneKind.WorldMapTrace],
+                    WorkspacePaneKind.WorldMapTrace),
+                [DockSlot.RightBottom] = CreateSlotState(
+                    DockSlot.RightBottom,
+                    [],
+                    null),
+            },
+            [WorkspacePaneKind.Terminal, WorkspacePaneKind.Mail]);
+
+        var changed = stateMachine.ReplaceState(replacement);
+
+        Assert.True(changed);
+        AssertSnapshotsEqual(replacement, stateMachine.GetSnapshot());
+    }
+
+    /// <summary>Ensures invalid effective snapshots are rejected instead of partially applying.</summary>
+    [Fact]
+    public void ReplaceState_RejectsDuplicateResidentPaneAcrossSlots()
+    {
+        var stateMachine = new WorkspaceStateMachine();
+        var invalid = CreateSnapshot(
+            WorkspaceMode.Docked,
+            null,
+            0.42f,
+            0.55f,
+            new Dictionary<DockSlot, WorkspaceDockSlotState>
+            {
+                [DockSlot.Left] = CreateSlotState(
+                    DockSlot.Left,
+                    [WorkspacePaneKind.Terminal],
+                    WorkspacePaneKind.Terminal),
+                [DockSlot.RightTop] = CreateSlotState(
+                    DockSlot.RightTop,
+                    [WorkspacePaneKind.Terminal],
+                    WorkspacePaneKind.Terminal),
+                [DockSlot.RightBottom] = CreateSlotState(
+                    DockSlot.RightBottom,
+                    [],
+                    null),
+            },
+            [WorkspacePaneKind.Terminal]);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => stateMachine.ReplaceState(invalid));
+
+        Assert.Contains("appears in more than one slot", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures non-resident maximized panes are rejected by ReplaceState.</summary>
+    [Fact]
+    public void ReplaceState_RejectsNonResidentMaximizedPane()
+    {
+        var stateMachine = new WorkspaceStateMachine();
+        var invalid = CreateSnapshot(
+            WorkspaceMode.Maximized,
+            WorkspacePaneKind.WorldMapTrace,
+            0.42f,
+            0.55f,
+            new Dictionary<DockSlot, WorkspaceDockSlotState>
+            {
+                [DockSlot.Left] = CreateSlotState(
+                    DockSlot.Left,
+                    [WorkspacePaneKind.Terminal],
+                    WorkspacePaneKind.Terminal),
+                [DockSlot.RightTop] = CreateSlotState(
+                    DockSlot.RightTop,
+                    [],
+                    null),
+                [DockSlot.RightBottom] = CreateSlotState(
+                    DockSlot.RightBottom,
+                    [],
+                    null),
+            },
+            [WorkspacePaneKind.Terminal]);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => stateMachine.ReplaceState(invalid));
+
+        Assert.Contains("must be resident", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures the runtime wrapper exposes the ReplaceState entry point for sanitized snapshots.</summary>
+    [Fact]
+    public void ShellWorkspaceRuntime_ExposesReplaceStateEntryPoint()
+    {
+        var method = typeof(ShellWorkspaceRuntime).GetMethod(nameof(ShellWorkspaceRuntime.ReplaceState));
+
+        Assert.NotNull(method);
+        Assert.Equal(typeof(bool), method!.ReturnType);
+        Assert.Single(method.GetParameters());
+        Assert.Equal(typeof(WorkspaceStateSnapshot), method.GetParameters()[0].ParameterType);
+    }
+
     private static void AssertSingleResidence(WorkspaceStateSnapshot snapshot, WorkspacePaneKind kind)
     {
         var occurrences = snapshot.Slots.Values.Sum(slot => slot.DockStack.Count(candidate => candidate == kind));
@@ -205,6 +315,42 @@ public sealed class WorkspaceStateMachineTest
         if (snapshot.MaximizedPane.HasValue)
         {
             Assert.Contains(snapshot.MaximizedPane.Value, seen);
+        }
+    }
+
+    private static WorkspaceDockSlotState CreateSlotState(
+        DockSlot slot,
+        IReadOnlyList<WorkspacePaneKind> stack,
+        WorkspacePaneKind? activePane)
+    {
+        return new WorkspaceDockSlotState(slot, stack, activePane);
+    }
+
+    private static WorkspaceStateSnapshot CreateSnapshot(
+        WorkspaceMode mode,
+        WorkspacePaneKind? maximizedPane,
+        float leftRatio,
+        float rightTopRatio,
+        IReadOnlyDictionary<DockSlot, WorkspaceDockSlotState> slots,
+        IReadOnlyCollection<WorkspacePaneKind> pinnedSet)
+    {
+        return new WorkspaceStateSnapshot(mode, maximizedPane, leftRatio, rightTopRatio, slots, pinnedSet);
+    }
+
+    private static void AssertSnapshotsEqual(WorkspaceStateSnapshot expected, WorkspaceStateSnapshot actual)
+    {
+        Assert.Equal(expected.Mode, actual.Mode);
+        Assert.Equal(expected.MaximizedPane, actual.MaximizedPane);
+        Assert.Equal(expected.LeftRatio, actual.LeftRatio, 3);
+        Assert.Equal(expected.RightTopRatio, actual.RightTopRatio, 3);
+        Assert.True(
+            new HashSet<WorkspacePaneKind>(expected.PinnedSet).SetEquals(actual.PinnedSet),
+            "Pinned sets should match.");
+
+        foreach (var slot in expected.Slots.Keys.OrderBy(static value => value))
+        {
+            Assert.Equal(expected.Slots[slot].ActivePane, actual.Slots[slot].ActivePane);
+            Assert.Equal(expected.Slots[slot].DockStack, actual.Slots[slot].DockStack);
         }
     }
 }

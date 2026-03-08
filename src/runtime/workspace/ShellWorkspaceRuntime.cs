@@ -43,6 +43,12 @@ public partial class ShellWorkspaceRuntime : Node
         return EmitChangedIfNeeded(stateMachine.ResetToDefaultState());
     }
 
+    /// <summary>Replaces the current runtime state with a fully sanitized effective workspace snapshot.</summary>
+    public bool ReplaceState(WorkspaceStateSnapshot snapshot)
+    {
+        return EmitChangedIfNeeded(stateMachine.ReplaceState(snapshot));
+    }
+
     /// <summary>Activates a pane, opening it when needed.</summary>
     public bool ActivatePane(WorkspacePaneKind kind)
     {

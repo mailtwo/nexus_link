@@ -1,4 +1,7 @@
-# 가상 파일시스템(VFS) 설계 문서 (서버 노드 로컬 디스크 / v0)
+﻿# 가상 파일시스템(VFS) 설계 문서 (서버 노드 로컬 디스크 / v0)
+
+Purpose: Virtual file system and overlay contract for server-local storage, permissions, and file mutation semantics.
+Keywords: virtual file system, VFS overlay, path normalization, file permission, directory entry, overlay merge, executable file, server storage
 
 목적: 서버 노드가 200개+로 늘어나는 상황에서, 공통 기본 파일을 공유하면서도  
 서버별 파일 추가/수정/삭제(기본 파일 삭제 포함) 및 유저 런타임 파일 조작을 지원하는 VFS 구조를 정의한다.  
@@ -81,10 +84,10 @@
 - `ExecutableHardcode`:
   - 파일 내용은 `exec:<executableId>` 텍스트
 - 확장자(예: `.ms`)는 실행 가능성 판정 키가 아니라 표시/편의용 메타데이터로만 취급
-- 실행 파일 해석/디스패처/오류 처리 계약은 `14_official_programs.md`를 따른다.  
-  See DOCS_INDEX.md → 14.
-- `cat`/`edit` 등 시스템콜의 파일종류별 UX는 `07_ui_terminal_prototype_godot.md`를 따른다.  
-  See DOCS_INDEX.md → 07.
+- 실행 파일 해석/디스패처/오류 처리 계약은 `14`를 따른다.  
+  See DOCS_INDEX -> 14.
+- `cat`/`edit` 등 시스템콜의 파일종류별 UX는 `07`를 따른다.  
+  See DOCS_INDEX -> 07.
 
 ---
 
@@ -109,14 +112,14 @@
 
 ### 4.3 find(dir, pattern)
 - `find(dir, pattern)`는 VFS 내부/엔진 보조 API로 정의한다.
-- MiniScript intrinsic `fs.find`의 포함 여부는 `03_game_api_modules.md`를 따른다.
-- 터미널 명령어 `find`의 포함 여부는 `07_ui_terminal_prototype_godot.md`를 따른다.
+- MiniScript intrinsic `fs.find`의 포함 여부는 `03`를 따른다.
+- 터미널 명령어 `find`의 포함 여부는 `07`를 따른다.
 - 구현은 DFS/BFS 재귀 탐색을 권장한다.
 - 자식 목록은 `ls(dir)`를 사용해 tombstone/override를 자동 반영한다.
 
 ### 4.4 프로그램 실행 해석/디스패치 참조
-- 명령 해석 순서(시스템콜 → 프로그램 fallback), PATH 규칙, `ExecutableHardcode` 디스패처 오류 처리 규약은 `14_official_programs.md`를 따른다.  
-  See DOCS_INDEX.md → 14.
+- 명령 해석 순서(시스템콜 → 프로그램 fallback), PATH 규칙, `ExecutableHardcode` 디스패처 오류 처리 규약은 `14`를 따른다.  
+  See DOCS_INDEX -> 14.
 
 ---
 
@@ -206,7 +209,7 @@
 
 ### 6.5 rename/copy 엔진 연산(선택)
 - 엔진 레벨 VFS primitive로 rename/copy를 둘 수 있다.
-- 사용자 명령 노출(`mv`/`cp`)과 UX는 `07_ui_terminal_prototype_godot.md`를 따른다.
+- 사용자 명령 노출(`mv`/`cp`)과 UX는 `07`를 따른다.
 
 ---
 
@@ -232,8 +235,8 @@
 ---
 
 ## 8) 저장/로드 참조
-- 저장 대상/제외, 스냅샷 포맷, 재구축 경계는 `12_save_load_persistence_spec_v0_5.md`가 SSOT다.  
-  See DOCS_INDEX.md → 12.
+- 저장 대상/제외, 스냅샷 포맷, 재구축 경계는 `12`가 SSOT다.  
+  See DOCS_INDEX -> 12.
 - 본 문서는 VFS **런타임 의미/자료구조**만 정의하며 저장 정책은 재정의하지 않는다.
 
 ---
@@ -249,3 +252,5 @@
 - [ ] BlobStore(refCount) 기본 동작 + overlay 파일 교체/삭제 시 refCount 감소
 - [ ] `EntryMeta.size(Optional[int])` + `realSize` 분리 규칙 반영
 - [ ] `fileKind` 확장 반영(`ExecutableScript`, `ExecutableHardcode`)
+ 
+

@@ -1,4 +1,8 @@
-# 13 — NEXUS Shell Workspace Contract (Alpha Redraft)
+﻿# 13 — NEXUS Shell Workspace Contract (Alpha Redraft)
+
+Purpose: Shell workspace, layout, pane lifecycle, taskbar, and workspace-level UI behavior contract.
+Keywords: shell workspace, dock slot, dock stack, taskbar, maximized pane, toast, activity popup, system pane, pane lifecycle
+Aliases: shell UI, pane layout
 
 - 문서 상태: REDRAFT
 - 대상 엔진: Godot 4.6
@@ -6,10 +10,10 @@
 - 문서 목적: NEXUS Shell workspace의 레이아웃, pane 타입, 상태 모델, taskbar/start menu, toast/activity popup, settings system pane, 저장/복원 요구사항을 구현 가능한 수준으로 명문화한다.
 
 > 관련 문서
-> - 터미널 명령 / system call 계약: `07_ui_terminal_prototype_godot.md`
-> - 저장/복원 경계: `12_save_load_persistence_spec_v0_5.md`
-> - 공식 프로그램 계약: `14_official_programs.md`
-> - 플레이어 여정 / 온보딩: `15_game_flow_design.md`
+> - 터미널 명령 / system call 계약: `07`
+> - 저장/복원 경계: `12`
+> - 공식 프로그램 계약: `14`
+> - 플레이어 여정 / 온보딩: `15`
 
 ---
 
@@ -585,6 +589,23 @@ shell 첫 bootstrap state는 아래로 고정한다.
 - pane availability sanitize
 - save/load 및 profile persistence 연결
 
+### 18.5 2단계 hydrate/sanitize 코어 메모
+2단계 구현에서는 1단계 canonical state 위에 **availability-aware hydrate/sanitize 계층**을 추가한다.
+
+권장 코드 명칭:
+- `WorkspaceStoredState`
+- `WorkspaceStoredDockSlotState`
+- `WorkspacePaneStateTable`
+- `WorkspaceHydrationResult`
+- `WorkspaceStateHydrator`
+
+이 계층은 stored state를 current availability 기준으로 sanitize하여, 실제 runtime이 바로 적용할 수 있는 effective state를 만든다.
+
+추가 구현 메모:
+- `ReplaceState`는 raw stored state가 아니라 **sanitize 완료된 effective `WorkspaceStateSnapshot`** 만 받는다.
+- pane availability는 hydrate 단계 입력으로 주입되며, 현재 save에서 unavailable pane은 resident layout에서 제거된다.
+- 이 단계의 목적은 파일 I/O가 아니라, stored preference를 runtime-safe state로 바꾸는 엔진 코어를 분리하는 것이다.
+
 ---
 
 ## 19. 알파 범위의 단축키
@@ -657,3 +678,5 @@ shell 첫 bootstrap state는 아래로 고정한다.
 - input-pane-aware safe zone generalization
 - more activity popup kinds
 - modal dialog 필요성 재평가
+ 
+

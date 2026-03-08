@@ -1,4 +1,8 @@
-# 16 — Profile / Workspace Persistence Contract (Alpha Redraft)
+﻿# 16 — Profile / Workspace Persistence Contract (Alpha Redraft)
+
+Purpose: Profile options and workspace UI persistence contract outside gameplay save slots.
+Keywords: profile persistence, workspace persistence, TOML profile, options state, workspace UI state, hydrate, sanitize, pane state
+Aliases: profile/workspace save, UI persistence
 
 - 문서 상태: REDRAFT
 - 문서 계층: Tier 1 SSOT
@@ -7,10 +11,10 @@
 - 문서 목적: **save slot과 분리된 사용자 전역 profile/options 및 NEXUS Shell workspace UI 상태의 저장/복원 계약**을 정의한다.
 
 > 관련 문서
-> - save slot persistence: `12_save_load_persistence_spec_v0_5.md`
-> - workspace 상태 의미 계약: `13_nexus_shell_workspace_contract.md`
-> - 공식 프로그램 계약 (`nexus_shell` 포함): `14_official_programs.md`
-> - 플레이어 여정 / shell 도입 흐름: `15_game_flow_design.md`
+> - save slot persistence: `12`
+> - workspace 상태 의미 계약: `13`
+> - 공식 프로그램 계약 (`nexus_shell` 포함): `14`
+> - 플레이어 여정 / shell 도입 흐름: `15`
 
 ---
 
@@ -50,7 +54,7 @@
 ## 1. 12 / 13 / 16 문서 경계
 
 ### 1.1 12가 소유하는 것
-`12_save_load_persistence_spec_v0_5.md`는 아래만 소유한다.
+`12`는 아래만 소유한다.
 - 월드 진행 상태
 - 서버 mutable state
 - 프로세스/로그/플래그
@@ -58,7 +62,7 @@
 - shell 사용 가능 여부를 유도할 수 있는 world facts
 
 ### 1.2 13이 소유하는 것
-`13_nexus_shell_workspace_contract.md`는 아래 의미 규칙을 소유한다.
+`13`는 아래 의미 규칙을 소유한다.
 - `WorkspaceMode`
 - `MaximizedPane`
 - dock slot 구조
@@ -411,13 +415,14 @@ hydrate 시 엔진은 current save 기준으로 availability를 계산한 뒤 Ef
 
 sanitize 규칙:
 1. unavailable pane은 visible/resident layout에서 제외한다.
-2. 어떤 slot의 `active`가 unavailable이면, 같은 slot stack의 다음 eligible pane으로 fallback 시도한다.
-3. fallback 가능한 pane이 없으면 empty slot을 표시한다.
-4. `workspace.maximized_pane`이 unavailable이면:
+2. 같은 pane이 여러 slot/stack에 중복 저장돼 있으면, `LEFT -> RIGHT_TOP -> RIGHT_BOTTOM` 순서와 각 stack 내부 순서를 기준으로 **첫 등장만 유지**하고 나머지는 제거한다.
+3. 어떤 slot의 `active`가 unavailable이거나 sanitize 후 stack에 존재하지 않으면, 해당 slot의 **첫 eligible pane**으로 fallback 시도한다.
+4. fallback 가능한 pane이 없으면 empty slot을 표시한다.
+5. `workspace.maximized_pane`이 unavailable이면:
    - `workspace.mode = DOCKED`
    - `maximized_pane = none`
-5. `PinnedSet`의 unavailable pane은 **stored preference로는 유지 가능**하나, 현재 taskbar에는 표시하지 않는다.
-6. pane-local state table은 unavailable pane에 대해 load 시 무시할 수 있다. 저장된 table 자체는 삭제하지 않아도 된다.
+6. `PinnedSet`의 unavailable pane은 **stored preference 및 effective pinned preference로는 유지 가능**하나, 현재 taskbar에는 표시하지 않는다.
+7. pane-local state table은 unavailable pane에 대해 load 시 무시할 수 있다. 저장된 table 자체는 삭제하지 않아도 된다.
 
 ### 9.4 mid-session capability gain
 게임 도중 어떤 pane이 newly available이 되어도, 엔진은 그 pane을 자동으로 열 필요가 없다.
@@ -477,7 +482,7 @@ profile TOML이 없으면 아래 기본값을 사용한다.
 - unknown top-level key: 무시 가능
 - invalid enum/string: default fallback
 - invalid slot name: 무시
-- duplicate pane across multiple stacks: sanitize 시 한 곳만 유지하고 나머지 제거
+- duplicate pane across multiple stacks: sanitize 시 첫 등장만 유지하고 나머지 제거
 - `active`가 stack에 없는 경우: stack의 첫 eligible pane으로 fallback, 없으면 empty slot
 
 ### 11.3 invalid `maximized_pane`
@@ -564,3 +569,4 @@ profile TOML이 없으면 아래 기본값을 사용한다.
 - [ ] pane availability sanitize 구현
 - [ ] pane-local save/restore delegation API 추가
 - [ ] reset options / reset layout / full reset 구현
+

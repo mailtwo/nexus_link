@@ -1,4 +1,8 @@
-# UI 기획 문서: 터미널 기반 프로토타입 (Godot / PC)
+﻿# UI 기획 문서: 터미널 기반 프로토타입 (Godot / PC)
+
+Purpose: Terminal command UX and system-call contract for the Godot terminal prototype.
+Keywords: terminal command, system call, command parsing, shell built-in, run launcher, editor mode, terminal scene, debug command
+Aliases: terminal UX, command contract
 
 목표: **가상 리눅스 터미널 1개 화면**만으로 “서버 1대 침투 시나리오”를 빠르게 검증하는 MVP를 만든다.  
 플랫폼: **PC 전용(Windows)**.  
@@ -121,8 +125,7 @@ TerminalScene (Control)
   - `ERR_RATE_LIMITED`
   - `ERR_TOO_LARGE`
   - `ERR_INTERNAL_ERROR`
-- MiniScript intrinsic의 공통 에러 코드 표면은 `03_game_api_modules.md`를 따른다.  
-  See DOCS_INDEX.md → 03.
+- MiniScript intrinsic의 공통 에러 코드 표면은 See DOCS_INDEX -> 03을 따른다.
 
 ---
 
@@ -188,9 +191,9 @@ TerminalScene (Control)
   - probe 간격은 Linux 기본 동작에 맞춰 1초이며, 각 probe 시점마다 대상 서버 상태를 재평가한다.
 - `connect [(-p|--port) <port>] <host|ip> <user> <password>`: 원격 서버에 SSH 접속하고 터미널 컨텍스트를 전환한다. 기본 포트는 `22`다.
   - 예시: `connect 10.0.1.20 guest guest`, `connect -p 2222 10.0.1.20 guest guest`
-  - 실패 코드 매핑은 `03_game_api_modules.md` §5.1을 따른다: exposure 거부 `ERR_NET_DENIED`, 인증 실패 `ERR_AUTH_FAILED`, connectionRateLimiter 차단 `ERR_RATE_LIMITED`.
+  - 실패 코드 매핑은 See DOCS_INDEX -> 03 §5.1을 따른다: exposure 거부 `ERR_NET_DENIED`, 인증 실패 `ERR_AUTH_FAILED`, connectionRateLimiter 차단 `ERR_RATE_LIMITED`.
 - `disconnect`: 현재 원격 SSH 세션을 종료하고 이전 컨텍스트(로컬 또는 이전 hop)로 복귀한다.
-  - SessionHistoryStore/ActiveSessionIndex 갱신 및 forensic handoff 내부 규칙은 `11_event_handler_spec_v0_1.md`를 따른다. See DOCS_INDEX.md → 11.
+  - SessionHistoryStore/ActiveSessionIndex 갱신 및 forensic handoff 내부 규칙은 See DOCS_INDEX -> 11을 따른다.
 - `known`: 플레이어가 파악한 public 호스트/IP 목록을 표 형식으로 출력한다.
 - `scan [netId]`: 인접 서버를 스캔해 인터페이스별 이웃을 출력한다. 실행 권한(`execute`)이 필요하다.
 - `ftp [(-p|--port) <port>] <get|put> <pathA> [<pathB>]`: SSH 연결 상태에서 파일을 전송한다. `get`은 원격→로컬, `put`은 로컬→원격이며 기본 포트는 `21`이다.
@@ -207,7 +210,7 @@ TerminalScene (Control)
     - 초반 온보딩/튜토리얼/README에서는 프로그램 실행의 대표 문법으로 `run ...` 형태를 우선 사용한다.
   - 해석 규칙:
     - `programOrPath`에 `/`가 포함되면 직접 경로 실행으로 해석한다.
-    - `/`가 없으면 프로그램 이름으로 해석하고, 프로그램 탐색 규칙은 `14_official_programs.md`의 프로그램 탐색 규칙을 따른다.
+    - `/`가 없으면 프로그램 이름으로 해석하고, 프로그램 탐색 규칙은 See DOCS_INDEX -> 14의 프로그램 탐색 규칙을 따른다.
   - 실패 처리:
     - 실행 가능한 프로그램을 찾지 못하면 `ERR_UNKNOWN_COMMAND`에 대응하는 사용자 메시지를 출력한다.
     - 프로그램은 존재하지만 실행 권한이 없으면 `ERR_PERMISSION_DENIED`를 반환할 수 있다.
@@ -215,7 +218,7 @@ TerminalScene (Control)
     - `run` 뒤의 나머지 토큰은 대상 프로그램의 argv로 그대로 전달한다.
   - 주의:
     - `run` 자체는 launcher이며, 개별 프로그램의 동작/출력/에러 계약은 각 프로그램의 contract 문서를 따른다.
-    - 예: `nexus_shell`, `inspect`, `miniscript`, `password_breaker`의 세부 계약은 `14_official_programs.md`를 참조한다.
+    - 예: `nexus_shell`, `inspect`, `miniscript`, `password_breaker`의 세부 계약은 See DOCS_INDEX -> 14를 참조한다.
 
 - `./<program> [args...]`: 현재 경로 기준의 직접 실행 문법도 지원한다.
   - 예시:
@@ -230,18 +233,15 @@ TerminalScene (Control)
     - 초반 플레이어 유도/문서/README에서는 `run ...` 문법을 우선 사용하고,
       `./...` 문법은 고급/저수준 실행 문법으로 함께 지원한다.
 - `[옵션: DEBUG]` `DEBUG_miniscript <script>`: 개발/검증 전용 시스템콜이다. `DebugOption`이 켜진 런타임에서만 활성화된다.
-- `run`, 직접 경로 실행(`./...`)을 통해 호출되는 **프로그램 실행 계약(시스템콜 아님)** 은 `14_official_programs.md`를 따른다.  
-  See DOCS_INDEX.md → 14.
-- MiniScript 전역 `import(name, alias?)` intrinsic의 계약/탐색/오류코드는 `03_game_api_modules.md`가 SSOT다.  
-  See DOCS_INDEX.md → 03.
+- `run`, 직접 경로 실행(`./...`)을 통해 호출되는 **프로그램 실행 계약(시스템콜 아님)** 은 See DOCS_INDEX -> 14를 따른다.
+- MiniScript 전역 `import(name, alias?)` intrinsic의 계약/탐색/오류코드는 See DOCS_INDEX -> 03이 SSOT다.
 
 ### 6.5 프로토타입 임시 명령
 - 이 명령들은 현재 프로토타입 편의 기능이며, 알파 버전에서 제거 대상이다.
 - `EnablePrototypeSaveLoadSystemCalls`가 켜진 런타임에서만 노출된다.
 - `[임시-제거예정]` `save [0-9]`: 현재 진행 상태를 슬롯(0~9)에 저장한다.
 - `[임시-제거예정]` `load [0-9]`: 슬롯(0~9) 저장 상태를 불러오고 터미널 컨텍스트를 워크스테이션 기준으로 재정렬한다.
-- 저장/불러오기 정책의 SSOT는 `12_save_load_persistence_spec_v0_5.md`를 따른다.  
-  See DOCS_INDEX.md → 12.
+- 저장/불러오기 정책의 SSOT는 See DOCS_INDEX -> 12를 따른다.
 
 ---
 
@@ -288,3 +288,5 @@ TerminalScene (Control)
 - LineEdit: https://docs.godotengine.org/en/stable/classes/class_lineedit.html
 - TextEdit: https://docs.godotengine.org/en/stable/classes/class_textedit.html
 - CodeEdit: https://docs.godotengine.org/en/stable/classes/class_codeedit.html
+ 
+

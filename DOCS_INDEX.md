@@ -53,6 +53,33 @@ Ask:
 
 ---
 
+## Document identifiers and metadata
+
+- **Document numbers are the canonical identifiers.**
+- Tier 1 documents use **two-digit doc IDs**.
+- Tier 2 Feature Hubs use the **100 series**.
+- Assume every document filename starts with its doc ID.
+- In prose, prefer **doc ID references only** (for example: `See DOCS_INDEX -> 13`, `See DOCS_INDEX -> 100`).
+
+### Required metadata block
+Every active `plans/` document must include a short metadata block near the top.
+
+Required fields:
+- `Purpose:` one concise sentence describing what the document owns
+- `Keywords:` 5–10 high-signal search terms
+
+Optional field:
+- `Aliases:` short alternate names only when genuinely useful
+
+Metadata rules:
+- `Keywords` exist for **document discovery and searchability**.
+- `Keywords` are **not** the canonical reference target in body text.
+- When creating a new document, always add its metadata block.
+- When a document’s scope changes materially, update its `Purpose` and `Keywords` accordingly.
+- When searching for relevant documentation, consult `DOCS_INDEX.md` first, then use `Purpose` / `Keywords` / `Aliases` to identify the most relevant document.
+- Prefer stable, canonical terms in `Keywords`. Do not overstuff synonyms or narrative phrases.
+
+
 # TIER 1 — DOMAIN SSOT
 
 These docs own canonical rules.
@@ -95,8 +122,9 @@ These docs own canonical rules.
 
 ### 13 — `13_nexus_shell_workspace_contract.md`
 **Purpose:** Shell workspace / layout / pane-system contract.  
-**Owns:** shell layout rules, dock slot model, pane taxonomy, pane lifecycle, taskbar behavior, toast/activity popup behavior, maximize/restore behavior, system pane behavior, and workspace-side UI semantics.  
-**Must NOT own:** save-slot persistence policy (`12`), profile/workspace persistence container/serialization contract (`16`), command syntax/system-call behavior (`07`), or official-program behavior (`14`).
+**Owns:** shell layout rules, pane lifecycle, toast/activity popup/docked pane behavior, workspace-level UI persistence requirements.  
+**Note:** current file can be re-scoped into this role even if the filename stays temporarily unchanged.  
+**Must NOT own:** save data format, command syntax, official-program behavior.
 
 ### 14 — `14_official_programs.md`
 **Purpose:** contracts for shipped programs (`ExecutableHardcode` / `ExecutableScript`).  
@@ -128,15 +156,9 @@ These docs own canonical rules.
 **Must NOT own:** persistence format, mission-flow intent.
 
 ### 12 — `12_save_load_persistence_spec_v0_5.md`
-**Purpose:** save-slot gameplay persistence contract.  
-**Owns:** what is saved in gameplay save slots, what is excluded from gameplay save slots, slot file format/versioning, and load reconstruction rules for world/progression/runtime mutable state.  
-**Must include:** the rule that profile options and workspace UI state are persisted **out-of-band** from gameplay save slots.  
-**Must NOT own:** profile options persistence, workspace layout/profile persistence, pane-local UI state serialization, taskbar/pin/maximize restoration rules, or TOML profile/workspace file structure. Those belong to `16_profile_workspace_persistence_contract.md` and reference `13_nexus_shell_workspace_contract.md`.
-
-### 16 — `16_profile_workspace_persistence_contract.md`
-**Purpose:** profile options + workspace UI persistence contract (out-of-save-slot).  
-**Owns:** TOML-based profile/workspace persistence, options state container, workspace UI state container, hydrate/sanitize rules, pane-local opaque state tables, reset policy, and compatibility/versioning for profile/workspace data.  
-**Must NOT own:** gameplay save-slot persistence (`12`), workspace meaning/interaction rules (`13`), command syntax (`07`), or official-program behavior contracts (`14`) except by reference.
+**Purpose:** persistence boundaries and save/load policy.  
+**Owns:** what is saved, what is transient, versioning, load reconstruction rules.  
+**Must NOT own:** UI layout interaction rules except by reference to owning UI contract docs.
 
 ---
 
@@ -218,18 +240,69 @@ Tier 2 Feature Hub document numbers use the `100` series to stay visually distin
 
 ## Reference style
 
-When a Tier 2 hub mentions a concrete rule, link the Tier 1 owner and do not restate the rule.
+Use document IDs as the canonical reference target.
 
-Preferred style:
-- `Canonical rule: See Tier 1 -> 07 (07_ui_terminal_prototype_godot.md)`
-- `Persistence boundary: See Tier 1 -> 12 (12_save_load_persistence_spec_v0_5.md)`
-- **Feature-first reading:** For cross-cutting features like NEXUS Shell, start from the Feature Hub doc (e.g. `100_nexus_shell_feature_hub.md`) and follow its linked Tier 1 docs.
+### In body text
+- Refer to documents by **doc ID only**.
+- Preferred style:
+  - `Canonical rule: See DOCS_INDEX -> 07`
+  - `Persistence boundary: See DOCS_INDEX -> 12`
+  - `Related context: See DOCS_INDEX -> 100`
+- Do **not** use document titles or filenames as the primary reference target in body text unless absolutely necessary.
 
----
+### Reference strength
+- **Normative reference**:
+  - Use this when pointing to the document that owns the canonical rule.
+  - Example: `Canonical rule: See DOCS_INDEX -> 13`
+- **Informative reference**:
+  - Use this when pointing to related context that is helpful but does not own the rule.
+  - Example: `Related context: See DOCS_INDEX -> 100`
+
+### Feature-first reading
+- For cross-cutting features like NEXUS Shell, start from the relevant **Tier 2 Feature Hub** and follow its linked Tier 1 docs in order.
+- Example: `Feature-first reading: See DOCS_INDEX -> 100`
+
+### Searchability
+- Discoverability is supported by:
+  - the filename
+  - the document title
+  - the `Purpose`
+  - the `Keywords`
+  - the optional `Aliases`
+- These metadata fields improve document search and routing, but they are **not** the canonical reference target in prose.
+
+### Authoring rule
+- In non-owning docs, do not restate the full rule; add only a short reference.
+- Use **normative references** for the owning Tier 1 doc.
+- Use **informative references** for related Tier 2 hubs or adjacent context.
+
+## Conflict reporting
+
+- If you find inconsistencies, report them by **doc ID** and section, in Korean.
+- Preferred format:
+  - `13 <section> vs 16 <section> - 충돌: <1~2줄 요약>`
 
 ## Editing checklist
 
-1) Is this a concrete rule change? -> edit Tier 1 only  
-2) Is this a cross-system feature coordination change? -> update Tier 2 hub first, then edit linked Tier 1 docs  
-3) Does the feature now touch 3+ Tier 1 docs repeatedly? -> create/update a Tier 2 hub  
-4) If a Tier 2 hub and Tier 1 doc disagree, Tier 1 wins for low-level rules
+1) Is this a concrete rule / schema / API / command / persistence field / engine contract change?  
+   -> Edit the owning **Tier 1** document only.
+
+2) Is this a cross-cutting feature change that spans multiple Tier 1 docs?  
+   -> Start from the relevant **Tier 2** hub, then update the linked Tier 1 docs as needed.
+
+3) Does this feature now touch **3 or more Tier 1 docs repeatedly**?  
+   -> Create or update a **Tier 2** hub.
+
+4) In non-owning docs, do not duplicate the rule.  
+   -> Replace duplication with a short **doc ID reference** only (for example: `Canonical rule: See DOCS_INDEX -> 13`).
+
+5) If document ownership or routing changes, update **DOCS_INDEX.md first**.
+
+6) If a Tier 2 hub and a Tier 1 doc disagree on low-level rules, **Tier 1 wins**.
+
+7) If `DOCS_INDEX.md` and another doc disagree on routing/ownership, **DOCS_INDEX.md wins**.
+
+8) Prefer **normative references** for owner docs and **informative references** for related context.
+
+9) Keep body references **numeric-only**.  
+   -> Use doc IDs as canonical reference targets; rely on filename/title/Purpose/Keywords only for discovery, not for prose references.

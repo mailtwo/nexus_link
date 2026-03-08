@@ -1,4 +1,7 @@
-# Event System / Event Handler Spec v0.1 (MiniScript GuardContent)
+﻿# Event System / Event Handler Spec v0.1 (MiniScript GuardContent)
+
+Purpose: Runtime event dispatch and handler contract for process completion, acquisition events, guard evaluation, and action execution.
+Keywords: event handler, runtime dispatch, process event, privilege acquire, file acquire, guard evaluation, action execution, scheduler
 
 목적: **process(endAt) / privilegeAcquire / fileAcquire**를 한 전역 시스템에서 처리하고, 시나리오(blueprint)의 이벤트 핸들러를 **event-driven**으로 디스패치한다.  
 Codex는 이 문서만 보고 **인덱싱 기반 디스패치 + MiniScript guard 평가 + action 실행**까지 구현할 수 있어야 한다.
@@ -138,8 +141,8 @@ Blueprint v0의 EventBlueprint는 아래 필드가 있다.
 - `actions: List<ActionBlueprint>`
 
 문서 유지보수 규칙:
-- EventBlueprint의 기본 스키마(필드/args 정의)는 `plans/10_blueprint_schema_v0.md`를 단일 소스로 참조한다.
-- 이후 EventBlueprint 스키마 변경 시, `plans/10_blueprint_schema_v0.md`를 우선 갱신하고 본 문서는 확장/런타임 규약만 동기화한다.
+- EventBlueprint의 기본 스키마(필드/args 정의)는 `10`을 단일 소스로 참조한다.
+- 이후 EventBlueprint 스키마 변경 시, `10`을 우선 갱신하고 본 문서는 확장/런타임 규약만 동기화한다.
 
 v0.1에서는 여기에 **guardContent**를 추가한다.
 
@@ -362,8 +365,8 @@ ActionBlueprint (v0): `{ print, setFlag }`
 
 ## 9) Save/Load 참조
 
-저장/로드 범위, 포맷, 재구축 경계는 `12_save_load_persistence_spec_v0_5.md`가 SSOT다.  
-See DOCS_INDEX.md → 12.
+저장/로드 범위, 포맷, 재구축 경계는 `12`가 SSOT다.  
+See DOCS_INDEX -> 12.
 
 본 문서는 런타임 처리 로직만 정의하며, 영속화 항목을 중복 정의하지 않는다.
 Session lineage/forensic runtime state 영속화 상세는 이번 버전에서 deferred이며,
@@ -391,8 +394,8 @@ Session lineage/forensic runtime state 영속화 상세는 이번 버전에서 d
 ## 11) SSH Session Lineage / Forensic Handoff 런타임 규칙
 
 본 섹션은 connect/disconnect에 따른 session lineage 갱신과 forensic handoff 규칙을 정의한다.  
-저장 구조(필드/타입)는 `09_server_node_runtime_schema_v0.md`를 따른다.  
-See DOCS_INDEX.md → 09.
+저장 구조(필드/타입)는 `09`를 따른다.  
+See DOCS_INDEX -> 09.
 
 ### 11.1 Session Open 처리
 
@@ -471,4 +474,6 @@ close 경로와 무관하게 공통으로 아래를 수행한다.
   - subnet/domain 경계 구간: 최소 지연 보장 또는 페널티(`>=1.0`) 적용 가능
 - 이 가중치는 Hot/Forensic/Lock-on 진행 시간 계산에 공통 적용할 수 있다 (MAY).
 - map UI가 visible frontier부터 라인을 그리더라도, 런타임 시간 계산은 논리 route 전체를 기준으로 수행한다.
-- 계수 기본값/상한/정확한 계산식은 `04_attack_routes_and_missions.md`의 튜닝 파라미터를 따른다.
+- 계수 기본값/상한/정확한 계산식은 `04`의 튜닝 파라미터를 따른다.
+ 
+

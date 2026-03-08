@@ -1,14 +1,18 @@
-# 100_nexus_shell_feature_hub.md
+﻿# 100_nexus_shell_feature_hub.md
+
+Purpose: Tier 2 feature hub for NEXUS Shell as the main player workspace across onboarding, commands, programs, and persistence.
+Keywords: nexus shell, feature hub, shell unlock, workspace hub, taskbar, pane system, command parity, workspace restore
+Aliases: shell feature hub, nexus hub
 
 - 문서 버전: v0.1-draft
 - 문서 역할: **Tier 2 Feature Hub**
 - 상태: ACTIVE (draft)
 - 관련 Tier 1 문서:
-  - `13_nexus_shell_workspace_contract.md` — NEXUS Shell workspace / pane / taskbar / toast / activity popup / system pane 계약
-  - `07_ui_terminal_prototype_godot.md` — 터미널 명령 / system call / command UX 계약
-  - `14_official_programs.md` — `nexus_shell` 및 관련 공식 프로그램 계약
-  - `12_save_load_persistence_spec_v0_5.md` — shell/workspace 복원 경계 및 persistence 정책
-  - `15_game_flow_design.md` — shell 도입 시점, 온보딩 흐름, 1차 라이선스까지의 플레이어 여정
+  - `13` — NEXUS Shell workspace / pane / taskbar / toast / activity popup / system pane 계약
+  - `07` — 터미널 명령 / system call / command UX 계약
+  - `14` — `nexus_shell` 및 관련 공식 프로그램 계약
+  - `12` — shell/workspace 복원 경계 및 persistence 정책
+  - `15` — shell 도입 시점, 온보딩 흐름, 1차 라이선스까지의 플레이어 여정
 
 ---
 
@@ -145,7 +149,7 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 
 ## 7. 관련 Tier 1 문서와 소유권
 
-### 7.1 `13_nexus_shell_workspace_contract.md`
+### 7.1 `13`
 **소유 내용:**
 - shell workspace layout
 - dock slot / dock stack / active pane
@@ -153,25 +157,25 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 - toast / activity popup / system pane 규칙
 - focus 표시 / empty slot / pin/unpin / taskbar feedback
 
-### 7.2 `07_ui_terminal_prototype_godot.md`
+### 7.2 `07`
 **소유 내용:**
 - shell에 진입하거나 pane을 호출하는 command/system call
 - 터미널 command parity
 - 터미널 입력/출력 UX
 
-### 7.3 `14_official_programs.md`
+### 7.3 `14`
 **소유 내용:**
 - `run nexus_shell`이 공식 프로그램일 경우 그 계약
 - `nexus_shell` 실행 가능 시점/형태/에러 semantics
 - 관련 공식 프로그램(예: inspect, viewer, shell launcher 등)의 계약
 
-### 7.4 `12_save_load_persistence_spec_v0_5.md`
+### 7.4 `12`
 **소유 내용:**
 - shell/workspace에서 저장되는 것과 저장되지 않는 것
 - layout restore boundary
 - activity popup / toast / maximized context / pane visibility의 persistence 경계
 
-### 7.5 `15_game_flow_design.md`
+### 7.5 `15`
 **소유 내용:**
 - shell이 언제 등장하는가
 - terminal-only 시작에서 shell unlock까지의 흐름
@@ -182,25 +186,25 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 ## 8. 권장 읽기 순서
 
 ### 8.1 shell 자체를 이해할 때
-1. 이 문서 (`100_nexus_shell_feature_hub.md`)
-2. `13_nexus_shell_workspace_contract.md`
-3. `07_ui_terminal_prototype_godot.md`
-4. `14_official_programs.md`
-5. `12_save_load_persistence_spec_v0_5.md`
-6. `15_game_flow_design.md`
+1. 이 문서 (`100`)
+2. `13`
+3. `07`
+4. `14`
+5. `12`
+6. `15`
 
 ### 8.2 shell 구현을 시작할 때
-1. `13_nexus_shell_workspace_contract.md`
-2. `07_ui_terminal_prototype_godot.md`
-3. `14_official_programs.md`
-4. `12_save_load_persistence_spec_v0_5.md`
+1. `13`
+2. `07`
+3. `14`
+4. `12`
 
 ### 8.3 shell unlock / 온보딩을 설계할 때
-1. `15_game_flow_design.md`
-2. 이 문서 (`100_nexus_shell_feature_hub.md`)
-3. `13_nexus_shell_workspace_contract.md`
-4. `14_official_programs.md`
-5. `07_ui_terminal_prototype_godot.md`
+1. `15`
+2. 이 문서 (`100`)
+3. `13`
+4. `14`
+5. `07`
 
 ---
 
@@ -228,28 +232,28 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 - README 직후인지
 - 첫 계약 중간인지
 - 1차 라이선스 직전/직후인지
-- 정확한 소유 문서: `15_game_flow_design.md`
+- 정확한 소유 문서: `15`
 
 ### 10.2 `nexus_shell`의 프로그램 형태
 - 실제로 `run nexus_shell` 형태인지
 - 어떤 공식 프로그램 계약으로 소유할지
-- 정확한 소유 문서: `14_official_programs.md`
+- 정확한 소유 문서: `14`
 
 ### 10.3 shell command parity 범위
 - 어떤 pane들이 command로 열리는지
 - focus/open/toggle semantics를 어디까지 맞출지
-- 정확한 소유 문서: `07_ui_terminal_prototype_godot.md`
+- 정확한 소유 문서: `07`
 
 ### 10.4 persistence 상세
 - 어떤 pane visibility/state가 save 대상인지
 - maximized context 저장 여부
 - activity popup/ toast restore 여부
-- 정확한 소유 문서: `12_save_load_persistence_spec_v0_5.md`
+- 정확한 소유 문서: `12`
 
 ### 10.5 panel catalog 고정 범위
 - 알파에 실제로 어떤 pane들이 포함되는지
 - 베타 이후 reserved pane은 무엇인지
-- 정확한 소유 문서: `13_nexus_shell_workspace_contract.md` + `15_game_flow_design.md`
+- 정확한 소유 문서: `13` + `15`
 
 ---
 
@@ -266,14 +270,16 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 
 현재 상태에서 다음 작업은 아래 순서가 자연스럽다.
 
-1. `13_nexus_shell_workspace_contract.md`를 shell workspace contract 방향으로 재정의/정리
-2. `15_game_flow_design.md`에 shell unlock / shell 통합 흐름 반영
-3. `14_official_programs.md`에 `nexus_shell` 프로그램 계약 반영
-4. `07_ui_terminal_prototype_godot.md`에 shell 관련 command parity/entry point 반영
-5. `12_save_load_persistence_spec_v0_5.md`에 shell restore boundary 반영
+1. `13`를 shell workspace contract 방향으로 재정의/정리
+2. `15`에 shell unlock / shell 통합 흐름 반영
+3. `14`에 `nexus_shell` 프로그램 계약 반영
+4. `07`에 shell 관련 command parity/entry point 반영
+5. `12`에 shell restore boundary 반영
 
 ---
 
 ## 13. 한 줄 결론
 
 **NEXUS Shell은 터미널을 대체하는 GUI가 아니라, 터미널 중심 해킹 플레이를 유지하면서 워크스테이션 감각과 정보 가시성을 제공하는 기능 허브다.**
+ 
+

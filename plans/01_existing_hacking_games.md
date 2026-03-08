@@ -1,4 +1,7 @@
-# 기존 해킹/코딩 게임 레퍼런스 정리
+﻿# 기존 해킹/코딩 게임 레퍼런스 정리
+
+Purpose: Reference research on comparable hacking/coding games and the design lessons to adopt or avoid.
+Keywords: reference research, hacking game, coding game, uplink, hacknet, gameplay comparison, progression loop, automation risk
 
 이 문서는 **장르 레퍼런스에서 검증된 재미 요소**를 추출하고, 우리 게임에 적용할 때의 주의점(특히 자동화 과몰입, 콘텐츠 소모 속도)을 정리한다.
 
@@ -96,3 +99,5 @@ Hacknet (Wiki): https://en.wikipedia.org/wiki/Hacknet
 Bitburner (Steam): https://store.steampowered.com/app/1812820/Bitburner/
 Bitburner Docs (Scripts): https://bitburner-fork-oddiz.readthedocs.io/en/stable/basicgameplay/scripts.html
 ```
+ 
+

@@ -1,5 +1,8 @@
 ﻿# 서버 노드 런타임 데이터 스키마 v0.2 (Godot/PC, C#)
 
+Purpose: Runtime server-node storage schema for world state containers, indexes, and mutable node data.
+Keywords: server node schema, runtime storage, world runtime, server list, ip index, process list, account data, interface data
+
 목적: 게임 실행 중(World runtime) 각 서버 노드가 유지해야 하는 **저장 상태 필드/구조**를 `10` 문서와 정합되게 정의한다.  
 Codex는 이 문서를 기준으로 런타임 데이터 컨테이너(월드 `serverList`, `ipIndex`, `processList`)의 **스키마**를 구현할 수 있어야 한다.
 
@@ -7,7 +10,7 @@ Codex는 이 문서를 기준으로 런타임 데이터 컨테이너(월드 `ser
 - 플랫폼: PC
 - 엔진: Godot(로직 C#)
 - 실제 OS/네트워크 접근 없음(전부 가상)
-- 저장/로드 범위/포맷/재구축 경계는 `12_save_load_persistence_spec_v0_5.md`를 따른다(See DOCS_INDEX.md → 12).
+- 저장/로드 범위/포맷/재구축 경계는 `12`를 따른다(See DOCS_INDEX -> 12).
 - 이번 문서는 런타임 메모리 **스키마 구조**만 정의한다.
 - `lanNeighbors`는 유지하되 내부 참조 키는 `nodeId`를 사용
 
@@ -63,8 +66,8 @@ Codex는 이 문서를 기준으로 런타임 데이터 컨테이너(월드 `ser
 
 ## 1) 공통 Struct: EntryMeta (VFS 오버레이용)
 
-- `EntryMeta`의 정의/해석은 `08_vfs_overlay_design_v0.md`를 따른다.  
-  See DOCS_INDEX.md → 08.
+- `EntryMeta`의 정의/해석은 `08`를 따른다.  
+  See DOCS_INDEX -> 08.
 
 ---
 
@@ -88,8 +91,8 @@ ProcessStruct
 ```
 
 ### 2.3 프로세스 처리 로직 참조
-- `endAt` 판정, 스케줄링, 완료 효과, reboot 처리 순서는 `11_event_handler_spec_v0_1.md`를 따른다.  
-  See DOCS_INDEX.md → 11.
+- `endAt` 판정, 스케줄링, 완료 효과, reboot 처리 순서는 `11`를 따른다.  
+  See DOCS_INDEX -> 11.
 
 ---
 
@@ -184,8 +187,8 @@ SessionConfig
 ### 5.3 lanNeighbors
 - 타입: `List<string /*nodeId*/>`
 - 의미: 현재 서버 기준 직접 이동 가능한 이웃 서버의 내부 참조 목록
-- 비고: API/시스템콜 노출 형식(예: `net.scan` 반환 형식)은 `03_game_api_modules.md` / `07_ui_terminal_prototype_godot.md`를 따른다.  
-  See DOCS_INDEX.md → 03, 07.
+- 비고: API/시스템콜 노출 형식(예: `net.scan` 반환 형식)은 `03` / `07`를 따른다.  
+  See DOCS_INDEX -> 03, 07.
 
 ### 5.4 ports
 - 타입: `Dictionary<int /*portNum*/, PortConfig>`
@@ -200,10 +203,10 @@ PortConfig
 ```
 
 포트 시드/판정/API 의미/시스템콜 출력 규칙은 본 문서 범위 밖이며 다음 SSOT를 따른다.
-- intrinsic/API 의미: `03_game_api_modules.md` (See DOCS_INDEX.md → 03)
-- 시스템콜 출력/UX: `07_ui_terminal_prototype_godot.md` (See DOCS_INDEX.md → 07)
-- 블루프린트 초기 시드/overlay 적용: `10_blueprint_schema_v0.md` (See DOCS_INDEX.md → 10)
-- 이벤트/프로세스 처리 로직: `11_event_handler_spec_v0_1.md` (See DOCS_INDEX.md → 11)
+- intrinsic/API 의미: `03` (See DOCS_INDEX -> 03)
+- 시스템콜 출력/UX: `07` (See DOCS_INDEX -> 07)
+- 블루프린트 초기 시드/overlay 적용: `10` (See DOCS_INDEX -> 10)
+- 이벤트/프로세스 처리 로직: `11` (See DOCS_INDEX -> 11)
 
 ---
 
@@ -222,8 +225,8 @@ diskOverlay
     - removed: HashSet<string /*childName*/>
 ```
 
-운영 의미(Resolve 우선순위/dirDelta 유지 규칙)는 `08_vfs_overlay_design_v0.md`를 따른다.  
-See DOCS_INDEX.md → 08.
+운영 의미(Resolve 우선순위/dirDelta 유지 규칙)는 `08`를 따른다.  
+See DOCS_INDEX -> 08.
 
 ---
 
@@ -265,8 +268,8 @@ DaemonStruct
 ```
 
 OTP/레이트리미터의 동작 규칙(검증/판정/처리 순서)은 본 문서 범위 밖이다.
-- intrinsic/API 관점 의미: `03_game_api_modules.md` (See DOCS_INDEX.md → 03)
-- 런타임 처리 순서/스케줄링: `11_event_handler_spec_v0_1.md` (See DOCS_INDEX.md → 11)
+- intrinsic/API 관점 의미: `03` (See DOCS_INDEX -> 03)
+- 런타임 처리 순서/스케줄링: `11` (See DOCS_INDEX -> 11)
 
 ---
 
@@ -327,8 +330,8 @@ LogStruct
 블루프린트의 `location` 필드를 월드 생성 시 해석한 결과를 저장한다.
 AUTO 해석, 좌표 샘플링, displayName 결정은 모두 월드 생성 시 1회 수행하며,
 이후 런타임에서 재계산하지 않는다.
-생성 규칙/파이프라인은 `10_blueprint_schema_v0.md`를 따른다.
-See DOCS_INDEX.md → 10.
+생성 규칙/파이프라인은 `10`를 따른다.
+See DOCS_INDEX -> 10.
 
 ```text
 RuntimeLocationInfo
@@ -369,7 +372,7 @@ RuntimeServerIconInfo
 
 Trace/Forensic 런타임에서 세션 이력과 활성 세션을 분리 관리하기 위한 전역 저장 구조다.
 본 섹션은 **저장 구조(스키마)만** 정의하며, connect/disconnect 갱신 알고리즘은
-`11_event_handler_spec_v0_1.md`를 따른다. See DOCS_INDEX.md → 11.
+`11`를 따른다. See DOCS_INDEX -> 11.
 
 ### 13.1 SessionKey
 
@@ -463,3 +466,5 @@ TraceEdgeKey
 - 런타임 TTL 기본값은 `worldTimeMs` 기준 5분(`300000ms`)이다(후속 밸런싱에서 조정 가능).
 - TTL 정리 시 `ForensicTraceStore` / `ForensicIncidentBufferStore` / `SessionHistoryStore` 모두 정리 대상이며,
   history는 `active session`, `incident buffer`, `active forensic origin` 및 그 조상 체인을 보호한 뒤 삭제한다.
+ 
+

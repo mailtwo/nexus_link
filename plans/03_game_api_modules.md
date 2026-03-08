@@ -1,4 +1,8 @@
-# 게임 API 모듈 설계 (RealWorld 요청 큐 기반, 프로토타입 v0.2)
+﻿# 게임 API 모듈 설계 (RealWorld 요청 큐 기반, 프로토타입 v0.2)
+
+Purpose: MiniScript intrinsic API contract for player-facing runtime modules, ResultMap, and shared error semantics.
+Keywords: miniscript intrinsic, player API, result map, error code, term module, fs module, net module, ssh module, ftp module
+Aliases: intrinsic API, player API
 
 이 문서는 유저 MiniScript 프로그램이 접근할 **intrinsic API 표면**을 정의한다.
 
@@ -151,8 +155,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - MiniScript 실행 컨텍스트는 전역 `argv`, `argc`를 제공한다.
 - `argv`: `List<string>` (스크립트에 전달된 인자 목록)
 - `argc`: `int` (`argv` 길이)
-- 프로그램 실행 경로(`miniscript`, `ExecutableScript`)의 해석/실행 계약은 `14_official_programs.md`를 따른다.  
-  See DOCS_INDEX.md → 14.
+- 프로그램 실행 경로(`miniscript`, `ExecutableScript`)의 해석/실행 계약은 See DOCS_INDEX -> 14를 따른다.
 - 본 문서에서는 그 실행 결과로 전달되는 `argv`/`argc` 노출 규약만 정의한다.
 - 인자가 없으면 `argv=[]`, `argc=0`이다.
 
@@ -164,7 +167,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 제외 API group 목록은 향후 늘어날 수 있으나, 본 문서(v0.2) 기준 공식 제외 목록은 `term`만으로 본다.
 
 ### 0.12 API 문서 파생/생성 규약
-- 본 문서(`03_game_api_modules.md`)는 intrinsic API 규약의 SSOT다. ResultMap 규약, 에러 코드, 시그니처/인자/반환/부작용 정의는 이 문서에서만 정의한다.
+- 본 문서(03)는 intrinsic API 규약의 SSOT다. ResultMap 규약, 에러 코드, 시그니처/인자/반환/부작용 정의는 이 문서에서만 정의한다.
 - DocFX 기반 API 설명서와 코드 XML docstring은 본 문서를 기반으로 생성/유지되는 **파생 문서**다. 파생 문서에서 새로운 규약을 정의하지 않는다.
 - 파생 문서 계층은 아래처럼 구분한다.
   - Manual Markdown: `docfx_api_document/api/<module>.md` (학습/온보딩/사용 흐름 중심)
@@ -310,8 +313,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 > 파일 탐색은 `fs.list`를 조합해 플레이어(또는 스크립트)가 직접 수행한다.
 
 공통 규칙:
-- 경로 문자열/정규화/병합 우선순위는 `08_vfs_overlay_design_v0.md`를 따른다.  
-  See DOCS_INDEX.md → 08.
+- 경로 문자열/정규화/병합 우선순위는 See DOCS_INDEX -> 08을 따른다.
 
 ### 3.1 `fs.list([sessionOrRoute], path)`
 - 목적: 디렉토리 목록
@@ -496,8 +498,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `ERR_NOT_FOUND`: 지정 `netId`가 스캔 가능한 인터페이스 집합에 없을 때.
   - `ERR_INTERNAL_ERROR`: 실행 컨텍스트 미주입 또는 intrinsic queue 실패.
 
-> `scan` 시스템콜 출력 포맷/UX는 터미널 문서가 SSOT다.  
-> See DOCS_INDEX.md → 07 (`07_ui_terminal_prototype_godot.md`).
+> `scan` 시스템콜 출력 포맷/UX의 canonical rule은 See DOCS_INDEX -> 07.
 
 ### 4.3 `net.ports([sessionOrRoute], hostOrIp, opts?)`
 - 목적: 대상 호스트의 열린 포트(서비스) 조회
@@ -612,8 +613,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
   - `opts.maxBytes?: int` (stdout 상한 권장)
   - `opts.async?: int` (`0/1`만 허용; `0=false`, `1=true`)
 - 커맨드 해석(권장):
-  - 터미널 명령 파싱/시스템콜/프로그램 fallback 규칙은 `07_ui_terminal_prototype_godot.md` 및 `14_official_programs.md`를 따른다.  
-    See DOCS_INDEX.md → 07, 14.
+  - 터미널 명령 파싱/시스템콜/프로그램 fallback 규칙은 See DOCS_INDEX -> 07, 14를 따른다.
   - 본 API는 해당 실행 결과(`stdout`, `exitCode`)를 route/session 컨텍스트로 래핑해 반환한다.
 - 반환:
   - 동기 성공: `{ ok:1, code:"OK", err:null, stdout:string, exitCode:int, jobId:null }`
@@ -632,7 +632,7 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 
 ### 5.4 `ssh.inspect(hostOrIp, userId, port=22, opts?)`
 - 목적: 공식 제공 프로그램 `inspect`가 정의한 InspectProbe 결과를 intrinsic 형태로 조회한다.
-  - 힌트 산출 규약(처리 순서/은닉/스키마 의미), 에러 의미, 실패 로그/부작용, 비용·탐지, 레이트리밋(shared limit) 규칙은 `14_official_programs.md`의 InspectProbe를 source of truth로 한다.
+  - 힌트 산출 규약(처리 순서/은닉/스키마 의미), 에러 의미, 실패 로그/부작용, 비용·탐지, 레이트리밋(shared limit) 규칙은 See DOCS_INDEX -> 14의 InspectProbe를 source of truth로 한다.
 - 인자:
   - `hostOrIp: string`
   - `userId: string` (필수)
@@ -952,3 +952,5 @@ docstring 컨벤션:
 - 플레이어는 “로그가 곧 적”이기도 하고, 때로는 침투 후 “로그 삭제/변조” 같은 미션으로도 사용 가능(다만 지나친 현실 재현은 피하고 추상화).
 
 ---
+ 
+

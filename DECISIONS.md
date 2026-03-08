@@ -98,7 +98,7 @@ plans/ 문서의 설계 결정이 추가되거나 변경될 때 기록한다.
 
 ### [13] DesktopOverlay 저장 정책 — 임시 메모리 유지
 - **결정**: 영속 저장 정책 확정 전까지 DesktopOverlay on/off 상태는 런타임 메모리에만 유지한다.
-- **이유**: 저장 규격(See DOCS_INDEX.md -> 12)과의 경계가 확정되기 전, 구현 충돌을 피하기 위함.
+- **이유**: 저장 규격(See DOCS_INDEX -> 12)과의 경계가 확정되기 전, 구현 충돌을 피하기 위함.
 
 ### [15] 타겟 플레이어 범위 확정
 - **결정**: 주 타겟은 코딩 경험자, 보조 타겟은 초보 코더로 둔다.
@@ -278,3 +278,15 @@ plans/ 문서의 설계 결정이 추가되거나 변경될 때 기록한다.
 ### [DOCS] Tier 2 문서 번호 체계 — 100번대 3자리 고정
 - **결정**: Tier 2 Feature Hub 문서는 `100`번대 3자리 번호 체계를 사용한다. 기존 `16~23` 허브 번호는 `100~107`로 재배치하고, 이후 신규 허브도 같은 대역을 사용한다.
 - **이유**: Tier 1 SSOT와 Tier 2 Feature Hub를 번호만 봐도 즉시 구분할 수 있게 하고, 향후 허브 확장 시 번호 공간과 문서 계층 가독성을 확보하기 위함.
+
+### [16] Workspace hydrate duplicate 정책 — first occurrence wins
+- **결정**: sanitize 중 동일 pane이 여러 slot/stack에 중복 저장돼 있으면 `LEFT -> RIGHT_TOP -> RIGHT_BOTTOM` 순서와 각 stack 내부 순서를 기준으로 첫 등장만 유지한다.
+- **이유**: stored preference가 부분적으로 손상돼도 deterministic하게 하나의 resident 위치만 남기고, 후속 hydrate/apply가 안정적으로 진행되도록 하기 위함.
+
+### [16] Workspace hydrate active fallback — first eligible pane
+- **결정**: sanitize 후 stored `active` pane이 사라졌거나 stack에 없으면, 해당 slot stack의 첫 eligible pane을 active로 선택한다.
+- **이유**: hydrate 결과를 slot 내부 순서와 일관되게 유지하고, stored stack 순서를 사용자 취향의 우선순위로 해석하기 위함.
+
+### [16] Unavailable pinned pane 유지 — preference와 taskbar 표시 분리
+- **결정**: unavailable pane도 stored/effective pinned preference에는 유지하되, 현재 taskbar 표시 여부는 이후 UI 단계에서 availability 기반으로 파생한다.
+- **이유**: 사용자의 pin 취향을 저장 상태에서 잃지 않으면서도, 현재 save entitlement를 우회해 taskbar에 잘못 노출되는 문제를 막기 위함.

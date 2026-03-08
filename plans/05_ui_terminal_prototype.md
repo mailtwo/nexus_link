@@ -1,7 +1,7 @@
-# UI 기획 문서: 터미널 기반 프로토타입 (Unity / 레거시)
+﻿# UI 기획 문서: 터미널 기반 프로토타입 (Unity / 레거시)
 
 > **레거시 문서**: 초기엔 Unity를 전제로 작성했지만, 현재 엔진 타겟은 **Godot(PC)** 입니다.
-> 최신 UI 설계/구현 스펙은 `07_ui_terminal_prototype_godot.md`를 기준으로 하고,
+> 최신 UI 설계/구현 스펙은 `07`를 기준으로 하고,
 > 본 문서는 “당시 의도/UX 요구사항” 참고용으로만 유지합니다.
 
 목표: **가상 리눅스 터미널 1개 화면**만으로 “서버 1대 침투 시나리오”를 빠르게 검증하는 MVP를 만든다.  
@@ -120,7 +120,7 @@ MVP 속도와 구현 난이도 관점에서 가장 현실적인 조합.
 
 ### 5.4 접속/전송 시스템콜(현재 구현 기준)
 - 이 섹션은 **터미널 시스템콜** 계약을 설명한다.
-- MiniScript intrinsic(`ssh.exec`, `ftp.get`, `ftp.put`)의 route 대응 규칙은 `plans/03_game_api_modules.md`를 기준으로 한다.
+- MiniScript intrinsic(`ssh.exec`, `ftp.get`, `ftp.put`)의 route 대응 규칙은 `03`을 기준으로 한다.
 - 따라서 본 섹션의 `ftp`는 계속 `workstation <-> remote` 고정 정책을 유지한다.
 - `connect [(-p|--port) <port>] <host|ip> <user> <password>`
   - 기본 포트는 `22`(SSH).
@@ -204,3 +204,5 @@ MVP 속도와 구현 난이도 관점에서 가장 현실적인 조합.
 - TextMeshPro Link: https://docs.unity3d.com/Packages/com.unity.textmeshpro@4.0/manual/RichTextLink.html
 - ScrollRect: https://docs.unity3d.com/Packages/com.unity.ugui@1.0/manual/script-ScrollRect.html
 - TMP_InputField API: https://docs.unity3d.com/Packages/com.unity.textmeshpro@2.0/api/TMPro.TMP_InputField.html
+ 
+

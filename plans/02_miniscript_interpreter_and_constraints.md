@@ -1,4 +1,7 @@
-# MiniScript 적용 + CPU/RAM 제약 설계
+﻿# MiniScript 적용 + CPU/RAM 제약 설계
+
+Purpose: MiniScript embedding, sandbox, and execution-constraint contract for the runtime interpreter model.
+Keywords: miniscript, interpreter embedding, sandbox, cpu budget, ram budget, time slicing, execution constraint, script runtime
 
 이 문서는 **Lua 대신 MiniScript를 채택**했을 때의 **Godot(PC, C#) 임베딩 구조**(엔진 무관 C# 호스트 모델), 샌드박싱, 그리고 **CPU(실행 예산) / RAM(논리 메모리)** 제약을 “업그레이드 가능한 성장 시스템”으로 연결하는 설계를 정리한다.
 
@@ -13,8 +16,8 @@
 
 **프로젝트 결정**  
 - 유저 스크립트 언어: **MiniScript**
-- 프로그램 실행 자산(`ExecutableHardcode`/`ExecutableScript`)의 정의와 실행 계약은 `14_official_programs.md`를 따른다.  
-  See DOCS_INDEX.md → 14.
+- 프로그램 실행 자산(`ExecutableHardcode`/`ExecutableScript`)의 정의와 실행 계약은 `14`를 따른다.  
+  See DOCS_INDEX -> 14.
 - 샌드박스 원칙: “실제 OS/네트워크 접근 0” (전부 가상 API만)
 
 ---
@@ -175,3 +178,5 @@ MiniScript Wait Wiki: https://miniscript.org/wiki/Wait
 MiniScript Integration Guide (Unity 예시, C# 임베딩 참고): https://miniscript.org/files/MiniScript-Integration-Guide.pdf
 Halting problem(정적 상한 계산 한계 배경): https://en.wikipedia.org/wiki/Halting_problem
 ```
+ 
+
