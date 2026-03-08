@@ -32,6 +32,7 @@ internal sealed class SystemCallProcessor
         hardcodedExecutableRegistry.Register(new NoopExecutableHardcodeHandler());
         hardcodedExecutableRegistry.Register(new MiniScriptExecutableHardcodeHandler());
         hardcodedExecutableRegistry.Register(new InspectExecutableHardcodeHandler());
+        hardcodedExecutableRegistry.Register(new NexusShellExecutableHardcodeHandler());
 
         foreach (var module in modules)
         {

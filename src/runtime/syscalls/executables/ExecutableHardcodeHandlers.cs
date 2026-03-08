@@ -202,3 +202,35 @@ internal sealed class InspectExecutableHardcodeHandler : IExecutableHardcodeHand
 
     private readonly record struct ParsedInspectArguments(string HostOrIp, string UserId, int Port);
 }
+
+/// <summary>NEXUS Shell hardcoded executable handler (`nexus_shell`).</summary>
+internal sealed class NexusShellExecutableHardcodeHandler : IExecutableHardcodeHandler
+{
+    private const string IncompatibleSystemWarning = "warning: NEXUS Shell is not compatible with this system.";
+    private const string AlreadyRunningWarning = "warning: NEXUS Shell is already running.";
+
+    public string ExecutableId => "nexus_shell";
+
+    public SystemCallResult Execute(ExecutableHardcodeInvocation invocation)
+    {
+        if (invocation.Arguments.Count != 0)
+        {
+            return SystemCallResultFactory.Usage("nexus_shell");
+        }
+
+        var world = invocation.Context.World;
+        var workstation = world.PlayerWorkstationServer;
+        if (workstation is null ||
+            !string.Equals(workstation.NodeId, invocation.Context.Server.NodeId, StringComparison.Ordinal))
+        {
+            return SystemCallResultFactory.Success(new[] { IncompatibleSystemWarning });
+        }
+
+        if (!world.TryOpenNexusShell())
+        {
+            return SystemCallResultFactory.Success(new[] { AlreadyRunningWarning });
+        }
+
+        return SystemCallResultFactory.Success();
+    }
+}

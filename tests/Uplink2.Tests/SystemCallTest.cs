@@ -290,6 +290,97 @@ public sealed class SystemCallTest
         Assert.Contains("usage: miniscript <script>", result.Lines[0], StringComparison.Ordinal);
     }
 
+    /// <summary>Ensures nexus_shell rejects trailing arguments.</summary>
+    [Fact]
+    public void Execute_NexusShell_RejectsArguments()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/nexus_shell", "exec:nexus_shell", fileKind: VfsFileKind.ExecutableHardcode);
+
+        var result = Execute(harness, "nexus_shell extra");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Contains("usage: nexus_shell", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures nexus_shell opens the workspace from the local workstation without mutating terminal context.</summary>
+    [Fact]
+    public void Execute_NexusShell_LocalWorkstation_OpensShellWithoutChangingTerminalContext()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/nexus_shell", "exec:nexus_shell", fileKind: VfsFileKind.ExecutableHardcode);
+
+        var result = Execute(harness, "nexus_shell");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Empty(result.Lines);
+        Assert.True(harness.World.IsNexusShellOpen);
+        Assert.Null(result.NextCwd);
+        Assert.Null(result.Data);
+    }
+
+    /// <summary>Ensures nexus_shell warns and no-ops when the shell is already open.</summary>
+    [Fact]
+    public void Execute_NexusShell_WhenAlreadyOpen_ReturnsWarningNoOp()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/nexus_shell", "exec:nexus_shell", fileKind: VfsFileKind.ExecutableHardcode);
+        Assert.True(harness.World.TryOpenNexusShell());
+
+        var result = Execute(harness, "nexus_shell");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Equal("warning: NEXUS Shell is already running.", result.Lines[0]);
+        Assert.True(harness.World.IsNexusShellOpen);
+        Assert.Null(result.NextCwd);
+        Assert.Null(result.Data);
+    }
+
+    /// <summary>Ensures nexus_shell warns and no-ops when executed from a remote context via workstation PATH fallback.</summary>
+    [Fact]
+    public void Execute_NexusShell_RemoteContextGlobalPathFallback_ReturnsIncompatibleWarning()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        harness.BaseFileSystem.AddFile("/opt/bin/nexus_shell", "exec:nexus_shell", fileKind: VfsFileKind.ExecutableHardcode);
+
+        var result = Execute(harness, "nexus_shell", nodeId: remote.NodeId, userId: "guest");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Equal("warning: NEXUS Shell is not compatible with this system.", result.Lines[0]);
+        Assert.False(harness.World.IsNexusShellOpen);
+        Assert.Null(result.NextCwd);
+        Assert.Null(result.Data);
+    }
+
+    /// <summary>Ensures nexus_shell still warns and no-ops when copied to and executed from a remote server.</summary>
+    [Fact]
+    public void Execute_NexusShell_CopiedToRemoteServer_ReturnsIncompatibleWarning()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        remote.DiskOverlay.AddDirectory("/opt");
+        remote.DiskOverlay.AddDirectory("/opt/bin");
+        remote.DiskOverlay.WriteFile("/opt/bin/nexus_shell", "exec:nexus_shell", fileKind: VfsFileKind.ExecutableHardcode);
+
+        var result = Execute(harness, "nexus_shell", nodeId: remote.NodeId, userId: "guest");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Equal("warning: NEXUS Shell is not compatible with this system.", result.Lines[0]);
+        Assert.False(harness.World.IsNexusShellOpen);
+        Assert.Null(result.NextCwd);
+        Assert.Null(result.Data);
+    }
+
     /// <summary>Ensures miniscript exposes argv/argc and passes trailing command arguments to script source.</summary>
     [Fact]
     public void Execute_Miniscript_PassesTrailingArgumentsToScript()
@@ -8377,6 +8468,57 @@ public sealed class SystemCallTest
         var ex = Assert.Throws<TargetInvocationException>(() => method!.Invoke(world, Array.Empty<object?>()));
         Assert.IsType<InvalidOperationException>(ex.InnerException);
         Assert.Contains("InitializeSystemCalls", ex.InnerException!.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures boot shell-open initialization defaults to closed when DebugOption is disabled.</summary>
+    [Fact]
+    public void InitializeNexusShellOpenState_DisablesShellByDefault_WhenDebugOptionIsFalse()
+    {
+        var world = CreateUninitializedWorldRuntime();
+        SetAutoPropertyBackingField(world, "DebugOption", false);
+        var method = typeof(WorldRuntime).GetMethod(
+            "InitializeNexusShellOpenState",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        method!.Invoke(world, Array.Empty<object?>());
+
+        Assert.False(world.IsNexusShellOpen);
+    }
+
+    /// <summary>Ensures boot shell-open initialization defaults to open when DebugOption is enabled.</summary>
+    [Fact]
+    public void InitializeNexusShellOpenState_EnablesShellByDefault_WhenDebugOptionIsTrue()
+    {
+        var world = CreateUninitializedWorldRuntime();
+        SetAutoPropertyBackingField(world, "DebugOption", true);
+        var method = typeof(WorldRuntime).GetMethod(
+            "InitializeNexusShellOpenState",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        method!.Invoke(world, Array.Empty<object?>());
+
+        Assert.True(world.IsNexusShellOpen);
+    }
+
+    /// <summary>Ensures TryOpenNexusShell changes state only once.</summary>
+    [Fact]
+    public void TryOpenNexusShell_OpensOnlyOnFirstCall()
+    {
+        var world = CreateUninitializedWorldRuntime();
+        SetAutoPropertyBackingField(world, "DebugOption", false);
+        var initialize = typeof(WorldRuntime).GetMethod(
+            "InitializeNexusShellOpenState",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(initialize);
+        initialize!.Invoke(world, Array.Empty<object?>());
+
+        Assert.False(world.IsNexusShellOpen);
+        Assert.True(world.TryOpenNexusShell());
+        Assert.True(world.IsNexusShellOpen);
+        Assert.False(world.TryOpenNexusShell());
+        Assert.True(world.IsNexusShellOpen);
     }
 
     /// <summary>Ensures world-seed initializer keeps preset values unchanged.</summary>

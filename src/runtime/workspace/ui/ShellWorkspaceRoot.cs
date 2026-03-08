@@ -14,11 +14,14 @@ public partial class ShellWorkspaceRoot : Control
     private readonly Dictionary<DockSlot, WorkspaceSlotView> slotViews = new();
     private readonly Dictionary<WorkspaceSplitRatioBinding, SplitContainer> splitContainers = new();
 
+    private global::Uplink2.Runtime.WorldRuntime? runtimeRoot;
     private ShellWorkspaceRuntime? workspaceRuntime;
     private PaneContentFactory? paneContentFactory;
     private WorkspaceStateSnapshot? currentSnapshot;
     private WorkspaceDisplayModel? currentDisplayModel;
     private WorkspaceConstraintSnapshot? currentConstraintSnapshot;
+    private Control? preShellHost;
+    private Control? preShellContentHost;
     private Control? dockedHost;
     private Control? maximizedHost;
     private Control? taskbarHost;
@@ -45,6 +48,8 @@ public partial class ShellWorkspaceRoot : Control
     /// <inheritdoc/>
     public override void _Ready()
     {
+        runtimeRoot = global::Uplink2.Runtime.WorldRuntime.Instance;
+        preShellHost = GetNode<Control>("MainLayout/WorkspaceArea/PreShellHost");
         dockedHost = GetNode<Control>("MainLayout/WorkspaceArea/DockedHost");
         maximizedHost = GetNode<Control>("MainLayout/WorkspaceArea/MaximizedHost");
         taskbarHost = GetNode<Control>("MainLayout/TaskbarHost");
@@ -58,6 +63,7 @@ public partial class ShellWorkspaceRoot : Control
             return;
         }
 
+        BuildPreShellChrome();
         BuildDockedChrome();
         BuildMaximizedChrome();
         BuildTaskbarChrome();
@@ -65,7 +71,15 @@ public partial class ShellWorkspaceRoot : Control
 
         workspaceRuntime.ResetToDefaultState();
         workspaceRuntime.StateChanged += OnWorkspaceStateChanged;
-        ApplyDevelopmentBootstrapOverride();
+        if (runtimeRoot is not null)
+        {
+            runtimeRoot.NexusShellOpenStateChanged += OnNexusShellOpenStateChanged;
+        }
+
+        if (runtimeRoot?.IsNexusShellOpen == true)
+        {
+            ApplyDevelopmentBootstrapOverride();
+        }
 
         ApplyCurrentWorkspaceState();
     }
@@ -73,6 +87,11 @@ public partial class ShellWorkspaceRoot : Control
     /// <inheritdoc/>
     public override void _ExitTree()
     {
+        if (runtimeRoot is not null)
+        {
+            runtimeRoot.NexusShellOpenStateChanged -= OnNexusShellOpenStateChanged;
+        }
+
         if (workspaceRuntime is not null)
         {
             workspaceRuntime.StateChanged -= OnWorkspaceStateChanged;
@@ -85,6 +104,7 @@ public partial class ShellWorkspaceRoot : Control
 
         paneContentFactory?.DisposeCachedContent();
         paneContentFactory = null;
+        runtimeRoot = null;
     }
 
     /// <inheritdoc/>
@@ -152,6 +172,47 @@ public partial class ShellWorkspaceRoot : Control
         {
             slotChromeMetrics[pair.Key] = pair.Value.MeasureChromeMetrics();
         }
+    }
+
+    private void BuildPreShellChrome()
+    {
+        if (preShellHost is null)
+        {
+            return;
+        }
+
+        ClearDisposableChildren(preShellHost);
+
+        var frame = new PanelContainer
+        {
+            Name = "PreShellFrame",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+        };
+        frame.AddThemeStyleboxOverride("panel", CreateFrameStyleBox());
+        PrepareFillControl(frame);
+        preShellHost.AddChild(frame);
+
+        var margin = new MarginContainer
+        {
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+        };
+        PrepareFillControl(margin);
+        margin.AddThemeConstantOverride("margin_left", 10);
+        margin.AddThemeConstantOverride("margin_top", 10);
+        margin.AddThemeConstantOverride("margin_right", 10);
+        margin.AddThemeConstantOverride("margin_bottom", 10);
+        frame.AddChild(margin);
+
+        preShellContentHost = new Control
+        {
+            Name = "PreShellContentHost",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+        };
+        PrepareFillControl(preShellContentHost);
+        margin.AddChild(preShellContentHost);
     }
 
     private void BuildMaximizedChrome()
@@ -404,8 +465,18 @@ public partial class ShellWorkspaceRoot : Control
             return;
         }
 
-        dockedHost.Visible = displayModel.Mode == WorkspaceMode.Docked;
-        maximizedHost.Visible = displayModel.Mode == WorkspaceMode.Maximized;
+        var isShellOpen = runtimeRoot?.IsNexusShellOpen == true;
+        if (preShellHost is not null)
+        {
+            preShellHost.Visible = !isShellOpen;
+        }
+
+        dockedHost.Visible = isShellOpen && displayModel.Mode == WorkspaceMode.Docked;
+        maximizedHost.Visible = isShellOpen && displayModel.Mode == WorkspaceMode.Maximized;
+        if (taskbarHost is not null)
+        {
+            taskbarHost.Visible = isShellOpen;
+        }
 
         foreach (var pair in displayModel.DockedSlots)
         {
@@ -414,7 +485,17 @@ public partial class ShellWorkspaceRoot : Control
 
         ApplySlotMinimumSizes(displayModel);
         ApplyMaximizedDisplayModel(displayModel.MaximizedPane);
-        RebuildTaskbar(displayModel);
+        if (isShellOpen)
+        {
+            RebuildTaskbar(displayModel);
+        }
+        else if (taskbarButtonsStrip is not null)
+        {
+            taskbarButtons.Clear();
+            ClearDisposableChildren(taskbarButtonsStrip);
+        }
+
+        ApplyPreShellDisplay(isShellOpen);
         CallDeferred(MethodName.ApplyCurrentSplitRatios);
     }
 
@@ -852,9 +933,45 @@ public partial class ShellWorkspaceRoot : Control
         return true;
     }
 
+    private void ApplyPreShellDisplay(bool isShellOpen)
+    {
+        if (preShellContentHost is null || paneContentFactory is null)
+        {
+            return;
+        }
+
+        if (isShellOpen)
+        {
+            MountContent(preShellContentHost, null, null);
+            return;
+        }
+
+        var terminalContent = paneContentFactory.GetContent(
+            WorkspacePaneKind.Terminal,
+            WorkspaceRenderedContentKind.Implemented);
+        MountContent(preShellContentHost, terminalContent, null);
+    }
+
     private void OnWorkspaceStateChanged()
     {
         ApplyCurrentWorkspaceState();
+    }
+
+    private void OnNexusShellOpenStateChanged(bool isOpen)
+    {
+        ApplyCurrentWorkspaceState();
+        if (!isOpen || paneContentFactory is null)
+        {
+            return;
+        }
+
+        var terminalContent = paneContentFactory.GetContent(
+            WorkspacePaneKind.Terminal,
+            WorkspaceRenderedContentKind.Implemented);
+        if (terminalContent.HasMethod("focus_terminal_input"))
+        {
+            terminalContent.CallDeferred("focus_terminal_input");
+        }
     }
 
     private void OnRestorePressed()
@@ -884,12 +1001,12 @@ public partial class ShellWorkspaceRoot : Control
 
     private void ApplyDevelopmentBootstrapOverride()
     {
-        if (workspaceRuntime is null)
+        if (workspaceRuntime is null || runtimeRoot is null)
         {
             return;
         }
 
-        if (global::Uplink2.Runtime.WorldRuntime.Instance?.DebugOption != true)
+        if (!runtimeRoot.IsNexusShellOpen || runtimeRoot.DebugOption != true)
         {
             return;
         }

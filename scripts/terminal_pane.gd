@@ -1525,3 +1525,11 @@ func _refresh_prompt() -> void:
 		display_cwd = "~" + suffix
 
 	prompt_label.text = "%s@%s:%s $ " % [prompt_user, prompt_host, display_cwd]
+
+
+func focus_terminal_input() -> void:
+	if editor_overlay.visible:
+		editor.call_deferred("grab_focus")
+		return
+
+	input_line.call_deferred("grab_focus")

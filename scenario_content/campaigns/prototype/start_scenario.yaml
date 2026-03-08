@@ -25,6 +25,11 @@ ServerSpec:
           contentId: exec:inspect
           fileKind: ExecutableHardcode
           size: 5000
+        /opt/bin/nexus_shell:
+          entryKind: File
+          contentId: exec:nexus_shell
+          fileKind: ExecutableHardcode
+          size: 5000
         /opt/bin/password_breaker:
           entryKind: File
           contentId: res://scenario_content/resources/text/executions/password_breaker.ms

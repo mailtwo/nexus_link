@@ -66,7 +66,7 @@ public partial class WorldRuntime : Node
 
     /// <summary>Enables debug-only runtime features such as DEBUG_* system calls.</summary>
     [Export]
-    public bool DebugOption { get; set; } = true;
+    public bool DebugOption { get; set; }
 
     /// <summary>Base64-encoded HMAC key used for save/load integrity verification.</summary>
     [Export]
@@ -90,6 +90,10 @@ public partial class WorldRuntime : Node
 
     /// <summary>Global runtime instance.</summary>
     public static WorldRuntime Instance { get; private set; }
+
+    /// <summary>Raised when the runtime shell-open state changes.</summary>
+    [Signal]
+    public delegate void NexusShellOpenStateChangedEventHandler(bool isOpen);
 
     /// <summary>Shared blob store for file payloads.</summary>
     public BlobStore BlobStore { get; private set; } = null!;
@@ -121,6 +125,9 @@ public partial class WorldRuntime : Node
     /// <summary>Initial player workstation server instance.</summary>
     public ServerNodeRuntime PlayerWorkstationServer { get; private set; } = null!;
 
+    /// <summary>Gets a value indicating whether NEXUS Shell is currently open for the active runtime session.</summary>
+    public bool IsNexusShellOpen { get; private set; }
+
     // System-call processor for command dispatch.
     private SystemCallProcessor systemCallProcessor = null!;
 
@@ -133,11 +140,23 @@ public partial class WorldRuntime : Node
     private bool regionCatalogLoaded;
     private int nextProcessId = 1;
     private int physicsTicksPerSecond = 60;
+    private bool isNexusShellSignalDispatchReady;
 
     /// <inheritdoc/>
     public override void _EnterTree()
     {
         Instance = this;
+        isNexusShellSignalDispatchReady = true;
+    }
+
+    /// <inheritdoc/>
+    public override void _ExitTree()
+    {
+        isNexusShellSignalDispatchReady = false;
+        if (ReferenceEquals(Instance, this))
+        {
+            Instance = null;
+        }
     }
 
     /// <summary>Initializes game systems, then builds initial world runtime from blueprints.</summary>
@@ -146,6 +165,7 @@ public partial class WorldRuntime : Node
         CaptureWorldRuntimeThread();
         physicsTicksPerSecond = Math.Max(1, Engine.PhysicsTicksPerSecond);
         initializationStage = InitializationStage.SystemInitializing;
+        InitializeNexusShellOpenState();
 
         BlobStore = new BlobStore();
         BaseFileSystem = new BaseFileSystem(BlobStore);
@@ -156,6 +176,49 @@ public partial class WorldRuntime : Node
         BuildInitialWorldFromBlueprint();
         ValidateWorldSeedForWorldBuild();
         initializationStage = InitializationStage.Ready;
+    }
+
+    /// <summary>Opens NEXUS Shell when it is currently closed.</summary>
+    public bool TryOpenNexusShell()
+    {
+        lock (_worldStateLock)
+        {
+            if (IsNexusShellOpen)
+            {
+                return false;
+            }
+
+            IsNexusShellOpen = true;
+        }
+
+        if (!isNexusShellSignalDispatchReady)
+        {
+            return true;
+        }
+
+        if (ReferenceEquals(Instance, this))
+        {
+            CallDeferred(nameof(EmitDeferredNexusShellOpenStateChanged), true);
+        }
+        else
+        {
+            EmitDeferredNexusShellOpenStateChanged(true);
+        }
+
+        return true;
+    }
+
+    private void InitializeNexusShellOpenState()
+    {
+        lock (_worldStateLock)
+        {
+            IsNexusShellOpen = DebugOption;
+        }
+    }
+
+    private void EmitDeferredNexusShellOpenStateChanged(bool isOpen)
+    {
+        EmitSignal(SignalName.NexusShellOpenStateChanged, isOpen);
     }
 
     /// <summary>Validates deterministic world-seed input before initial world build starts.</summary>
