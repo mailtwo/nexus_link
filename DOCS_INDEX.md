@@ -115,7 +115,7 @@ These docs own canonical rules.
 **Owns:** module/function surface, ResultMap shapes, error codes, API-side cost/trace conventions.  
 **Must NOT own:** terminal command UX, shell layout, runtime schema internals.
 
-### 07 — `07_ui_terminal_prototype_godot.md`
+### 07 — `07_terminal_ux_and_syscall_contract.md`
 **Purpose:** terminal UX and system-call / command contract.  
 **Owns:** command syntax, command behavior, terminal parsing, terminal-side UX tied to commands.  
 **Must NOT own:** official-program contracts, persistence policy, runtime schema.

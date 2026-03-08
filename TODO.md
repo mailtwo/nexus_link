@@ -7,8 +7,8 @@ plans/ 문서에 정의되어 있으나, 현재 기준으로 명시적으로 보
 - [03] `import` 알파 미구현 항목 구현: `.scripts_registry` 탐색, `reload/importReload` (`plans/03_game_api_modules.md` §8.3, §8.2 alpha 구현 필요 사항).
 - [04] Trace/경보/대응 루프 알파 구현 (`plans/04_attack_routes_and_missions.md` §6, line 9 기준).
 - [04] 힌트 시스템 상세 스펙 확정 (`plans/04_attack_routes_and_missions.md` §7은 ideation 단계).
-- [07] 실시간 Trace/추적 대응 루프 UI 구현 (`plans/07_ui_terminal_prototype_godot.md` line 5, See DOCS_INDEX.md -> 13 연계).
-- [07] 프로토타입 임시 `save/load` 명령 제거(알파 제거 대상 반영) (`plans/07_ui_terminal_prototype_godot.md` §6.5).
+- [07] 실시간 Trace/추적 대응 루프 UI 구현 (`plans/07_terminal_ux_and_syscall_contract.md` line 5, See DOCS_INDEX.md -> 13 연계).
+- [07] 프로토타입 임시 `save/load` 명령 제거(알파 제거 대상 반영) (`plans/07_terminal_ux_and_syscall_contract.md` §6.5).
 - [10] 동적 생성 Pass(알파) 구현: 서버 수/배치, topology, 이벤트, 초기 데이터, 계정/자격정보를 `worldSeed` 결정적 생성으로 확정 (`plans/10_blueprint_schema_v0.md` §7 2.5).
 - [10] Campaign `flowMeta` YAML 작성/로더 초기화 매핑 구현 (`plans/10_blueprint_schema_v0.md` §5, 상세 스테이지 설계는 See DOCS_INDEX.md -> 15).
 - [10] ServerSpec `location` 월드 빌드 단계 구현: `AUTO:<regionId>` region 존재 검증 + `RuntimeLocationInfo` 생성/저장 (`plans/10_blueprint_schema_v0.md` §7 3), (`plans/09_server_node_runtime_schema_v0.md` §11).

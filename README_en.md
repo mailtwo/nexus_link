@@ -136,7 +136,7 @@ See **`plans/DOCS_INDEX.md`** for document routing rules.
 | `02_miniscript_interpreter_and_constraints.md` | MiniScript runtime / constraints |
 | `03_game_api_modules.md` | Sandbox API surface + `@name` convention |
 | `04_attack_routes_and_missions.md` | Attack routes / mission templates + hint system |
-| `07_ui_terminal_prototype_godot.md` | Terminal/editor UX + CodeEdit autocomplete/tooltip |
+| `07_terminal_ux_and_syscall_contract.md` | Terminal/editor UX + CodeEdit autocomplete/tooltip |
 | `08_vfs_overlay_design_v0.md` | VFS overlay architecture |
 | `09_server_node_runtime_schema_v0.md` | World runtime schema |
 | `10_blueprint_schema_v0.md` | Blueprint schema / world generation rules |

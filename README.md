@@ -136,7 +136,7 @@ godot --path .
 | `02_miniscript_interpreter_and_constraints.md` | MiniScript 실행/제약 |
 | `03_game_api_modules.md` | 샌드박스 API 표면 + `@name` 컨벤션 |
 | `04_attack_routes_and_missions.md` | 공격 루트/미션 템플릿 + 힌트 시스템 |
-| `07_ui_terminal_prototype_godot.md` | 터미널/에디터 UX + CodeEdit 자동완성/툴팁 |
+| `07_terminal_ux_and_syscall_contract.md` | 터미널/에디터 UX + CodeEdit 자동완성/툴팁 |
 | `08_vfs_overlay_design_v0.md` | VFS 오버레이 아키텍처 |
 | `09_server_node_runtime_schema_v0.md` | 월드 런타임 스키마 |
 | `10_blueprint_schema_v0.md` | 블루프린트 스키마/월드 생성 규칙 |
