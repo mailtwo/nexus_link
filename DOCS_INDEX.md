@@ -95,9 +95,8 @@ These docs own canonical rules.
 
 ### 13 — `13_nexus_shell_workspace_contract.md`
 **Purpose:** Shell workspace / layout / pane-system contract.  
-**Owns:** shell layout rules, pane lifecycle, toast/activity popup/docked pane behavior, workspace-level UI persistence requirements.  
-**Note:** current file can be re-scoped into this role even if the filename stays temporarily unchanged.  
-**Must NOT own:** save data format, command syntax, official-program behavior.
+**Owns:** shell layout rules, dock slot model, pane taxonomy, pane lifecycle, taskbar behavior, toast/activity popup behavior, maximize/restore behavior, system pane behavior, and workspace-side UI semantics.  
+**Must NOT own:** save-slot persistence policy (`12`), profile/workspace persistence container/serialization contract (`16`), command syntax/system-call behavior (`07`), or official-program behavior (`14`).
 
 ### 14 — `14_official_programs.md`
 **Purpose:** contracts for shipped programs (`ExecutableHardcode` / `ExecutableScript`).  
@@ -129,9 +128,15 @@ These docs own canonical rules.
 **Must NOT own:** persistence format, mission-flow intent.
 
 ### 12 — `12_save_load_persistence_spec_v0_5.md`
-**Purpose:** persistence boundaries and save/load policy.  
-**Owns:** what is saved, what is transient, versioning, load reconstruction rules.  
-**Must NOT own:** UI layout interaction rules except by reference to owning UI contract docs.
+**Purpose:** save-slot gameplay persistence contract.  
+**Owns:** what is saved in gameplay save slots, what is excluded from gameplay save slots, slot file format/versioning, and load reconstruction rules for world/progression/runtime mutable state.  
+**Must include:** the rule that profile options and workspace UI state are persisted **out-of-band** from gameplay save slots.  
+**Must NOT own:** profile options persistence, workspace layout/profile persistence, pane-local UI state serialization, taskbar/pin/maximize restoration rules, or TOML profile/workspace file structure. Those belong to `16_profile_workspace_persistence_contract.md` and reference `13_nexus_shell_workspace_contract.md`.
+
+### 16 — `16_profile_workspace_persistence_contract.md`
+**Purpose:** profile options + workspace UI persistence contract (out-of-save-slot).  
+**Owns:** TOML-based profile/workspace persistence, options state container, workspace UI state container, hydrate/sanitize rules, pane-local opaque state tables, reset policy, and compatibility/versioning for profile/workspace data.  
+**Must NOT own:** gameplay save-slot persistence (`12`), workspace meaning/interaction rules (`13`), command syntax (`07`), or official-program behavior contracts (`14`) except by reference.
 
 ---
 
@@ -162,46 +167,52 @@ These docs own canonical rules.
 
 These docs are not the place for low-level rule definitions.
 They are the place to start reading and planning.
+Tier 2 Feature Hub document numbers use the `100` series to stay visually distinct from Tier 1 SSOT docs.
 
-## 16 — `16_nexus_shell_feature_hub.md`
+## 100 — `100_nexus_shell_feature_hub.md`
 **Purpose:** NEXUS Shell as the player’s main workspace.  
 **Covers:** terminal-only start -> shell unlock, start menu, taskbar, pane taxonomy, activity popups, settings access, command parity.  
-**Read Tier 1 docs in order:** 15 -> 13 -> 07 -> 14 -> 12
+**Read Tier 1 docs in order:** 15 -> 13 -> 07 -> 14 -> 16 -> 12
 
-## 17 — `17_onboarding_first_license_hub.md`
+## 101 — `101_onboarding_first_license_hub.md`
 **Purpose:** from first boot to first license promotion.  
 **Covers:** README follow-up, early mission chain, shell unlock timing, tutorial pacing, first “real intrusion” loop.  
 **Read Tier 1 docs in order:** 15 -> 07 -> 14 -> 03 -> 04 -> 13 -> 12
 
-## 18 — `18_contracts_and_license_progression_hub.md`
+## 102 — `102_contracts_and_license_progression_hub.md`
 **Purpose:** contract board / mission board / license progression structure.  
 **Covers:** why the player takes the next job, what counts toward promotion, how world-feel side contracts differ from critical progression.  
 **Read Tier 1 docs in order:** 15 -> 04 -> 14 -> 03 -> 10 -> 11
 
-## 19 — `19_trace_and_risk_feedback_hub.md`
+## 103 — `103_trace_and_risk_feedback_hub.md`
 **Purpose:** hot trace / forensic / lock-on as a player feedback loop.  
 **Covers:** risk readability, map feedback, route pressure, log-breaking feedback, how trace feels to the player.  
 **Read Tier 1 docs in order:** 04 -> 03 -> 11 -> 09 -> 13 -> 12
 
-## 20 — `20_remote_operations_and_route_execution_hub.md`
+## 104 — `104_remote_operations_and_route_execution_hub.md`
 **Purpose:** remote connection, route execution, ftp/ssh/world-state operations as one coherent feature.  
 **Covers:** connect/disconnect, route/session mental model, remote file movement, command vs intrinsic parity, chain-based play feel.  
 **Read Tier 1 docs in order:** 03 -> 07 -> 14 -> 08 -> 09 -> 11 -> 04
 
-## 21 — `21_scenario_authoring_pipeline_hub.md`
+## 105 — `105_scenario_authoring_pipeline_hub.md`
 **Purpose:** content-authoring path from scenario blueprint to running mission behavior.  
 **Covers:** how authored content becomes runtime state and event-driven mission logic.  
 **Read Tier 1 docs in order:** 10 -> 09 -> 11 -> 08 -> 03 -> 04
 
-## 22 — `22_persistence_and_workspace_restore_hub.md`
+## 106 — `106_persistence_and_workspace_restore_hub.md`
 **Purpose:** what the player expects to resume after save/load/reboot.  
 **Covers:** workspace layout restore, shell state restore, program/process visibility after load, boot vs load experience.  
-**Read Tier 1 docs in order:** 12 -> 13 -> 07 -> 14 -> 15 -> 09
+**Read Tier 1 docs in order:** 12 -> 16 -> 13 -> 07 -> 14 -> 15 -> 09
 
-## 23 — `23_toolchain_and_program_progression_hub.md`
+## 107 — `107_toolchain_and_program_progression_hub.md`
 **Purpose:** tools/programs/automation as progression, not just commands.  
 **Covers:** why players script, when official tools unlock, how automation replaces manual repetition, how “tool-building” becomes power.  
 **Read Tier 1 docs in order:** 14 -> 03 -> 15 -> 02 -> 07 -> 04
+
+## 108 — `108_developer_tools_hub.md`
+**Purpose:** developer tooling and debug-only startpoint override as a feature-planning hub.  
+**Covers:** direct-to-shell development entry, debug boot/startpoint override direction, future developer tools umbrella.  
+**Read Tier 1 docs in order:** 15 -> 13 -> 16 -> 12
 
 ---
 
@@ -212,6 +223,7 @@ When a Tier 2 hub mentions a concrete rule, link the Tier 1 owner and do not res
 Preferred style:
 - `Canonical rule: See Tier 1 -> 07 (07_ui_terminal_prototype_godot.md)`
 - `Persistence boundary: See Tier 1 -> 12 (12_save_load_persistence_spec_v0_5.md)`
+- **Feature-first reading:** For cross-cutting features like NEXUS Shell, start from the Feature Hub doc (e.g. `100_nexus_shell_feature_hub.md`) and follow its linked Tier 1 docs.
 
 ---
 

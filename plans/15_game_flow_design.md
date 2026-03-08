@@ -10,7 +10,7 @@
 > - 저장 / 로드 정책: `12_save_load_persistence_spec_v0_5.md`
 > - NEXUS Shell workspace 규칙: `13_nexus_shell_workspace_contract.md` (재정의본 기준)
 > - 공식 프로그램 계약: `14_official_programs.md`
-> - NEXUS Shell feature hub: `16_nexus_shell_feature_hub.md`
+> - NEXUS Shell feature hub: `100_nexus_shell_feature_hub.md`
 
 ---
 

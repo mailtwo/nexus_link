@@ -1,4 +1,4 @@
-# 16_nexus_shell_feature_hub.md
+# 100_nexus_shell_feature_hub.md
 
 - 문서 버전: v0.1-draft
 - 문서 역할: **Tier 2 Feature Hub**
@@ -182,7 +182,7 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 ## 8. 권장 읽기 순서
 
 ### 8.1 shell 자체를 이해할 때
-1. 이 문서 (`16_nexus_shell_feature_hub.md`)
+1. 이 문서 (`100_nexus_shell_feature_hub.md`)
 2. `13_nexus_shell_workspace_contract.md`
 3. `07_ui_terminal_prototype_godot.md`
 4. `14_official_programs.md`
@@ -197,7 +197,7 @@ NEXUS Shell은 플레이어에게 아래 4가지 역할을 제공한다.
 
 ### 8.3 shell unlock / 온보딩을 설계할 때
 1. `15_game_flow_design.md`
-2. 이 문서 (`16_nexus_shell_feature_hub.md`)
+2. 이 문서 (`100_nexus_shell_feature_hub.md`)
 3. `13_nexus_shell_workspace_contract.md`
 4. `14_official_programs.md`
 5. `07_ui_terminal_prototype_godot.md`

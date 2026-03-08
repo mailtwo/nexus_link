@@ -264,3 +264,17 @@ plans/ 문서의 설계 결정이 추가되거나 변경될 때 기록한다.
   동일 방향 `(sourceNodeId, targetNodeId)`의 다중 active 세션은 1개 edge로 집계한다.
 - **이유**: world session store(active 세션 그래프)의 기본 단위와 1:1로 대응시켜 구현/디버깅 복잡도를 낮추고,
   렌더링 중복을 줄이면서 SSH 마커 기반 시각 계약(10.5.3)을 일관되게 유지하기 위함.
+
+## 2026-03-08
+
+### [13] 최소 workspace runtime state 소유자 분리
+- **결정**: NEXUS Shell 1단계 최소 runtime state는 legacy `WindowManager`에 흡수하지 않고, 별도 `ShellWorkspaceRuntime` autoload와 순수 `WorkspaceStateMachine`이 소유한다.
+- **이유**: 기존 OS-window 실험 계층과 새 shell 상태 모델을 분리해, 이후 UI 렌더링과 profile persistence가 공통 메모리 SSOT를 공유하도록 만들기 위함.
+
+### [13] shell bootstrap state — terminal only resident/pinned
+- **결정**: 1단계 shell bootstrap state는 `TERMINAL`만 resident/pinned로 시작하며, 기본 split ratio는 `Left=0.42`, `RightTop=0.55`로 고정한다.
+- **이유**: shell 첫 진입 시 불필요한 정보 pane 자동 오픈을 피하고, 이후 pane open/taskbar/profile hydrate 단계를 분리해 구현 복잡도를 낮추기 위함.
+
+### [DOCS] Tier 2 문서 번호 체계 — 100번대 3자리 고정
+- **결정**: Tier 2 Feature Hub 문서는 `100`번대 3자리 번호 체계를 사용한다. 기존 `16~23` 허브 번호는 `100~107`로 재배치하고, 이후 신규 허브도 같은 대역을 사용한다.
+- **이유**: Tier 1 SSOT와 Tier 2 Feature Hub를 번호만 봐도 즉시 구분할 수 있게 하고, 향후 허브 확장 시 번호 공간과 문서 계층 가독성을 확보하기 위함.

@@ -19,6 +19,7 @@ config/icon="res://icon.svg"
 
 WorldRuntime="*res://src/runtime/world/WorldRuntime.cs"
 WindowManager="*res://src/runtime/windowing/WindowManager.cs"
+ShellWorkspaceRuntime="*res://src/runtime/workspace/ShellWorkspaceRuntime.cs"
 
 [dotnet]
 
