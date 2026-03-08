@@ -292,7 +292,8 @@ schema = 1
 ### 6.6 `workspace.pins.kinds`
 - pinned pane kind 배열
 - 순서는 taskbar 정렬 규칙에 사용할 수 있다
-- duplicate는 제거한다
+- duplicate는 제거하며 첫 등장 순서를 유지한다
+- 이미 pinned인 pane에 다시 pin을 수행해도 기존 순서를 바꾸지 않는다
 
 ### 6.7 `workspace.slots.<SLOT>`
 각 slot은 아래 2개 필드를 가진다.
@@ -422,7 +423,8 @@ sanitize 규칙:
    - `workspace.mode = DOCKED`
    - `maximized_pane = none`
 6. `PinnedSet`의 unavailable pane은 **stored preference 및 effective pinned preference로는 유지 가능**하나, 현재 taskbar에는 표시하지 않는다.
-7. pane-local state table은 unavailable pane에 대해 load 시 무시할 수 있다. 저장된 table 자체는 삭제하지 않아도 된다.
+7. taskbar에서 pinned가 아닌 resident pane은 `LEFT -> RIGHT_TOP -> RIGHT_BOTTOM` 순서와 각 slot의 `DockStack` 순서대로 뒤에 붙는다.
+8. pane-local state table은 unavailable pane에 대해 load 시 무시할 수 있다. 저장된 table 자체는 삭제하지 않아도 된다.
 
 ### 9.4 mid-session capability gain
 게임 도중 어떤 pane이 newly available이 되어도, 엔진은 그 pane을 자동으로 열 필요가 없다.

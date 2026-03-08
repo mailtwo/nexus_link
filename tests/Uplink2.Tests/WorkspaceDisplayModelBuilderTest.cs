@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Uplink2.Runtime.Workspace;
 using Uplink2.Runtime.Workspace.Ui;
 using Xunit;
@@ -12,10 +13,7 @@ namespace Uplink2.Tests;
 public sealed class WorkspaceDisplayModelBuilderTest
 {
     private static readonly IReadOnlySet<WorkspacePaneKind> ImplementedPaneKinds =
-        new HashSet<WorkspacePaneKind>
-        {
-            WorkspacePaneKind.Terminal,
-        };
+        PaneContentFactory.DefaultImplementedPaneKinds;
 
     /// <summary>Ensures the alpha layout definition keeps the three-slot split tree.</summary>
     [Fact]
@@ -51,6 +49,14 @@ public sealed class WorkspaceDisplayModelBuilderTest
         Assert.Equal(WorkspaceRenderedContentKind.Empty, displayModel.DockedSlots[DockSlot.RightTop].ContentKind);
         Assert.Null(displayModel.DockedSlots[DockSlot.RightBottom].DisplayedPane);
         Assert.Equal(WorkspaceRenderedContentKind.Empty, displayModel.DockedSlots[DockSlot.RightBottom].ContentKind);
+        Assert.Collection(
+            displayModel.TaskbarItems,
+            item =>
+            {
+                Assert.Equal(WorkspacePaneKind.Terminal, item.PaneKind);
+                Assert.Equal(WorkspaceTaskbarItemVisualState.Focused, item.VisualState);
+                Assert.True(item.IsPinned);
+            });
     }
 
     /// <summary>Ensures docked mode without maximized context displays the stored active pane.</summary>
@@ -123,6 +129,32 @@ public sealed class WorkspaceDisplayModelBuilderTest
         Assert.Equal(WorkspaceRenderedContentKind.Placeholder, displayModel.DockedSlots[DockSlot.Left].ContentKind);
     }
 
+    /// <summary>Ensures the world-map pane is treated as an implemented renderer in docked mode.</summary>
+    [Fact]
+    public void Build_WorldMapTrace_RendersImplementedContent()
+    {
+        var snapshot = CreateSnapshot(
+            WorkspaceMode.Docked,
+            null,
+            new Dictionary<DockSlot, WorkspaceDockSlotState>
+            {
+                [DockSlot.Left] = CreateSlotState(
+                    DockSlot.Left,
+                    [WorkspacePaneKind.Terminal],
+                    WorkspacePaneKind.Terminal),
+                [DockSlot.RightTop] = CreateSlotState(
+                    DockSlot.RightTop,
+                    [WorkspacePaneKind.WorldMapTrace],
+                    WorkspacePaneKind.WorldMapTrace),
+                [DockSlot.RightBottom] = CreateSlotState(DockSlot.RightBottom, [], null),
+            });
+
+        var displayModel = WorkspaceDisplayModelBuilder.Build(snapshot, WorkspaceLayoutDefinition.CreateAlpha(), ImplementedPaneKinds);
+
+        Assert.Equal(WorkspacePaneKind.WorldMapTrace, displayModel.DockedSlots[DockSlot.RightTop].DisplayedPane);
+        Assert.Equal(WorkspaceRenderedContentKind.Implemented, displayModel.DockedSlots[DockSlot.RightTop].ContentKind);
+    }
+
     /// <summary>Ensures mixed implemented and unsupported stacks still choose the correct display pane.</summary>
     [Fact]
     public void Build_MixedStack_UsesFallbackDisplayRulesConsistently()
@@ -147,7 +179,7 @@ public sealed class WorkspaceDisplayModelBuilderTest
         Assert.Equal(new[] { WorkspacePaneKind.Terminal, WorkspacePaneKind.WebViewer }, displayModel.DockedSlots[DockSlot.Left].Tabs);
     }
 
-    /// <summary>Ensures maximized mode produces an implemented renderer model for terminal and placeholders for unsupported panes.</summary>
+    /// <summary>Ensures maximized mode produces implemented renderer models for terminal and world-map, with placeholders for unsupported panes.</summary>
     [Fact]
     public void Build_MaximizedMode_RendersImplementedAndPlaceholderKinds()
     {
@@ -194,13 +226,118 @@ public sealed class WorkspaceDisplayModelBuilderTest
             ImplementedPaneKinds);
 
         Assert.NotNull(placeholderDisplay.MaximizedPane);
-        Assert.Equal(WorkspaceRenderedContentKind.Placeholder, placeholderDisplay.MaximizedPane!.ContentKind);
+        Assert.Equal(WorkspaceRenderedContentKind.Implemented, placeholderDisplay.MaximizedPane!.ContentKind);
+    }
+
+    /// <summary>Ensures visible but unfocused panes render the correct taskbar state.</summary>
+    [Fact]
+    public void Build_Taskbar_UsesVisibleUnfocusedStateForVisibleNonFocusedPane()
+    {
+        var snapshot = CreateSnapshot(
+            WorkspaceMode.Docked,
+            null,
+            new Dictionary<DockSlot, WorkspaceDockSlotState>
+            {
+                [DockSlot.Left] = CreateSlotState(
+                    DockSlot.Left,
+                    [WorkspacePaneKind.Terminal],
+                    WorkspacePaneKind.Terminal),
+                [DockSlot.RightTop] = CreateSlotState(
+                    DockSlot.RightTop,
+                    [WorkspacePaneKind.WorldMapTrace],
+                    WorkspacePaneKind.WorldMapTrace),
+                [DockSlot.RightBottom] = CreateSlotState(DockSlot.RightBottom, [], null),
+            },
+            [WorkspacePaneKind.Terminal],
+            WorkspacePaneKind.Terminal);
+
+        var displayModel = WorkspaceDisplayModelBuilder.Build(snapshot, WorkspaceLayoutDefinition.CreateAlpha(), ImplementedPaneKinds);
+
+        Assert.Collection(
+            displayModel.TaskbarItems,
+            terminal =>
+            {
+                Assert.Equal(WorkspacePaneKind.Terminal, terminal.PaneKind);
+                Assert.Equal(WorkspaceTaskbarItemVisualState.Focused, terminal.VisualState);
+            },
+            worldMap =>
+            {
+                Assert.Equal(WorkspacePaneKind.WorldMapTrace, worldMap.PaneKind);
+                Assert.Equal(WorkspaceTaskbarItemVisualState.VisibleUnfocused, worldMap.VisualState);
+            });
+    }
+
+    /// <summary>Ensures docked display hides the stored maximized pane while taskbar keeps it as open-hidden.</summary>
+    [Fact]
+    public void Build_Taskbar_UsesOpenHiddenStateForStoredMaximizedPaneInDockedMode()
+    {
+        var snapshot = CreateSnapshot(
+            WorkspaceMode.Docked,
+            WorkspacePaneKind.Terminal,
+            new Dictionary<DockSlot, WorkspaceDockSlotState>
+            {
+                [DockSlot.Left] = CreateSlotState(
+                    DockSlot.Left,
+                    [WorkspacePaneKind.Terminal, WorkspacePaneKind.WebViewer],
+                    WorkspacePaneKind.Terminal),
+                [DockSlot.RightTop] = CreateSlotState(DockSlot.RightTop, [], null),
+                [DockSlot.RightBottom] = CreateSlotState(DockSlot.RightBottom, [], null),
+            },
+            [WorkspacePaneKind.Terminal],
+            WorkspacePaneKind.WebViewer);
+
+        var displayModel = WorkspaceDisplayModelBuilder.Build(snapshot, WorkspaceLayoutDefinition.CreateAlpha(), ImplementedPaneKinds);
+        var taskbarItems = displayModel.TaskbarItems.ToDictionary(item => item.PaneKind);
+
+        Assert.Equal(WorkspaceTaskbarItemVisualState.OpenHidden, taskbarItems[WorkspacePaneKind.Terminal].VisualState);
+        Assert.Equal(WorkspaceTaskbarItemVisualState.Focused, taskbarItems[WorkspacePaneKind.WebViewer].VisualState);
+    }
+
+    /// <summary>Ensures taskbar order places pinned panes first, then resident unpinned panes by slot and stack order.</summary>
+    [Fact]
+    public void Build_Taskbar_OrdersPinnedFirst_ThenResidentUnpinnedBySlotOrder()
+    {
+        var snapshot = CreateSnapshot(
+            WorkspaceMode.Docked,
+            null,
+            new Dictionary<DockSlot, WorkspaceDockSlotState>
+            {
+                [DockSlot.Left] = CreateSlotState(
+                    DockSlot.Left,
+                    [WorkspacePaneKind.Terminal, WorkspacePaneKind.WebViewer],
+                    WorkspacePaneKind.Terminal),
+                [DockSlot.RightTop] = CreateSlotState(
+                    DockSlot.RightTop,
+                    [WorkspacePaneKind.WorldMapTrace],
+                    WorkspacePaneKind.WorldMapTrace),
+                [DockSlot.RightBottom] = CreateSlotState(
+                    DockSlot.RightBottom,
+                    [],
+                    null),
+            },
+            [WorkspacePaneKind.Mail, WorkspacePaneKind.Terminal],
+            WorkspacePaneKind.Terminal);
+
+        var displayModel = WorkspaceDisplayModelBuilder.Build(snapshot, WorkspaceLayoutDefinition.CreateAlpha(), ImplementedPaneKinds);
+
+        Assert.Equal(
+            new[]
+            {
+                WorkspacePaneKind.Mail,
+                WorkspacePaneKind.Terminal,
+                WorkspacePaneKind.WebViewer,
+                WorkspacePaneKind.WorldMapTrace,
+            },
+            displayModel.TaskbarItems.Select(item => item.PaneKind).ToArray());
+        Assert.Equal(WorkspaceTaskbarItemVisualState.PinnedClosed, displayModel.TaskbarItems[0].VisualState);
     }
 
     private static WorkspaceStateSnapshot CreateSnapshot(
         WorkspaceMode mode,
         WorkspacePaneKind? maximizedPane,
-        IReadOnlyDictionary<DockSlot, WorkspaceDockSlotState> slots)
+        IReadOnlyDictionary<DockSlot, WorkspaceDockSlotState> slots,
+        IReadOnlyList<WorkspacePaneKind>? pinnedSet = null,
+        WorkspacePaneKind? focusedPane = null)
     {
         return new WorkspaceStateSnapshot(
             mode,
@@ -208,7 +345,8 @@ public sealed class WorkspaceDisplayModelBuilderTest
             WorkspaceStateMachine.DefaultLeftRatio,
             WorkspaceStateMachine.DefaultRightTopRatio,
             slots,
-            new[] { WorkspacePaneKind.Terminal });
+            pinnedSet ?? [WorkspacePaneKind.Terminal],
+            focusedPane);
     }
 
     private static WorkspaceDockSlotState CreateSlotState(

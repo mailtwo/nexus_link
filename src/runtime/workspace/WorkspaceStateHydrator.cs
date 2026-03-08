@@ -64,7 +64,8 @@ public static class WorkspaceStateHydrator
             NormalizeRatio(storedState.LeftRatio, WorkspaceStateMachine.DefaultLeftRatio),
             NormalizeRatio(storedState.RightTopRatio, WorkspaceStateMachine.DefaultRightTopRatio),
             new ReadOnlyDictionary<DockSlot, WorkspaceDockSlotState>(effectiveSlots),
-            Array.AsReadOnly(effectivePinnedSet));
+            Array.AsReadOnly(effectivePinnedSet),
+            focusedPane: null);
 
         return new WorkspaceHydrationResult(
             effectiveState,
@@ -138,12 +139,21 @@ public static class WorkspaceStateHydrator
         return WorkspaceMode.Docked;
     }
 
-    private static WorkspacePaneKind[] SanitizePinnedSet(IReadOnlyCollection<WorkspacePaneKind> storedPinnedSet)
+    private static WorkspacePaneKind[] SanitizePinnedSet(IReadOnlyList<WorkspacePaneKind> storedPinnedSet)
     {
-        return storedPinnedSet
-            .Distinct()
-            .OrderBy(static kind => kind)
-            .ToArray();
+        var seen = new HashSet<WorkspacePaneKind>();
+        var ordered = new List<WorkspacePaneKind>(storedPinnedSet.Count);
+        foreach (var pane in storedPinnedSet)
+        {
+            if (!seen.Add(pane))
+            {
+                continue;
+            }
+
+            ordered.Add(pane);
+        }
+
+        return ordered.ToArray();
     }
 
     private static Dictionary<WorkspacePaneKind, WorkspacePaneStateTable> FilterRestorablePaneStateTables(

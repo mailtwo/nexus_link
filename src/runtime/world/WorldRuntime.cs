@@ -66,7 +66,7 @@ public partial class WorldRuntime : Node
 
     /// <summary>Enables debug-only runtime features such as DEBUG_* system calls.</summary>
     [Export]
-    public bool DebugOption { get; set; }
+    public bool DebugOption { get; set; } = true;
 
     /// <summary>Base64-encoded HMAC key used for save/load integrity verification.</summary>
     [Export]

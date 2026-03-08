@@ -29,6 +29,7 @@ public sealed class WorkspaceStateMachineTest
         Assert.Empty(snapshot.Slots[DockSlot.RightTop].DockStack);
         Assert.Empty(snapshot.Slots[DockSlot.RightBottom].DockStack);
         Assert.Equal(new[] { WorkspacePaneKind.Terminal }, snapshot.PinnedSet);
+        Assert.Equal(WorkspacePaneKind.Terminal, snapshot.FocusedPane);
     }
 
     /// <summary>Ensures activating a closed pane opens it in its home slot.</summary>
@@ -43,6 +44,7 @@ public sealed class WorkspaceStateMachineTest
         var snapshot = stateMachine.GetSnapshot();
         Assert.Equal(new[] { WorkspacePaneKind.WorldMapTrace }, snapshot.Slots[DockSlot.RightTop].DockStack);
         Assert.Equal(WorkspacePaneKind.WorldMapTrace, snapshot.Slots[DockSlot.RightTop].ActivePane);
+        Assert.Equal(WorkspacePaneKind.WorldMapTrace, snapshot.FocusedPane);
     }
 
     /// <summary>Ensures repeated activation does not duplicate resident panes.</summary>
@@ -75,6 +77,7 @@ public sealed class WorkspaceStateMachineTest
             new[] { WorkspacePaneKind.Terminal, WorkspacePaneKind.WorldMapTrace },
             snapshot.Slots[DockSlot.Left].DockStack);
         Assert.Equal(WorkspacePaneKind.WorldMapTrace, snapshot.Slots[DockSlot.Left].ActivePane);
+        Assert.Equal(WorkspacePaneKind.WorldMapTrace, snapshot.FocusedPane);
         AssertSingleResidence(snapshot, WorkspacePaneKind.WorldMapTrace);
     }
 
@@ -91,6 +94,7 @@ public sealed class WorkspaceStateMachineTest
         var snapshot = stateMachine.GetSnapshot();
         Assert.Equal(new[] { WorkspacePaneKind.WebViewer }, snapshot.Slots[DockSlot.Left].DockStack);
         Assert.Equal(WorkspacePaneKind.WebViewer, snapshot.Slots[DockSlot.Left].ActivePane);
+        Assert.Equal(WorkspacePaneKind.WebViewer, snapshot.FocusedPane);
     }
 
     /// <summary>Ensures taskbar-style activation preserves maximized context when switching away and back.</summary>
@@ -112,6 +116,7 @@ public sealed class WorkspaceStateMachineTest
         Assert.True(restored);
         Assert.Equal(WorkspaceMode.Maximized, restoredSnapshot.Mode);
         Assert.Equal(WorkspacePaneKind.Terminal, restoredSnapshot.MaximizedPane);
+        Assert.Equal(WorkspacePaneKind.Terminal, restoredSnapshot.FocusedPane);
     }
 
     /// <summary>Ensures restoring docked mode clears the stored maximized pane context.</summary>
@@ -127,6 +132,54 @@ public sealed class WorkspaceStateMachineTest
         var snapshot = stateMachine.GetSnapshot();
         Assert.Equal(WorkspaceMode.Docked, snapshot.Mode);
         Assert.Null(snapshot.MaximizedPane);
+        Assert.Equal(WorkspacePaneKind.Terminal, snapshot.FocusedPane);
+    }
+
+    /// <summary>Ensures focus can move between already visible panes without changing layout.</summary>
+    [Fact]
+    public void FocusPane_ChangesFocusedVisiblePaneWithoutChangingResidency()
+    {
+        var stateMachine = new WorkspaceStateMachine();
+        _ = stateMachine.ActivatePane(WorkspacePaneKind.WorldMapTrace);
+
+        var changed = stateMachine.FocusPane(WorkspacePaneKind.Terminal);
+
+        Assert.True(changed);
+        var snapshot = stateMachine.GetSnapshot();
+        Assert.Equal(WorkspacePaneKind.Terminal, snapshot.FocusedPane);
+        Assert.Equal(new[] { WorkspacePaneKind.WorldMapTrace }, snapshot.Slots[DockSlot.RightTop].DockStack);
+    }
+
+    /// <summary>Ensures closing the focused pane clears focus when no visible fallback remains.</summary>
+    [Fact]
+    public void ClosePane_FocusedPaneWithoutFallback_ClearsFocus()
+    {
+        var stateMachine = new WorkspaceStateMachine();
+        _ = stateMachine.ActivatePane(WorkspacePaneKind.WorldMapTrace);
+
+        var changed = stateMachine.ClosePane(WorkspacePaneKind.WorldMapTrace);
+
+        Assert.True(changed);
+        var snapshot = stateMachine.GetSnapshot();
+        Assert.Null(snapshot.FocusedPane);
+        Assert.Empty(snapshot.Slots[DockSlot.RightTop].DockStack);
+    }
+
+    /// <summary>Ensures pinned panes preserve insertion order and re-pin does not reorder existing entries.</summary>
+    [Fact]
+    public void PinPane_PreservesInsertionOrder_AndUnpinRemovesEntry()
+    {
+        var stateMachine = new WorkspaceStateMachine();
+
+        Assert.True(stateMachine.PinPane(WorkspacePaneKind.Mail));
+        Assert.True(stateMachine.PinPane(WorkspacePaneKind.WorldMapTrace));
+        Assert.False(stateMachine.PinPane(WorkspacePaneKind.Mail));
+        Assert.True(stateMachine.UnpinPane(WorkspacePaneKind.Mail));
+
+        var snapshot = stateMachine.GetSnapshot();
+        Assert.Equal(
+            new[] { WorkspacePaneKind.Terminal, WorkspacePaneKind.WorldMapTrace },
+            snapshot.PinnedSet);
     }
 
     /// <summary>Ensures current dock-slot lookup succeeds only for resident panes.</summary>
@@ -200,7 +253,8 @@ public sealed class WorkspaceStateMachineTest
                     [],
                     null),
             },
-            [WorkspacePaneKind.Terminal, WorkspacePaneKind.Mail]);
+            [WorkspacePaneKind.Terminal, WorkspacePaneKind.Mail],
+            WorkspacePaneKind.Terminal);
 
         var changed = stateMachine.ReplaceState(replacement);
 
@@ -272,6 +326,39 @@ public sealed class WorkspaceStateMachineTest
         Assert.Contains("must be resident", ex.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>Ensures focused panes must remain visible in docked snapshots.</summary>
+    [Fact]
+    public void ReplaceState_RejectsFocusedPaneThatIsNotVisible()
+    {
+        var stateMachine = new WorkspaceStateMachine();
+        var invalid = CreateSnapshot(
+            WorkspaceMode.Docked,
+            null,
+            0.42f,
+            0.55f,
+            new Dictionary<DockSlot, WorkspaceDockSlotState>
+            {
+                [DockSlot.Left] = CreateSlotState(
+                    DockSlot.Left,
+                    [WorkspacePaneKind.Terminal, WorkspacePaneKind.WebViewer],
+                    WorkspacePaneKind.Terminal),
+                [DockSlot.RightTop] = CreateSlotState(
+                    DockSlot.RightTop,
+                    [],
+                    null),
+                [DockSlot.RightBottom] = CreateSlotState(
+                    DockSlot.RightBottom,
+                    [],
+                    null),
+            },
+            [WorkspacePaneKind.Terminal],
+            WorkspacePaneKind.WebViewer);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => stateMachine.ReplaceState(invalid));
+
+        Assert.Contains("must be visible", ex.Message, StringComparison.Ordinal);
+    }
+
     /// <summary>Ensures the runtime wrapper exposes the ReplaceState entry point for sanitized snapshots.</summary>
     [Fact]
     public void ShellWorkspaceRuntime_ExposesReplaceStateEntryPoint()
@@ -316,6 +403,48 @@ public sealed class WorkspaceStateMachineTest
         {
             Assert.Contains(snapshot.MaximizedPane.Value, seen);
         }
+
+        if (snapshot.FocusedPane.HasValue)
+        {
+            Assert.Contains(snapshot.FocusedPane.Value, seen);
+            if (snapshot.Mode == WorkspaceMode.Maximized)
+            {
+                Assert.Equal(snapshot.MaximizedPane, snapshot.FocusedPane);
+            }
+            else
+            {
+                var visible = false;
+                foreach (var slot in snapshot.Slots.Values)
+                {
+                    WorkspacePaneKind? displayed = null;
+                    if (slot.ActivePane.HasValue && slot.ActivePane != snapshot.MaximizedPane)
+                    {
+                        displayed = slot.ActivePane.Value;
+                    }
+                    else
+                    {
+                        foreach (var pane in slot.DockStack)
+                        {
+                            if (pane == snapshot.MaximizedPane)
+                            {
+                                continue;
+                            }
+
+                            displayed = pane;
+                            break;
+                        }
+                    }
+
+                    if (displayed == snapshot.FocusedPane)
+                    {
+                        visible = true;
+                        break;
+                    }
+                }
+
+                Assert.True(visible, $"Focused pane '{snapshot.FocusedPane}' should be visible in docked mode.");
+            }
+        }
     }
 
     private static WorkspaceDockSlotState CreateSlotState(
@@ -332,9 +461,10 @@ public sealed class WorkspaceStateMachineTest
         float leftRatio,
         float rightTopRatio,
         IReadOnlyDictionary<DockSlot, WorkspaceDockSlotState> slots,
-        IReadOnlyCollection<WorkspacePaneKind> pinnedSet)
+        IReadOnlyList<WorkspacePaneKind> pinnedSet,
+        WorkspacePaneKind? focusedPane = null)
     {
-        return new WorkspaceStateSnapshot(mode, maximizedPane, leftRatio, rightTopRatio, slots, pinnedSet);
+        return new WorkspaceStateSnapshot(mode, maximizedPane, leftRatio, rightTopRatio, slots, pinnedSet, focusedPane);
     }
 
     private static void AssertSnapshotsEqual(WorkspaceStateSnapshot expected, WorkspaceStateSnapshot actual)
@@ -343,9 +473,8 @@ public sealed class WorkspaceStateMachineTest
         Assert.Equal(expected.MaximizedPane, actual.MaximizedPane);
         Assert.Equal(expected.LeftRatio, actual.LeftRatio, 3);
         Assert.Equal(expected.RightTopRatio, actual.RightTopRatio, 3);
-        Assert.True(
-            new HashSet<WorkspacePaneKind>(expected.PinnedSet).SetEquals(actual.PinnedSet),
-            "Pinned sets should match.");
+        Assert.Equal(expected.FocusedPane, actual.FocusedPane);
+        Assert.Equal(expected.PinnedSet, actual.PinnedSet);
 
         foreach (var slot in expected.Slots.Keys.OrderBy(static value => value))
         {

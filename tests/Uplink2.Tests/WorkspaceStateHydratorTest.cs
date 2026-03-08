@@ -39,6 +39,7 @@ public sealed class WorkspaceStateHydratorTest
         Assert.Empty(result.EffectiveState.Slots[DockSlot.RightBottom].DockStack);
         Assert.Null(result.EffectiveState.Slots[DockSlot.RightTop].ActivePane);
         Assert.Null(result.EffectiveState.Slots[DockSlot.RightBottom].ActivePane);
+        Assert.Null(result.EffectiveState.FocusedPane);
     }
 
     /// <summary>Ensures unavailable panes are removed and active falls back to the first eligible pane.</summary>
@@ -187,6 +188,7 @@ public sealed class WorkspaceStateHydratorTest
         Assert.True(result.RestorablePaneStateByKind.ContainsKey(WorkspacePaneKind.Terminal));
         Assert.False(result.RestorablePaneStateByKind.ContainsKey(WorkspacePaneKind.WebViewer));
         Assert.Same(terminalPaneState, result.RestorablePaneStateByKind[WorkspacePaneKind.Terminal]);
+        Assert.Null(result.EffectiveState.FocusedPane);
     }
 
     /// <summary>Ensures an invalid stored active pane that is not in the stack falls back to the first eligible pane.</summary>
@@ -215,6 +217,45 @@ public sealed class WorkspaceStateHydratorTest
         Assert.Equal(WorkspacePaneKind.Mail, result.EffectiveState.Slots[DockSlot.RightBottom].ActivePane);
     }
 
+    /// <summary>Ensures pinned-pane order survives hydrate and duplicate entries keep the first occurrence only.</summary>
+    [Fact]
+    public void Hydrate_PreservesPinnedOrder_UsingFirstOccurrenceWins()
+    {
+        var storedState = CreateStoredState(
+            WorkspaceMode.Docked,
+            null,
+            0.42f,
+            0.55f,
+            new Dictionary<DockSlot, WorkspaceStoredDockSlotState>
+            {
+                [DockSlot.Left] = CreateStoredSlotState(
+                    DockSlot.Left,
+                    [WorkspacePaneKind.Terminal],
+                    WorkspacePaneKind.Terminal),
+            },
+            [WorkspacePaneKind.Mail, WorkspacePaneKind.Terminal, WorkspacePaneKind.Mail, WorkspacePaneKind.WorldMapTrace],
+            new Dictionary<WorkspacePaneKind, WorkspacePaneStateTable>());
+
+        var result = WorkspaceStateHydrator.Hydrate(
+            storedState,
+            new HashSet<WorkspacePaneKind>
+            {
+                WorkspacePaneKind.Terminal,
+                WorkspacePaneKind.Mail,
+                WorkspacePaneKind.WorldMapTrace,
+            });
+
+        Assert.Equal(
+            new[]
+            {
+                WorkspacePaneKind.Mail,
+                WorkspacePaneKind.Terminal,
+                WorkspacePaneKind.WorldMapTrace,
+            },
+            result.EffectiveState.PinnedSet);
+        Assert.Null(result.EffectiveState.FocusedPane);
+    }
+
     private static WorkspaceStoredDockSlotState CreateStoredSlotState(
         DockSlot slot,
         IReadOnlyList<WorkspacePaneKind> stack,
@@ -229,7 +270,7 @@ public sealed class WorkspaceStateHydratorTest
         float leftRatio,
         float rightTopRatio,
         IReadOnlyDictionary<DockSlot, WorkspaceStoredDockSlotState> slots,
-        IReadOnlyCollection<WorkspacePaneKind> pinnedSet,
+        IReadOnlyList<WorkspacePaneKind> pinnedSet,
         IReadOnlyDictionary<WorkspacePaneKind, WorkspacePaneStateTable> paneStateByKind)
     {
         return new WorkspaceStoredState(

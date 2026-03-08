@@ -55,6 +55,12 @@ public partial class ShellWorkspaceRuntime : Node
         return EmitChangedIfNeeded(stateMachine.ActivatePane(kind));
     }
 
+    /// <summary>Focuses a currently visible pane without changing residency or layout.</summary>
+    public bool FocusPane(WorkspacePaneKind kind)
+    {
+        return EmitChangedIfNeeded(stateMachine.FocusPane(kind));
+    }
+
     /// <summary>Closes a resident pane.</summary>
     public bool ClosePane(WorkspacePaneKind kind)
     {

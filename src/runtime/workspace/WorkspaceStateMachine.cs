@@ -25,9 +25,10 @@ public sealed class WorkspaceStateMachine
 
     private readonly Dictionary<DockSlot, List<WorkspacePaneKind>> dockStacks = new();
     private readonly Dictionary<DockSlot, WorkspacePaneKind?> activeDockPaneBySlot = new();
-    private readonly HashSet<WorkspacePaneKind> pinnedSet = [];
+    private readonly List<WorkspacePaneKind> pinnedPaneOrder = [];
     private WorkspaceMode mode;
     private WorkspacePaneKind? maximizedPane;
+    private WorkspacePaneKind? focusedPane;
     private float leftRatio;
     private float rightTopRatio;
 
@@ -57,10 +58,11 @@ public sealed class WorkspaceStateMachine
 
         mode = WorkspaceMode.Docked;
         maximizedPane = null;
+        focusedPane = WorkspacePaneKind.Terminal;
         leftRatio = DefaultLeftRatio;
         rightTopRatio = DefaultRightTopRatio;
-        pinnedSet.Clear();
-        pinnedSet.Add(WorkspacePaneKind.Terminal);
+        pinnedPaneOrder.Clear();
+        pinnedPaneOrder.Add(WorkspacePaneKind.Terminal);
 
         foreach (var slot in SlotOrder)
         {
@@ -89,13 +91,14 @@ public sealed class WorkspaceStateMachine
 
         mode = snapshot.Mode;
         maximizedPane = snapshot.MaximizedPane;
+        focusedPane = snapshot.FocusedPane;
         leftRatio = snapshot.LeftRatio;
         rightTopRatio = snapshot.RightTopRatio;
 
-        pinnedSet.Clear();
+        pinnedPaneOrder.Clear();
         foreach (var kind in snapshot.PinnedSet)
         {
-            pinnedSet.Add(kind);
+            pinnedPaneOrder.Add(kind);
         }
 
         foreach (var slot in SlotOrder)
@@ -140,6 +143,11 @@ public sealed class WorkspaceStateMachine
             changed = true;
         }
 
+        if (SetFocusedPane(kind))
+        {
+            changed = true;
+        }
+
         ValidateInvariants();
         return changed;
     }
@@ -169,6 +177,16 @@ public sealed class WorkspaceStateMachine
         {
             maximizedPane = null;
             mode = WorkspaceMode.Docked;
+        }
+
+        if (focusedPane == kind)
+        {
+            focusedPane = activeDockPaneBySlot[slot];
+        }
+
+        if (focusedPane.HasValue && !IsPaneVisible(focusedPane.Value))
+        {
+            focusedPane = null;
         }
 
         ValidateInvariants();
@@ -203,6 +221,11 @@ public sealed class WorkspaceStateMachine
 
         dockStacks[targetSlot].Add(kind);
         activeDockPaneBySlot[targetSlot] = kind;
+        if (IsPaneVisible(kind) && SetFocusedPane(kind))
+        {
+            ValidateInvariants();
+            return true;
+        }
 
         ValidateInvariants();
         return true;
@@ -211,34 +234,78 @@ public sealed class WorkspaceStateMachine
     /// <summary>Adds a pane kind to the pinned set.</summary>
     public bool PinPane(WorkspacePaneKind kind)
     {
-        var changed = pinnedSet.Add(kind);
+        if (pinnedPaneOrder.Contains(kind))
+        {
+            ValidateInvariants();
+            return false;
+        }
+
+        pinnedPaneOrder.Add(kind);
         ValidateInvariants();
-        return changed;
+        return true;
     }
 
     /// <summary>Removes a pane kind from the pinned set.</summary>
     public bool UnpinPane(WorkspacePaneKind kind)
     {
-        var changed = pinnedSet.Remove(kind);
+        var changed = pinnedPaneOrder.Remove(kind);
         ValidateInvariants();
         return changed;
+    }
+
+    /// <summary>Focuses a currently visible pane without changing residency or layout.</summary>
+    public bool FocusPane(WorkspacePaneKind kind)
+    {
+        if (!TryGetCurrentDockSlot(kind, out _) || !IsPaneVisible(kind))
+        {
+            return false;
+        }
+
+        if (!SetFocusedPane(kind))
+        {
+            return false;
+        }
+
+        ValidateInvariants();
+        return true;
     }
 
     /// <summary>Stores and enters a maximized pane context for a resident pane.</summary>
     public bool MaximizePane(WorkspacePaneKind kind)
     {
-        if (!TryGetCurrentDockSlot(kind, out _))
+        if (!TryGetCurrentDockSlot(kind, out var slot))
         {
             return false;
         }
 
-        if (maximizedPane == kind && mode == WorkspaceMode.Maximized)
+        var changed = false;
+        if (SetActivePane(slot, kind))
+        {
+            changed = true;
+        }
+
+        if (maximizedPane != kind)
+        {
+            maximizedPane = kind;
+            changed = true;
+        }
+
+        if (mode != WorkspaceMode.Maximized)
+        {
+            mode = WorkspaceMode.Maximized;
+            changed = true;
+        }
+
+        if (SetFocusedPane(kind))
+        {
+            changed = true;
+        }
+
+        if (!changed)
         {
             return false;
         }
 
-        maximizedPane = kind;
-        mode = WorkspaceMode.Maximized;
         ValidateInvariants();
         return true;
     }
@@ -251,8 +318,18 @@ public sealed class WorkspaceStateMachine
             return false;
         }
 
+        var restoreFocusedPane = maximizedPane;
         mode = WorkspaceMode.Docked;
         maximizedPane = null;
+        if (restoreFocusedPane.HasValue && IsPaneVisible(restoreFocusedPane.Value))
+        {
+            focusedPane = restoreFocusedPane.Value;
+        }
+        else if (focusedPane.HasValue && !IsPaneVisible(focusedPane.Value))
+        {
+            focusedPane = null;
+        }
+
         ValidateInvariants();
         return true;
     }
@@ -292,6 +369,53 @@ public sealed class WorkspaceStateMachine
         return false;
     }
 
+    private bool IsPaneVisible(WorkspacePaneKind kind)
+    {
+        if (mode == WorkspaceMode.Maximized)
+        {
+            return maximizedPane == kind;
+        }
+
+        foreach (var slot in SlotOrder)
+        {
+            if (ResolveDisplayedPane(slot) == kind)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private WorkspacePaneKind? ResolveDisplayedPane(DockSlot slot)
+    {
+        if (mode != WorkspaceMode.Docked)
+        {
+            return null;
+        }
+
+        var activePane = activeDockPaneBySlot[slot];
+        if (activePane.HasValue && IsDockedDisplayEligible(activePane.Value))
+        {
+            return activePane.Value;
+        }
+
+        foreach (var pane in dockStacks[slot])
+        {
+            if (IsDockedDisplayEligible(pane))
+            {
+                return pane;
+            }
+        }
+
+        return null;
+    }
+
+    private bool IsDockedDisplayEligible(WorkspacePaneKind pane)
+    {
+        return maximizedPane != pane;
+    }
+
     private static DockSlot ResolveHomeSlot(WorkspacePaneKind kind)
     {
         return kind switch
@@ -316,9 +440,22 @@ public sealed class WorkspaceStateMachine
             return false;
         }
 
-        if (!new HashSet<WorkspacePaneKind>(left.PinnedSet).SetEquals(right.PinnedSet))
+        if (left.FocusedPane != right.FocusedPane)
         {
             return false;
+        }
+
+        if (left.PinnedSet.Count != right.PinnedSet.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < left.PinnedSet.Count; index++)
+        {
+            if (left.PinnedSet[index] != right.PinnedSet[index])
+            {
+                return false;
+            }
         }
 
         foreach (var slot in SlotOrder)
@@ -353,7 +490,12 @@ public sealed class WorkspaceStateMachine
             return false;
         }
 
-        if (pinnedSet.Count != 1 || !pinnedSet.Contains(WorkspacePaneKind.Terminal))
+        if (focusedPane != WorkspacePaneKind.Terminal)
+        {
+            return false;
+        }
+
+        if (pinnedPaneOrder.Count != 1 || pinnedPaneOrder[0] != WorkspacePaneKind.Terminal)
         {
             return false;
         }
@@ -410,6 +552,17 @@ public sealed class WorkspaceStateMachine
     private static bool IsValidRatio(float value)
     {
         return float.IsFinite(value) && value > 0.0f && value < 1.0f;
+    }
+
+    private bool SetFocusedPane(WorkspacePaneKind kind)
+    {
+        if (focusedPane == kind)
+        {
+            return false;
+        }
+
+        focusedPane = kind;
+        return true;
     }
 
     private static void ValidateSnapshot(WorkspaceStateSnapshot snapshot)
@@ -473,6 +626,42 @@ public sealed class WorkspaceStateMachine
             }
         }
 
+        if (snapshot.FocusedPane.HasValue)
+        {
+            var focused = snapshot.FocusedPane.Value;
+            if (!seenPanes.Contains(focused))
+            {
+                throw new InvalidOperationException($"Focused pane '{focused}' must be resident in the effective workspace snapshot.");
+            }
+
+            if (snapshot.Mode == WorkspaceMode.Maximized)
+            {
+                if (snapshot.MaximizedPane != focused)
+                {
+                    throw new InvalidOperationException("Focused pane must match the maximized pane in maximized mode.");
+                }
+            }
+            else
+            {
+                var visible = false;
+                foreach (var slot in SlotOrder)
+                {
+                    var slotState = snapshot.Slots[slot];
+                    var displayedPane = ResolveSnapshotDisplayedPane(snapshot, slotState);
+                    if (displayedPane == focused)
+                    {
+                        visible = true;
+                        break;
+                    }
+                }
+
+                if (!visible)
+                {
+                    throw new InvalidOperationException($"Focused pane '{focused}' must be visible in docked mode.");
+                }
+            }
+        }
+
         if (snapshot.Mode == WorkspaceMode.Maximized && snapshot.MaximizedPane is null)
         {
             throw new InvalidOperationException("Effective workspace snapshot cannot be maximized without a maximized pane.");
@@ -499,9 +688,7 @@ public sealed class WorkspaceStateMachine
                     activeDockPaneBySlot[slot]));
         }
 
-        var pinnedKinds = pinnedSet
-            .OrderBy(static kind => kind)
-            .ToArray();
+        var pinnedKinds = pinnedPaneOrder.ToArray();
 
         return new WorkspaceStateSnapshot(
             mode,
@@ -509,7 +696,8 @@ public sealed class WorkspaceStateMachine
             leftRatio,
             rightTopRatio,
             new ReadOnlyDictionary<DockSlot, WorkspaceDockSlotState>(slotSnapshots),
-            Array.AsReadOnly(pinnedKinds));
+            Array.AsReadOnly(pinnedKinds),
+            focusedPane);
     }
 
     private void ValidateInvariants()
@@ -550,5 +738,52 @@ public sealed class WorkspaceStateMachine
         {
             throw new InvalidOperationException($"Maximized pane '{maximizedPane.Value}' must be resident.");
         }
+
+        var uniquePinnedSet = new HashSet<WorkspacePaneKind>();
+        foreach (var pane in pinnedPaneOrder)
+        {
+            if (!uniquePinnedSet.Add(pane))
+            {
+                throw new InvalidOperationException($"Pinned pane '{pane}' appears more than once.");
+            }
+        }
+
+        if (focusedPane.HasValue)
+        {
+            if (!seenPanes.Contains(focusedPane.Value))
+            {
+                throw new InvalidOperationException($"Focused pane '{focusedPane.Value}' must be resident.");
+            }
+
+            if (!IsPaneVisible(focusedPane.Value))
+            {
+                throw new InvalidOperationException($"Focused pane '{focusedPane.Value}' must be visible.");
+            }
+        }
+    }
+
+    private static WorkspacePaneKind? ResolveSnapshotDisplayedPane(
+        WorkspaceStateSnapshot snapshot,
+        WorkspaceDockSlotState slotState)
+    {
+        if (snapshot.Mode != WorkspaceMode.Docked)
+        {
+            return null;
+        }
+
+        if (slotState.ActivePane.HasValue && snapshot.MaximizedPane != slotState.ActivePane.Value)
+        {
+            return slotState.ActivePane.Value;
+        }
+
+        foreach (var pane in slotState.DockStack)
+        {
+            if (snapshot.MaximizedPane != pane)
+            {
+                return pane;
+            }
+        }
+
+        return null;
     }
 }

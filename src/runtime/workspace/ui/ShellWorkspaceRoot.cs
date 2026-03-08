@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 #nullable enable
 
@@ -19,15 +20,31 @@ public partial class ShellWorkspaceRoot : Control
     private WorkspaceDisplayModel? currentDisplayModel;
     private Control? dockedHost;
     private Control? maximizedHost;
+    private Control? taskbarHost;
+    private Control? feedbackLayer;
+    private PopupMenu? taskbarContextMenu;
     private Label? maximizedTitleLabel;
     private Button? maximizedRestoreButton;
     private Control? maximizedContentHost;
+    private Button? taskbarStartPlaceholderButton;
+    private HBoxContainer? taskbarButtonsStrip;
+    private readonly Dictionary<WorkspacePaneKind, Button> taskbarButtons = new();
+    private WorkspacePaneKind? taskbarContextPaneKind;
+    private Rect2? taskbarContextButtonRect;
+
+    private const int TaskbarContextMenuPinId = 1;
+    private const int TaskbarMinHeight = 44;
+    private const float TaskbarFeedbackHoldSeconds = 0.5f;
+    private const float TaskbarFeedbackFadeSeconds = 0.5f;
 
     /// <inheritdoc/>
     public override void _Ready()
     {
-        dockedHost = GetNode<Control>("DockedHost");
-        maximizedHost = GetNode<Control>("MaximizedHost");
+        dockedHost = GetNode<Control>("MainLayout/WorkspaceArea/DockedHost");
+        maximizedHost = GetNode<Control>("MainLayout/WorkspaceArea/MaximizedHost");
+        taskbarHost = GetNode<Control>("MainLayout/TaskbarHost");
+        feedbackLayer = GetNode<Control>("FeedbackLayer");
+        taskbarContextMenu = GetNode<PopupMenu>("TaskbarContextMenu");
         paneContentFactory = new PaneContentFactory();
         workspaceRuntime = ShellWorkspaceRuntime.Instance;
         if (workspaceRuntime is null)
@@ -38,9 +55,12 @@ public partial class ShellWorkspaceRoot : Control
 
         BuildDockedChrome();
         BuildMaximizedChrome();
+        BuildTaskbarChrome();
+        ConfigureTaskbarContextMenu();
 
         workspaceRuntime.ResetToDefaultState();
         workspaceRuntime.StateChanged += OnWorkspaceStateChanged;
+        ApplyDevelopmentBootstrapOverride();
 
         ApplyCurrentWorkspaceState();
     }
@@ -52,6 +72,11 @@ public partial class ShellWorkspaceRoot : Control
         {
             workspaceRuntime.StateChanged -= OnWorkspaceStateChanged;
         }
+
+        if (taskbarContextMenu is not null)
+        {
+            taskbarContextMenu.IdPressed -= OnTaskbarContextMenuIdPressed;
+        }
     }
 
     /// <inheritdoc/>
@@ -60,6 +85,43 @@ public partial class ShellWorkspaceRoot : Control
         if (what == NotificationResized && currentSnapshot is not null)
         {
             CallDeferred(MethodName.ApplyCurrentSplitRatios);
+        }
+    }
+
+    /// <inheritdoc/>
+    public override void _Input(InputEvent @event)
+    {
+        if (@event is not InputEventMouseButton mouseButton ||
+            !mouseButton.Pressed ||
+            mouseButton.ButtonIndex != MouseButton.Left ||
+            workspaceRuntime is null ||
+            currentDisplayModel is null)
+        {
+            return;
+        }
+
+        if (currentDisplayModel.Mode == WorkspaceMode.Maximized &&
+            currentDisplayModel.MaximizedPane is not null &&
+            maximizedContentHost is not null &&
+            IsPointerInsideControl(maximizedContentHost, mouseButton.Position))
+        {
+            workspaceRuntime.FocusPane(currentDisplayModel.MaximizedPane.PaneKind);
+            return;
+        }
+
+        foreach (var pair in currentDisplayModel.DockedSlots)
+        {
+            if (!pair.Value.DisplayedPane.HasValue)
+            {
+                continue;
+            }
+
+            var view = slotViews[pair.Key];
+            if (IsPointerInsideControl(view.ContentHost, mouseButton.Position))
+            {
+                workspaceRuntime.FocusPane(pair.Value.DisplayedPane.Value);
+                return;
+            }
         }
     }
 
@@ -179,6 +241,80 @@ public partial class ShellWorkspaceRoot : Control
         bodyMargin.AddChild(maximizedContentHost);
     }
 
+    private void BuildTaskbarChrome()
+    {
+        if (taskbarHost is null)
+        {
+            return;
+        }
+
+        taskbarButtons.Clear();
+        ClearDisposableChildren(taskbarHost);
+
+        var frame = new PanelContainer
+        {
+            Name = "TaskbarFrame",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            CustomMinimumSize = new Vector2(0.0f, TaskbarMinHeight),
+        };
+        frame.AddThemeStyleboxOverride("panel", CreateTaskbarFrameStyleBox());
+        PrepareFillControl(frame);
+        taskbarHost.AddChild(frame);
+
+        var margin = new MarginContainer
+        {
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+        };
+        PrepareFillControl(margin);
+        margin.AddThemeConstantOverride("margin_left", 8);
+        margin.AddThemeConstantOverride("margin_top", 6);
+        margin.AddThemeConstantOverride("margin_right", 8);
+        margin.AddThemeConstantOverride("margin_bottom", 6);
+        frame.AddChild(margin);
+
+        var row = new HBoxContainer
+        {
+            Name = "TaskbarRow",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+        };
+        PrepareFillControl(row);
+        row.AddThemeConstantOverride("separation", 8);
+        margin.AddChild(row);
+
+        taskbarStartPlaceholderButton = new Button
+        {
+            Name = "TaskbarStartPlaceholder",
+            Text = "Start",
+            Disabled = true,
+            TooltipText = "Start menu not implemented yet.",
+            CustomMinimumSize = new Vector2(86.0f, 30.0f),
+            SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin,
+        };
+        ApplyStartPlaceholderStyle(taskbarStartPlaceholderButton);
+        row.AddChild(taskbarStartPlaceholderButton);
+
+        taskbarButtonsStrip = new HBoxContainer
+        {
+            Name = "TaskbarButtons",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+        };
+        taskbarButtonsStrip.AddThemeConstantOverride("separation", 6);
+        row.AddChild(taskbarButtonsStrip);
+    }
+
+    private void ConfigureTaskbarContextMenu()
+    {
+        if (taskbarContextMenu is null)
+        {
+            return;
+        }
+
+        taskbarContextMenu.IdPressed += OnTaskbarContextMenuIdPressed;
+    }
+
     private Control BuildDockedLayoutNode(WorkspaceLayoutNodeDefinition node)
     {
         if (node is WorkspaceSlotLeafDefinition slotLeaf)
@@ -204,6 +340,7 @@ public partial class ShellWorkspaceRoot : Control
         split.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         split.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
         split.DraggerVisibility = SplitContainer.DraggerVisibilityEnum.Hidden;
+        split.DragEnded += OnSplitDragEnded;
         splitContainers[splitNode.RatioBinding] = split;
 
         var firstChild = BuildDockedLayoutNode(splitNode.FirstChild);
@@ -250,6 +387,7 @@ public partial class ShellWorkspaceRoot : Control
         }
 
         ApplyMaximizedDisplayModel(displayModel.MaximizedPane);
+        RebuildTaskbar(displayModel);
         CallDeferred(MethodName.ApplyCurrentSplitRatios);
     }
 
@@ -328,6 +466,34 @@ public partial class ShellWorkspaceRoot : Control
         MountContent(maximizedContentHost, content, null);
     }
 
+    private void RebuildTaskbar(WorkspaceDisplayModel displayModel)
+    {
+        if (taskbarButtonsStrip is null)
+        {
+            return;
+        }
+
+        taskbarButtons.Clear();
+        ClearDisposableChildren(taskbarButtonsStrip);
+        foreach (var item in displayModel.TaskbarItems)
+        {
+            var button = new Button
+            {
+                Name = item.PaneKind + "TaskbarButton",
+                Text = PaneContentFactory.GetPaneTitle(item.PaneKind),
+                TooltipText = PaneContentFactory.GetPaneTitle(item.PaneKind),
+                CustomMinimumSize = new Vector2(110.0f, 30.0f),
+                SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin,
+                MouseDefaultCursorShape = CursorShape.PointingHand,
+            };
+            ApplyTaskbarButtonStyle(button, item.VisualState, item.IsPinned);
+            button.Pressed += () => OnTaskbarItemPressed(item);
+            button.GuiInput += @event => OnTaskbarButtonGuiInput(item, button, @event);
+            taskbarButtonsStrip.AddChild(button);
+            taskbarButtons[item.PaneKind] = button;
+        }
+    }
+
     private void MountContent(Control host, Control? reusableContent, Control? ephemeralContent)
     {
         if (paneContentFactory is null)
@@ -389,6 +555,152 @@ public partial class ShellWorkspaceRoot : Control
         PrepareFillControl(ephemeralContent);
     }
 
+    private void OnTaskbarItemPressed(WorkspaceTaskbarItemDisplayModel item)
+    {
+        if (workspaceRuntime is null)
+        {
+            return;
+        }
+
+        switch (item.VisualState)
+        {
+            case WorkspaceTaskbarItemVisualState.Focused:
+                return;
+            case WorkspaceTaskbarItemVisualState.VisibleUnfocused:
+                workspaceRuntime.FocusPane(item.PaneKind);
+                return;
+            case WorkspaceTaskbarItemVisualState.OpenHidden:
+            case WorkspaceTaskbarItemVisualState.PinnedClosed:
+                workspaceRuntime.ActivatePane(item.PaneKind);
+                return;
+            default:
+                throw new InvalidOperationException($"Unknown taskbar visual state '{item.VisualState}'.");
+        }
+    }
+
+    private void OnTaskbarButtonGuiInput(
+        WorkspaceTaskbarItemDisplayModel item,
+        Button button,
+        InputEvent @event)
+    {
+        if (@event is not InputEventMouseButton mouseButton ||
+            !mouseButton.Pressed ||
+            mouseButton.ButtonIndex != MouseButton.Right)
+        {
+            return;
+        }
+
+        taskbarContextPaneKind = item.PaneKind;
+        taskbarContextButtonRect = ResolveControlRectInRoot(button);
+        ShowTaskbarContextMenu(item);
+        AcceptEvent();
+    }
+
+    private void ShowTaskbarContextMenu(WorkspaceTaskbarItemDisplayModel item)
+    {
+        if (taskbarContextMenu is null)
+        {
+            return;
+        }
+
+        taskbarContextMenu.Clear();
+        taskbarContextMenu.AddItem(item.IsPinned ? "Unpin" : "Pin", TaskbarContextMenuPinId);
+        var popupPosition = GetScreenTransform() * GetLocalMousePosition();
+        taskbarContextMenu.Position = new Vector2I(
+            Mathf.RoundToInt(popupPosition.X),
+            Mathf.RoundToInt(popupPosition.Y));
+        taskbarContextMenu.ResetSize();
+        taskbarContextMenu.Popup();
+    }
+
+    private void OnTaskbarContextMenuIdPressed(long id)
+    {
+        if (workspaceRuntime is null ||
+            taskbarContextPaneKind is null ||
+            taskbarContextButtonRect is null ||
+            currentDisplayModel is null)
+        {
+            return;
+        }
+
+        if (id != TaskbarContextMenuPinId)
+        {
+            return;
+        }
+
+        var paneKind = taskbarContextPaneKind.Value;
+        var isPinned = false;
+        foreach (var item in currentDisplayModel.TaskbarItems)
+        {
+            if (item.PaneKind != paneKind)
+            {
+                continue;
+            }
+
+            isPinned = item.IsPinned;
+            break;
+        }
+
+        var changed = isPinned
+            ? workspaceRuntime.UnpinPane(paneKind)
+            : workspaceRuntime.PinPane(paneKind);
+        if (changed)
+        {
+            ShowTaskbarPinFeedback(taskbarContextButtonRect.Value, becamePinned: !isPinned);
+        }
+
+        taskbarContextPaneKind = null;
+        taskbarContextButtonRect = null;
+    }
+
+    private void ShowTaskbarPinFeedback(Rect2 buttonRect, bool becamePinned)
+    {
+        if (feedbackLayer is null)
+        {
+            return;
+        }
+
+        var badge = new PanelContainer
+        {
+            Name = "TaskbarPinFeedback",
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            CustomMinimumSize = new Vector2(54.0f, 20.0f),
+        };
+        badge.AddThemeStyleboxOverride("panel", CreateTaskbarFeedbackStyleBox(becamePinned));
+
+        var label = new Label
+        {
+            Text = becamePinned ? "PIN" : "UNPIN",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        label.AddThemeFontSizeOverride("font_size", 10);
+        label.AddThemeColorOverride("font_color", new Color(0.91f, 0.96f, 1.0f, 1.0f));
+        label.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        badge.AddChild(label);
+
+        var feedbackPosition = buttonRect.Position + new Vector2(buttonRect.Size.X - 42.0f, -8.0f);
+        badge.Position = feedbackPosition;
+        feedbackLayer.AddChild(badge);
+
+        var tween = CreateTween();
+        tween.TweenInterval(TaskbarFeedbackHoldSeconds);
+        tween.TweenProperty(badge, "modulate:a", 0.0f, TaskbarFeedbackFadeSeconds);
+        tween.Finished += () => badge.QueueFree();
+    }
+
+    private Rect2 ResolveControlRectInRoot(Control control)
+    {
+        var localTopLeft = control.GlobalPosition - GlobalPosition;
+        return new Rect2(localTopLeft, control.Size);
+    }
+
+    private static bool IsPointerInsideControl(Control control, Vector2 pointerPosition)
+    {
+        var rect = new Rect2(control.GlobalPosition, control.Size);
+        return rect.HasPoint(pointerPosition);
+    }
+
     private void ApplyCurrentSplitRatios()
     {
         if (currentSnapshot is null)
@@ -405,6 +717,55 @@ public partial class ShellWorkspaceRoot : Control
         {
             rightSplit.SplitOffsets = [Mathf.RoundToInt(rightSplit.Size.Y * currentSnapshot.RightTopRatio)];
         }
+    }
+
+    private void OnSplitDragEnded()
+    {
+        if (workspaceRuntime is null || currentSnapshot is null)
+        {
+            return;
+        }
+
+        var nextLeftRatio = currentSnapshot.LeftRatio;
+        var nextRightTopRatio = currentSnapshot.RightTopRatio;
+
+        if (TryReadCurrentSplitRatio(WorkspaceSplitRatioBinding.LeftColumn, out var leftRatio))
+        {
+            nextLeftRatio = leftRatio;
+        }
+
+        if (TryReadCurrentSplitRatio(WorkspaceSplitRatioBinding.RightTop, out var rightTopRatio))
+        {
+            nextRightTopRatio = rightTopRatio;
+        }
+
+        _ = workspaceRuntime.SetSplitRatios(nextLeftRatio, nextRightTopRatio);
+    }
+
+    private bool TryReadCurrentSplitRatio(WorkspaceSplitRatioBinding binding, out float ratio)
+    {
+        ratio = 0.0f;
+        if (!splitContainers.TryGetValue(binding, out var split))
+        {
+            return false;
+        }
+
+        var axisSize = binding == WorkspaceSplitRatioBinding.LeftColumn
+            ? split.Size.X
+            : split.Size.Y;
+        if (axisSize <= 0.0f)
+        {
+            return false;
+        }
+
+        var splitOffsets = split.SplitOffsets;
+        if (!splitOffsets.Any())
+        {
+            return false;
+        }
+
+        ratio = Mathf.Clamp(splitOffsets[0] / axisSize, 0.001f, 0.999f);
+        return true;
     }
 
     private void OnWorkspaceStateChanged()
@@ -435,6 +796,22 @@ public partial class ShellWorkspaceRoot : Control
     private void OnTabRequested(WorkspacePaneKind paneKind)
     {
         workspaceRuntime?.ActivatePane(paneKind);
+    }
+
+    private void ApplyDevelopmentBootstrapOverride()
+    {
+        if (workspaceRuntime is null)
+        {
+            return;
+        }
+
+        if (global::Uplink2.Runtime.WorldRuntime.Instance?.DebugOption != true)
+        {
+            return;
+        }
+
+        _ = workspaceRuntime.ActivatePane(WorkspacePaneKind.WorldMapTrace);
+        _ = workspaceRuntime.FocusPane(WorkspacePaneKind.Terminal);
     }
 
     private static void ClearDisposableChildren(Node parent)
@@ -524,6 +901,122 @@ public partial class ShellWorkspaceRoot : Control
             CornerRadiusBottomLeft = 4,
             CornerRadiusBottomRight = 4,
         };
+    }
+
+    private static StyleBoxFlat CreateTaskbarFrameStyleBox()
+    {
+        return new StyleBoxFlat
+        {
+            BgColor = new Color(0.04f, 0.06f, 0.08f, 1.0f),
+            BorderColor = new Color(0.12f, 0.18f, 0.22f, 1.0f),
+            BorderWidthTop = 1,
+            CornerRadiusTopLeft = 6,
+            CornerRadiusTopRight = 6,
+        };
+    }
+
+    private static StyleBoxFlat CreateTaskbarButtonStyleBox(
+        Color background,
+        Color border)
+    {
+        return new StyleBoxFlat
+        {
+            BgColor = background,
+            BorderColor = border,
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4,
+            ContentMarginLeft = 10,
+            ContentMarginTop = 4,
+            ContentMarginRight = 10,
+            ContentMarginBottom = 4,
+        };
+    }
+
+    private static StyleBoxFlat CreateTaskbarFeedbackStyleBox(bool becamePinned)
+    {
+        return new StyleBoxFlat
+        {
+            BgColor = becamePinned
+                ? new Color(0.09f, 0.24f, 0.16f, 0.96f)
+                : new Color(0.24f, 0.12f, 0.12f, 0.96f),
+            BorderColor = becamePinned
+                ? new Color(0.28f, 0.64f, 0.42f, 1.0f)
+                : new Color(0.70f, 0.38f, 0.38f, 1.0f),
+            BorderWidthLeft = 1,
+            BorderWidthTop = 1,
+            BorderWidthRight = 1,
+            BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4,
+            ContentMarginLeft = 6,
+            ContentMarginTop = 2,
+            ContentMarginRight = 6,
+            ContentMarginBottom = 2,
+        };
+    }
+
+    private static void ApplyStartPlaceholderStyle(Button button)
+    {
+        button.AddThemeColorOverride("font_color", new Color(0.56f, 0.62f, 0.68f, 1.0f));
+        button.AddThemeStyleboxOverride(
+            "normal",
+            CreateTaskbarButtonStyleBox(
+                new Color(0.05f, 0.07f, 0.09f, 1.0f),
+                new Color(0.12f, 0.18f, 0.22f, 1.0f)));
+        button.AddThemeStyleboxOverride(
+            "disabled",
+            CreateTaskbarButtonStyleBox(
+                new Color(0.05f, 0.07f, 0.09f, 1.0f),
+                new Color(0.12f, 0.18f, 0.22f, 1.0f)));
+    }
+
+    private static void ApplyTaskbarButtonStyle(
+        Button button,
+        WorkspaceTaskbarItemVisualState visualState,
+        bool isPinned)
+    {
+        var background = visualState switch
+        {
+            WorkspaceTaskbarItemVisualState.Focused => new Color(0.12f, 0.22f, 0.18f, 1.0f),
+            WorkspaceTaskbarItemVisualState.VisibleUnfocused => new Color(0.06f, 0.08f, 0.10f, 1.0f),
+            WorkspaceTaskbarItemVisualState.OpenHidden => new Color(0.06f, 0.08f, 0.10f, 1.0f),
+            WorkspaceTaskbarItemVisualState.PinnedClosed => new Color(0.04f, 0.05f, 0.06f, 1.0f),
+            _ => throw new InvalidOperationException($"Unknown taskbar visual state '{visualState}'."),
+        };
+        var border = visualState switch
+        {
+            WorkspaceTaskbarItemVisualState.Focused => new Color(0.35f, 0.86f, 0.58f, 1.0f),
+            WorkspaceTaskbarItemVisualState.VisibleUnfocused => new Color(0.32f, 0.38f, 0.42f, 1.0f),
+            WorkspaceTaskbarItemVisualState.OpenHidden => new Color(0.32f, 0.38f, 0.42f, 1.0f),
+            WorkspaceTaskbarItemVisualState.PinnedClosed => new Color(0.22f, 0.26f, 0.30f, 1.0f),
+            _ => throw new InvalidOperationException($"Unknown taskbar visual state '{visualState}'."),
+        };
+        var fontColor = visualState switch
+        {
+            WorkspaceTaskbarItemVisualState.Focused => new Color(0.92f, 0.98f, 0.96f, 1.0f),
+            WorkspaceTaskbarItemVisualState.VisibleUnfocused => new Color(0.88f, 0.92f, 0.95f, 1.0f),
+            WorkspaceTaskbarItemVisualState.OpenHidden => new Color(0.88f, 0.92f, 0.95f, 1.0f),
+            WorkspaceTaskbarItemVisualState.PinnedClosed => new Color(0.55f, 0.60f, 0.65f, 1.0f),
+            _ => throw new InvalidOperationException($"Unknown taskbar visual state '{visualState}'."),
+        };
+
+        button.AddThemeColorOverride("font_color", fontColor);
+        button.AddThemeColorOverride("font_hover_color", fontColor);
+        button.AddThemeColorOverride("font_pressed_color", fontColor);
+        button.AddThemeColorOverride("font_focus_color", fontColor);
+        button.AddThemeStyleboxOverride("normal", CreateTaskbarButtonStyleBox(background, border));
+        button.AddThemeStyleboxOverride("hover", CreateTaskbarButtonStyleBox(background.Lightened(0.08f), border));
+        button.AddThemeStyleboxOverride("pressed", CreateTaskbarButtonStyleBox(background.Darkened(0.08f), border));
+        button.AddThemeStyleboxOverride("focus", CreateTaskbarButtonStyleBox(background, border));
+
     }
 
     private static void PrepareFillControl(Control control)

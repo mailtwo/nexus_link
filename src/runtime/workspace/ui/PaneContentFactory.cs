@@ -10,22 +10,29 @@ namespace Uplink2.Runtime.Workspace.Ui;
 /// <summary>Creates and caches concrete pane content nodes for the current renderer slice.</summary>
 internal sealed class PaneContentFactory
 {
-    private const string TerminalScenePath = "res://scenes/TerminalScene.tscn";
-    private readonly PackedScene terminalScene;
+    private const string TerminalPaneScenePath = "res://scenes/TerminalPane.tscn";
+    private static readonly IReadOnlySet<WorkspacePaneKind> defaultImplementedPaneKinds =
+        new ReadOnlySet<WorkspacePaneKind>(
+            new HashSet<WorkspacePaneKind>
+            {
+                WorkspacePaneKind.Terminal,
+                WorkspacePaneKind.WorldMapTrace,
+            });
+
+    private readonly PackedScene terminalPaneScene;
     private readonly Dictionary<WorkspacePaneKind, Control> cachedContentByKind = new();
 
     /// <summary>Initializes a new pane content factory.</summary>
     internal PaneContentFactory()
     {
-        terminalScene = GD.Load<PackedScene>(TerminalScenePath)
-            ?? throw new InvalidOperationException($"Failed to load terminal pane scene '{TerminalScenePath}'.");
+        terminalPaneScene = GD.Load<PackedScene>(TerminalPaneScenePath)
+            ?? throw new InvalidOperationException($"Failed to load terminal pane scene '{TerminalPaneScenePath}'.");
 
-        ImplementedPaneKinds = new ReadOnlySet<WorkspacePaneKind>(
-            new HashSet<WorkspacePaneKind>
-            {
-                WorkspacePaneKind.Terminal,
-            });
+        ImplementedPaneKinds = defaultImplementedPaneKinds;
     }
+
+    /// <summary>Gets the stable implemented-pane set for the current renderer slice.</summary>
+    internal static IReadOnlySet<WorkspacePaneKind> DefaultImplementedPaneKinds => defaultImplementedPaneKinds;
 
     /// <summary>Gets pane kinds with concrete renderer implementations in the current slice.</summary>
     internal IReadOnlySet<WorkspacePaneKind> ImplementedPaneKinds { get; }
@@ -97,6 +104,7 @@ internal sealed class PaneContentFactory
         Control created = paneKind switch
         {
             WorkspacePaneKind.Terminal => CreateTerminalPane(),
+            WorkspacePaneKind.WorldMapTrace => CreateWorldMapTracePane(),
             _ => throw new InvalidOperationException($"No concrete renderer is implemented for pane '{paneKind}'."),
         };
 
@@ -118,7 +126,7 @@ internal sealed class PaneContentFactory
 
     private Control CreateTerminalPane()
     {
-        var node = terminalScene.Instantiate();
+        var node = terminalPaneScene.Instantiate();
         if (node is not Control control)
         {
             node.QueueFree();
@@ -126,6 +134,16 @@ internal sealed class PaneContentFactory
         }
 
         control.Name = "TerminalPaneContent";
+        PrepareContentNode(control);
+        return control;
+    }
+
+    private static Control CreateWorldMapTracePane()
+    {
+        var control = new WorldMapTracePane
+        {
+            Name = "WorldMapTracePaneContent",
+        };
         PrepareContentNode(control);
         return control;
     }

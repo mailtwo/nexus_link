@@ -1,10 +1,11 @@
 extends GdUnitTestSuite
 
-const TERMINAL_SCENE_PATH := "res://scenes/TerminalScene.tscn"
+const TERMINAL_PANE_PATH := "res://scenes/TerminalPane.tscn"
+const TERMINAL_SCENE_COMPAT_PATH := "res://scenes/TerminalScene.tscn"
 
 
 func test_anchor_blank_space_is_removed_immediately_when_reaching_bottom() -> void:
-	var runner := scene_runner(TERMINAL_SCENE_PATH)
+	var runner := scene_runner(TERMINAL_PANE_PATH)
 	var scene := runner.scene() as Control
 	assert_object(scene).is_not_null()
 
@@ -37,7 +38,7 @@ func test_anchor_blank_space_is_removed_immediately_when_reaching_bottom() -> vo
 
 
 func test_exit_editor_mode_requests_scroll_to_bottom() -> void:
-	var runner := scene_runner(TERMINAL_SCENE_PATH)
+	var runner := scene_runner(TERMINAL_PANE_PATH)
 	var scene := runner.scene() as Control
 	assert_object(scene).is_not_null()
 
@@ -59,7 +60,7 @@ func test_exit_editor_mode_requests_scroll_to_bottom() -> void:
 
 
 func test_anchor_releases_when_growth_matches_blank_threshold() -> void:
-	var runner := scene_runner(TERMINAL_SCENE_PATH)
+	var runner := scene_runner(TERMINAL_PANE_PATH)
 	var scene := runner.scene() as Control
 	assert_object(scene).is_not_null()
 
@@ -85,3 +86,19 @@ func test_anchor_releases_when_growth_matches_blank_threshold() -> void:
 	var bottom_spacer := scene.get_node("VBox/OutputScroll/OutputContent/BottomSpacer") as Control
 	assert_bool(scene.is_motd_anchor_active).is_false()
 	assert_bool(bottom_spacer.custom_minimum_size.y <= 0.5).is_true()
+
+
+func test_terminal_scene_compatibility_scene_preserves_editor_overlay_flow() -> void:
+	var runner := scene_runner(TERMINAL_SCENE_COMPAT_PATH)
+	var scene := runner.scene() as Control
+	assert_object(scene).is_not_null()
+
+	scene.world_runtime = null
+	runner.simulate_frames(2)
+	runner.invoke("_open_editor_mode", "/tmp/test.ms", "print 1", false, "text", true)
+	runner.simulate_frames(1)
+	assert_bool(scene.editor_overlay.visible).is_true()
+
+	runner.invoke("_exit_editor_mode")
+	assert_bool(scene.editor_overlay.visible).is_false()
+	assert_bool(scene.terminal_vbox.visible).is_true()

@@ -22,7 +22,7 @@ grow_horizontal = 2
 grow_vertical = 2
 color = Color(0.0470588, 0.0588235, 0.0705882, 1)
 
-[node name="DockedHost" type="Control" parent="."]
+[node name="MainLayout" type="VBoxContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -33,16 +33,41 @@ offset_right = -12.0
 offset_bottom = -12.0
 grow_horizontal = 2
 grow_vertical = 2
+theme_override_constants/separation = 8
 
-[node name="MaximizedHost" type="Control" parent="."]
+[node name="WorkspaceArea" type="Control" parent="MainLayout"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="DockedHost" type="Control" parent="MainLayout/WorkspaceArea"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MaximizedHost" type="Control" parent="MainLayout/WorkspaceArea"]
 visible = false
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 12.0
-offset_top = 12.0
-offset_right = -12.0
-offset_bottom = -12.0
 grow_horizontal = 2
 grow_vertical = 2
+
+[node name="TaskbarHost" type="Control" parent="MainLayout"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="FeedbackLayer" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TaskbarContextMenu" type="PopupMenu" parent="."]

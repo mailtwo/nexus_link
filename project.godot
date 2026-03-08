@@ -25,6 +25,11 @@ ShellWorkspaceRuntime="*res://src/runtime/workspace/ShellWorkspaceRuntime.cs"
 
 project/assembly_name="Uplink2"
 
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+
 [physics]
 
 3d/physics_engine="Jolt Physics"

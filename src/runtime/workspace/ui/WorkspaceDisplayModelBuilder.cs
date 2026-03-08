@@ -20,6 +20,46 @@ internal enum WorkspaceRenderedContentKind
     Placeholder = 2,
 }
 
+/// <summary>Classifies how a taskbar button should be rendered.</summary>
+internal enum WorkspaceTaskbarItemVisualState
+{
+    /// <summary>The pane is focused and visible.</summary>
+    Focused = 0,
+
+    /// <summary>The pane is visible but not focused.</summary>
+    VisibleUnfocused = 1,
+
+    /// <summary>The pane is resident but currently hidden.</summary>
+    OpenHidden = 2,
+
+    /// <summary>The pane is pinned but currently closed.</summary>
+    PinnedClosed = 3,
+}
+
+/// <summary>Immutable display model for one taskbar item.</summary>
+internal sealed class WorkspaceTaskbarItemDisplayModel
+{
+    /// <summary>Initializes a new taskbar item display model.</summary>
+    internal WorkspaceTaskbarItemDisplayModel(
+        WorkspacePaneKind paneKind,
+        WorkspaceTaskbarItemVisualState visualState,
+        bool isPinned)
+    {
+        PaneKind = paneKind;
+        VisualState = visualState;
+        IsPinned = isPinned;
+    }
+
+    /// <summary>Gets the pane kind represented by the taskbar item.</summary>
+    internal WorkspacePaneKind PaneKind { get; }
+
+    /// <summary>Gets the taskbar visual state.</summary>
+    internal WorkspaceTaskbarItemVisualState VisualState { get; }
+
+    /// <summary>Gets whether the item is pinned.</summary>
+    internal bool IsPinned { get; }
+}
+
 /// <summary>Immutable display model for one dock slot in docked mode.</summary>
 internal sealed class WorkspaceSlotDisplayModel
 {
@@ -81,12 +121,14 @@ internal sealed class WorkspaceDisplayModel
         WorkspaceMode mode,
         WorkspaceLayoutDefinition layoutDefinition,
         IReadOnlyDictionary<DockSlot, WorkspaceSlotDisplayModel> dockedSlots,
-        WorkspaceMaximizedDisplayModel? maximizedPane)
+        WorkspaceMaximizedDisplayModel? maximizedPane,
+        IReadOnlyList<WorkspaceTaskbarItemDisplayModel> taskbarItems)
     {
         Mode = mode;
         LayoutDefinition = layoutDefinition ?? throw new ArgumentNullException(nameof(layoutDefinition));
         DockedSlots = dockedSlots ?? throw new ArgumentNullException(nameof(dockedSlots));
         MaximizedPane = maximizedPane;
+        TaskbarItems = taskbarItems ?? throw new ArgumentNullException(nameof(taskbarItems));
     }
 
     /// <summary>Gets the current workspace mode.</summary>
@@ -100,6 +142,9 @@ internal sealed class WorkspaceDisplayModel
 
     /// <summary>Gets the maximized pane display model, if any.</summary>
     internal WorkspaceMaximizedDisplayModel? MaximizedPane { get; }
+
+    /// <summary>Gets the ordered taskbar item display models.</summary>
+    internal IReadOnlyList<WorkspaceTaskbarItemDisplayModel> TaskbarItems { get; }
 }
 
 /// <summary>Builds the renderer-facing shell display model from the canonical workspace snapshot.</summary>
@@ -130,11 +175,24 @@ internal static class WorkspaceDisplayModelBuilder
             throw new ArgumentNullException(nameof(implementedPaneKinds));
         }
 
-        var dockedSlots = new Dictionary<DockSlot, WorkspaceSlotDisplayModel>(layoutDefinition.SlotOrder.Count);
+        var displayedPaneBySlot = new Dictionary<DockSlot, WorkspacePaneKind?>(layoutDefinition.SlotOrder.Count);
+        var visiblePaneKinds = new HashSet<WorkspacePaneKind>();
         foreach (var slot in layoutDefinition.SlotOrder)
         {
             var slotState = snapshot.Slots[slot];
             var displayedPane = ResolveDisplayedPane(snapshot, slotState);
+            displayedPaneBySlot[slot] = displayedPane;
+            if (displayedPane.HasValue)
+            {
+                visiblePaneKinds.Add(displayedPane.Value);
+            }
+        }
+
+        var dockedSlots = new Dictionary<DockSlot, WorkspaceSlotDisplayModel>(layoutDefinition.SlotOrder.Count);
+        foreach (var slot in layoutDefinition.SlotOrder)
+        {
+            var slotState = snapshot.Slots[slot];
+            var displayedPane = displayedPaneBySlot[slot];
             IReadOnlyList<WorkspacePaneKind> tabs = displayedPane.HasValue
                 ? Array.AsReadOnly(slotState.DockStack.ToArray())
                 : Array.Empty<WorkspacePaneKind>();
@@ -159,13 +217,18 @@ internal static class WorkspaceDisplayModelBuilder
             maximizedPane = new WorkspaceMaximizedDisplayModel(
                 snapshot.MaximizedPane.Value,
                 ResolveContentKind(snapshot.MaximizedPane, implementedPaneKinds));
+            visiblePaneKinds.Clear();
+            visiblePaneKinds.Add(snapshot.MaximizedPane.Value);
         }
+
+        var taskbarItems = BuildTaskbarItems(snapshot, layoutDefinition.SlotOrder, visiblePaneKinds);
 
         return new WorkspaceDisplayModel(
             snapshot.Mode,
             layoutDefinition,
             new ReadOnlyDictionary<DockSlot, WorkspaceSlotDisplayModel>(dockedSlots),
-            maximizedPane);
+            maximizedPane,
+            Array.AsReadOnly(taskbarItems.ToArray()));
     }
 
     private static WorkspacePaneKind? ResolveDisplayedPane(
@@ -210,5 +273,66 @@ internal static class WorkspaceDisplayModelBuilder
         return implementedPaneKinds.Contains(displayedPane.Value)
             ? WorkspaceRenderedContentKind.Implemented
             : WorkspaceRenderedContentKind.Placeholder;
+    }
+
+    private static List<WorkspaceTaskbarItemDisplayModel> BuildTaskbarItems(
+        WorkspaceStateSnapshot snapshot,
+        IReadOnlyList<DockSlot> slotOrder,
+        IReadOnlySet<WorkspacePaneKind> visiblePaneKinds)
+    {
+        var items = new List<WorkspaceTaskbarItemDisplayModel>();
+        var residentPaneKinds = new HashSet<WorkspacePaneKind>();
+        var emittedPaneKinds = new HashSet<WorkspacePaneKind>();
+
+        foreach (var slot in slotOrder)
+        {
+            foreach (var pane in snapshot.Slots[slot].DockStack)
+            {
+                residentPaneKinds.Add(pane);
+            }
+        }
+
+        foreach (var pane in snapshot.PinnedSet)
+        {
+            items.Add(CreateTaskbarItem(snapshot, pane, residentPaneKinds, visiblePaneKinds));
+            emittedPaneKinds.Add(pane);
+        }
+
+        foreach (var slot in slotOrder)
+        {
+            foreach (var pane in snapshot.Slots[slot].DockStack)
+            {
+                if (!emittedPaneKinds.Add(pane))
+                {
+                    continue;
+                }
+
+                items.Add(CreateTaskbarItem(snapshot, pane, residentPaneKinds, visiblePaneKinds));
+            }
+        }
+
+        return items;
+    }
+
+    private static WorkspaceTaskbarItemDisplayModel CreateTaskbarItem(
+        WorkspaceStateSnapshot snapshot,
+        WorkspacePaneKind pane,
+        IReadOnlySet<WorkspacePaneKind> residentPaneKinds,
+        IReadOnlySet<WorkspacePaneKind> visiblePaneKinds)
+    {
+        var isPinned = snapshot.PinnedSet.Contains(pane);
+        var isResident = residentPaneKinds.Contains(pane);
+        var isVisible = visiblePaneKinds.Contains(pane);
+        var isFocused = snapshot.FocusedPane == pane && isVisible;
+
+        var visualState = isFocused
+            ? WorkspaceTaskbarItemVisualState.Focused
+            : isVisible
+                ? WorkspaceTaskbarItemVisualState.VisibleUnfocused
+                : isResident
+                    ? WorkspaceTaskbarItemVisualState.OpenHidden
+                    : WorkspaceTaskbarItemVisualState.PinnedClosed;
+
+        return new WorkspaceTaskbarItemDisplayModel(pane, visualState, isPinned);
     }
 }

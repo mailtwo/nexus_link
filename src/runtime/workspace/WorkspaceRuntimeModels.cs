@@ -87,14 +87,16 @@ public sealed class WorkspaceStateSnapshot
     /// <param name="leftRatio">Normalized left-column ratio.</param>
     /// <param name="rightTopRatio">Normalized right-top ratio.</param>
     /// <param name="slots">Per-slot state snapshots.</param>
-    /// <param name="pinnedSet">Pinned pane kinds.</param>
+    /// <param name="pinnedSet">Pinned pane kinds in taskbar order.</param>
+    /// <param name="focusedPane">Currently focused visible pane, if any.</param>
     public WorkspaceStateSnapshot(
         WorkspaceMode mode,
         WorkspacePaneKind? maximizedPane,
         float leftRatio,
         float rightTopRatio,
         IReadOnlyDictionary<DockSlot, WorkspaceDockSlotState> slots,
-        IReadOnlyCollection<WorkspacePaneKind> pinnedSet)
+        IReadOnlyList<WorkspacePaneKind> pinnedSet,
+        WorkspacePaneKind? focusedPane = null)
     {
         Mode = mode;
         MaximizedPane = maximizedPane;
@@ -102,6 +104,7 @@ public sealed class WorkspaceStateSnapshot
         RightTopRatio = rightTopRatio;
         Slots = slots ?? throw new ArgumentNullException(nameof(slots));
         PinnedSet = pinnedSet ?? throw new ArgumentNullException(nameof(pinnedSet));
+        FocusedPane = focusedPane;
     }
 
     /// <summary>Gets the current workspace mode.</summary>
@@ -119,8 +122,11 @@ public sealed class WorkspaceStateSnapshot
     /// <summary>Gets the immutable per-slot state snapshots.</summary>
     public IReadOnlyDictionary<DockSlot, WorkspaceDockSlotState> Slots { get; }
 
-    /// <summary>Gets the immutable pinned pane kinds.</summary>
-    public IReadOnlyCollection<WorkspacePaneKind> PinnedSet { get; }
+    /// <summary>Gets the immutable pinned pane kinds in taskbar order.</summary>
+    public IReadOnlyList<WorkspacePaneKind> PinnedSet { get; }
+
+    /// <summary>Gets the currently focused visible pane, if any.</summary>
+    public WorkspacePaneKind? FocusedPane { get; }
 }
 
 /// <summary>Opaque pane-local state table that is passed through hydrate without interpretation.</summary>
@@ -188,7 +194,7 @@ public sealed class WorkspaceStoredState
     /// <param name="leftRatio">The stored left-column ratio.</param>
     /// <param name="rightTopRatio">The stored right-top ratio.</param>
     /// <param name="slots">The stored slot states, which may omit slots.</param>
-    /// <param name="pinnedSet">The stored pinned pane kinds.</param>
+    /// <param name="pinnedSet">The stored pinned pane kinds in taskbar order.</param>
     /// <param name="paneStateByKind">The stored opaque pane-local state tables.</param>
     public WorkspaceStoredState(
         WorkspaceMode mode,
@@ -196,7 +202,7 @@ public sealed class WorkspaceStoredState
         float leftRatio,
         float rightTopRatio,
         IReadOnlyDictionary<DockSlot, WorkspaceStoredDockSlotState> slots,
-        IReadOnlyCollection<WorkspacePaneKind> pinnedSet,
+        IReadOnlyList<WorkspacePaneKind> pinnedSet,
         IReadOnlyDictionary<WorkspacePaneKind, WorkspacePaneStateTable> paneStateByKind)
     {
         Mode = mode;
@@ -223,8 +229,8 @@ public sealed class WorkspaceStoredState
     /// <summary>Gets the stored slot states.</summary>
     public IReadOnlyDictionary<DockSlot, WorkspaceStoredDockSlotState> Slots { get; }
 
-    /// <summary>Gets the stored pinned pane kinds.</summary>
-    public IReadOnlyCollection<WorkspacePaneKind> PinnedSet { get; }
+    /// <summary>Gets the stored pinned pane kinds in taskbar order.</summary>
+    public IReadOnlyList<WorkspacePaneKind> PinnedSet { get; }
 
     /// <summary>Gets the stored opaque pane-local state tables.</summary>
     public IReadOnlyDictionary<WorkspacePaneKind, WorkspacePaneStateTable> PaneStateByKind { get; }

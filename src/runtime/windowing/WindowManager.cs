@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using Uplink2.Runtime.Workspace.Ui;
 
 #nullable enable
 
@@ -585,8 +586,6 @@ void fragment() {
             }
         }
 
-        UpdateWorldMapNodeOverlay();
-
         if (mode != WindowingMode.NativeOs)
         {
             return;
@@ -615,196 +614,21 @@ void fragment() {
         };
         window.Connect("close_requested", Callable.From(HandleWorldMapTraceCloseRequested));
 
-        var rootBackground = new ColorRect
+        var pane = new WorldMapTracePane
         {
-            Name = "RootBackground",
-            AnchorRight = 1.0f,
-            AnchorBottom = 1.0f,
-            Color = Colors.Black,
-            MouseFilter = Control.MouseFilterEnum.Ignore,
-        };
-        window.AddChild(rootBackground);
-
-        var rootMargin = new MarginContainer
-        {
-            Name = "RootMargin",
-            AnchorRight = 1.0f,
-            AnchorBottom = 1.0f,
-            OffsetLeft = WorldMapTraceOuterPadding,
-            OffsetTop = WorldMapTraceOuterPadding,
-            OffsetRight = -WorldMapTraceOuterPadding,
-            OffsetBottom = -WorldMapTraceOuterPadding,
-        };
-        window.AddChild(rootMargin);
-
-        var rootLayout = new VBoxContainer
-        {
-            Name = "RootLayout",
-            AnchorRight = 1.0f,
-            AnchorBottom = 1.0f,
+            Name = "WorldMapTracePaneContent",
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             SizeFlagsVertical = Control.SizeFlags.ExpandFill,
         };
-
-        rootLayout.AddThemeConstantOverride("separation", WorldMapTraceRowColumnGap);
-        rootMargin.AddChild(rootLayout);
-
-        var topBar = new HBoxContainer
-        {
-            Name = "TopBar",
-            CustomMinimumSize = new Vector2(0, WorldMapTraceTopBarHeight),
-            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
-        };
-        topBar.AddThemeConstantOverride("separation", WorldMapTraceRowColumnGap);
-        rootLayout.AddChild(topBar);
-
-        var topLeftRailSpacer = new Control
-        {
-            Name = "TopLeftRailSpacer",
-            CustomMinimumSize = new Vector2(WorldMapTraceLeftRailWidth, 0),
-            SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin,
-        };
-        topBar.AddChild(topLeftRailSpacer);
-
-        var topTabsContainer = new HBoxContainer
-        {
-            Name = "TopTabs",
-            CustomMinimumSize = new Vector2(0, WorldMapTraceTopBarHeight),
-            SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin,
-        };
-        topTabsContainer.AddThemeConstantOverride("separation", WorldMapTraceRowColumnGap);
-        topBar.AddChild(topTabsContainer);
-
-        var topSpacer = new Control
-        {
-            Name = "TopSpacer",
-            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
-        };
-        topBar.AddChild(topSpacer);
-
-        var expandButton = new Button
-        {
-            Name = "ExpandButton",
-            Text = "+",
-            CustomMinimumSize = new Vector2(WorldMapTraceTopBarHeight, WorldMapTraceTopBarHeight),
-            SizeFlagsHorizontal = Control.SizeFlags.ShrinkEnd,
-            SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
-            Alignment = HorizontalAlignment.Center,
-            ClipText = true,
-        };
-        expandButton.AddThemeFontSizeOverride("font_size", 14);
-        expandButton.Connect("pressed", Callable.From(HandleWorldMapTraceExpandRequested));
-        topBar.AddChild(expandButton);
-
-        var bodyRow = new HBoxContainer
-        {
-            Name = "BodyRow",
-            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
-            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
-        };
-        bodyRow.AddThemeConstantOverride("separation", WorldMapTraceRowColumnGap);
-        rootLayout.AddChild(bodyRow);
-
-        var leftTogglesContainer = new VBoxContainer
-        {
-            Name = "LeftToggles",
-            CustomMinimumSize = new Vector2(WorldMapTraceLeftRailWidth, 0),
-            SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin,
-            SizeFlagsVertical = Control.SizeFlags.ShrinkBegin,
-        };
-        leftTogglesContainer.AddThemeConstantOverride("separation", WorldMapTraceRowColumnGap);
-        bodyRow.AddChild(leftTogglesContainer);
-
-        var mapViewport = new ColorRect
-        {
-            Name = "MapViewport",
-            Color = Colors.Black,
-            CustomMinimumSize = new Vector2(WorldMapTraceMapViewportSize.X, WorldMapTraceMapViewportSize.Y),
-            SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin,
-            SizeFlagsVertical = Control.SizeFlags.ShrinkBegin,
-        };
-        bodyRow.AddChild(mapViewport);
-
-        var mapTextureRect = new TextureRect
-        {
-            Name = "MapTexture",
-            AnchorRight = 1.0f,
-            AnchorBottom = 1.0f,
-            MouseFilter = Control.MouseFilterEnum.Ignore,
-            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-        };
-        var mapTexture = GD.Load<Texture2D>(WorldMapTraceTexturePath);
-        if (mapTexture is null)
-        {
-            GD.PushWarning($"WindowManager: failed to load WORLD_MAP_TRACE map texture '{WorldMapTraceTexturePath}'.");
-        }
-        else
-        {
-            mapTextureRect.Texture = mapTexture;
-        }
-
-        // Two-pass separable gaussian glow: SubViewport (h-blur) → overlay TextureRect (v-blur + tint + blend_add).
-        // Render h-blur at half resolution; bilinear upscale in the v-blur pass smooths out grid artifacts.
-        var glowHalfSize = new Vector2I(WorldMapTraceMapViewportSize.X / 2, WorldMapTraceMapViewportSize.Y / 2);
-        var glowHBlurViewport = new SubViewport
-        {
-            Name = "GlowHBlurViewport",
-            Size = glowHalfSize,
-            TransparentBg = false,
-            RenderTargetUpdateMode = SubViewport.UpdateMode.Always,
-        };
-        var glowHBlurSource = new TextureRect
-        {
-            Name = "GlowHBlurSource",
-            Position = Vector2.Zero,
-            Size = new Vector2(glowHalfSize.X, glowHalfSize.Y),
-            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-            StretchMode = TextureRect.StretchModeEnum.Scale,
-            Material = CreateWorldMapTraceGlowHBlurMaterial(),
-        };
-        if (mapTexture is not null)
-        {
-            glowHBlurSource.Texture = mapTexture;
-        }
-        glowHBlurViewport.AddChild(glowHBlurSource);
-
-        var mapGlowTextureRect = new TextureRect
-        {
-            Name = "MapGlowOverlay",
-            AnchorRight = 1.0f,
-            AnchorBottom = 1.0f,
-            MouseFilter = Control.MouseFilterEnum.Ignore,
-            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-            Material = CreateWorldMapTraceGlowVBlurMaterial(),
-        };
-        var mapNodeOverlay = new WorldMapNodeOverlay
-        {
-            Name = "MapNodeOverlay",
-            AnchorRight = 1.0f,
-            AnchorBottom = 1.0f,
-            MouseFilter = Control.MouseFilterEnum.Ignore,
-        };
-
-        mapViewport.AddChild(mapTextureRect);
-        mapViewport.AddChild(mapGlowTextureRect);
-        mapViewport.AddChild(mapNodeOverlay);
-        window.AddChild(glowHBlurViewport);
+        pane.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        pane.OffsetLeft = 0.0f;
+        pane.OffsetTop = 0.0f;
+        pane.OffsetRight = 0.0f;
+        pane.OffsetBottom = 0.0f;
+        window.AddChild(pane);
 
         AddChild(window);
-
-        // Assign SubViewport texture after it enters the tree.
-        mapGlowTextureRect.Texture = glowHBlurViewport.GetTexture();
         worldMapTraceWindow = window;
-        worldMapTraceTopTabsContainer = topTabsContainer;
-        worldMapTraceLeftTogglesContainer = leftTogglesContainer;
-        worldMapTraceMapTextureRect = mapTextureRect;
-        worldMapTraceNodeOverlay = mapNodeOverlay;
-        worldMapTraceExpandButton = expandButton;
-
-        BuildWorldMapTraceTabButtons();
-        BuildWorldMapTraceToggleButtons();
     }
 
     private void BuildWorldMapTraceTabButtons()
@@ -1991,6 +1815,7 @@ internal sealed class WindowManagerController
     private void EnforceNativeMainWindowStyle(int windowId)
     {
         platformWindowAdapter.SetWindowFlag(DisplayServer.WindowFlags.Borderless, false, windowId);
+        platformWindowAdapter.SetWindowFlag(DisplayServer.WindowFlags.ResizeDisabled, true, windowId);
     }
 
     private void RecoverMainWindowFromFullscreenIfNeeded(string reason)
