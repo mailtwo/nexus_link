@@ -11,6 +11,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+clip_contents = true
 theme = ExtResource("3_m8x1a")
 script = ExtResource("1_h7q7u")
 
@@ -66,8 +67,10 @@ layout_mode = 2
 theme_override_constants/separation = 8
 
 [node name="Prompt" type="Label" parent="VBox/InputRow"]
+custom_minimum_size = Vector2(116, 0)
 layout_mode = 2
 text = "player@term:~/ $ "
+clip_text = true
 
 [node name="Input" type="LineEdit" parent="VBox/InputRow"]
 layout_mode = 2

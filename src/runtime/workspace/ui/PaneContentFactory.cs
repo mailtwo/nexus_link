@@ -2,6 +2,7 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 
 #nullable enable
 
@@ -65,6 +66,27 @@ internal sealed class PaneContentFactory
         }
 
         return false;
+    }
+
+    /// <summary>Immediately frees all cached reusable pane content.</summary>
+    internal void DisposeCachedContent()
+    {
+        foreach (var cachedNode in cachedContentByKind.Values.ToArray())
+        {
+            if (!GodotObject.IsInstanceValid(cachedNode))
+            {
+                continue;
+            }
+
+            if (cachedNode.GetParent() is Node parent)
+            {
+                parent.RemoveChild(cachedNode);
+            }
+
+            cachedNode.Free();
+        }
+
+        cachedContentByKind.Clear();
     }
 
     /// <summary>Converts a pane kind to a stable display title.</summary>

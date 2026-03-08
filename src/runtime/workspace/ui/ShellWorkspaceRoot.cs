@@ -18,6 +18,7 @@ public partial class ShellWorkspaceRoot : Control
     private PaneContentFactory? paneContentFactory;
     private WorkspaceStateSnapshot? currentSnapshot;
     private WorkspaceDisplayModel? currentDisplayModel;
+    private WorkspaceConstraintSnapshot? currentConstraintSnapshot;
     private Control? dockedHost;
     private Control? maximizedHost;
     private Control? taskbarHost;
@@ -29,13 +30,17 @@ public partial class ShellWorkspaceRoot : Control
     private Button? taskbarStartPlaceholderButton;
     private HBoxContainer? taskbarButtonsStrip;
     private readonly Dictionary<WorkspacePaneKind, Button> taskbarButtons = new();
+    private readonly Dictionary<DockSlot, WorkspaceSlotChromeMetrics> slotChromeMetrics = new();
     private WorkspacePaneKind? taskbarContextPaneKind;
     private Rect2? taskbarContextButtonRect;
+    private WorkspaceSplitRatioBinding? activeDraggedSplitBinding;
+    private bool isApplyingSplitLayout;
 
     private const int TaskbarContextMenuPinId = 1;
     private const int TaskbarMinHeight = 44;
     private const float TaskbarFeedbackHoldSeconds = 0.5f;
     private const float TaskbarFeedbackFadeSeconds = 0.5f;
+    private const float SplitRatioSyncEpsilon = 0.0005f;
 
     /// <inheritdoc/>
     public override void _Ready()
@@ -77,6 +82,9 @@ public partial class ShellWorkspaceRoot : Control
         {
             taskbarContextMenu.IdPressed -= OnTaskbarContextMenuIdPressed;
         }
+
+        paneContentFactory?.DisposeCachedContent();
+        paneContentFactory = null;
     }
 
     /// <inheritdoc/>
@@ -134,11 +142,16 @@ public partial class ShellWorkspaceRoot : Control
 
         slotViews.Clear();
         splitContainers.Clear();
+        slotChromeMetrics.Clear();
         ClearDisposableChildren(dockedHost);
 
         var layoutRoot = BuildDockedLayoutNode(layoutDefinition.Root);
         PrepareFillControl(layoutRoot);
         dockedHost.AddChild(layoutRoot);
+        foreach (var pair in slotViews)
+        {
+            slotChromeMetrics[pair.Key] = pair.Value.MeasureChromeMetrics();
+        }
     }
 
     private void BuildMaximizedChrome()
@@ -197,6 +210,7 @@ public partial class ShellWorkspaceRoot : Control
             Text = string.Empty,
             VerticalAlignment = VerticalAlignment.Center,
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            ClipText = true,
         };
         header.AddChild(maximizedTitleLabel);
 
@@ -206,6 +220,7 @@ public partial class ShellWorkspaceRoot : Control
             Text = "Restore",
             TooltipText = "Return to docked layout",
             SizeFlagsHorizontal = Control.SizeFlags.ShrinkEnd,
+            CustomMinimumSize = new Vector2(86.0f, 0.0f),
         };
         maximizedRestoreButton.Pressed += OnRestorePressed;
         header.AddChild(maximizedRestoreButton);
@@ -340,7 +355,14 @@ public partial class ShellWorkspaceRoot : Control
         split.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         split.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
         split.DraggerVisibility = SplitContainer.DraggerVisibilityEnum.Hidden;
+        split.DragStarted += () => OnSplitDragStarted(splitNode.RatioBinding);
         split.DragEnded += OnSplitDragEnded;
+        split.Resized += () => OnSplitResized(splitNode.RatioBinding);
+        var dragAreaControls = split.GetDragAreaControls();
+        if (dragAreaControls.Count > 0)
+        {
+            dragAreaControls[0].GuiInput += @event => OnSplitDragAreaGuiInput(splitNode.RatioBinding, @event);
+        }
         splitContainers[splitNode.RatioBinding] = split;
 
         var firstChild = BuildDockedLayoutNode(splitNode.FirstChild);
@@ -367,6 +389,10 @@ public partial class ShellWorkspaceRoot : Control
             currentSnapshot,
             layoutDefinition,
             paneContentFactory.ImplementedPaneKinds);
+        currentConstraintSnapshot = WorkspaceConstraintResolver.Resolve(
+            currentDisplayModel,
+            layoutDefinition,
+            slotChromeMetrics);
 
         ApplyDisplayModel(currentDisplayModel);
     }
@@ -386,6 +412,7 @@ public partial class ShellWorkspaceRoot : Control
             ApplySlotDisplayModel(slotViews[pair.Key], pair.Value);
         }
 
+        ApplySlotMinimumSizes(displayModel);
         ApplyMaximizedDisplayModel(displayModel.MaximizedPane);
         RebuildTaskbar(displayModel);
         CallDeferred(MethodName.ApplyCurrentSplitRatios);
@@ -413,6 +440,7 @@ public partial class ShellWorkspaceRoot : Control
 
         var content = paneContentFactory.GetContent(slotModel.DisplayedPane.Value, slotModel.ContentKind);
         MountContent(view.ContentHost, content, null);
+        ApplyConstraintStateToVisibleContent(slotModel.DisplayedPane.Value, content);
     }
 
     private void RebuildSlotTabs(WorkspaceSlotView view, WorkspaceSlotDisplayModel slotModel)
@@ -434,6 +462,7 @@ public partial class ShellWorkspaceRoot : Control
                 ButtonPressed = slotModel.DisplayedPane == pane,
                 TooltipText = PaneContentFactory.GetPaneTitle(pane),
                 SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter,
+                ClipText = true,
             };
             if (slotModel.DisplayedPane == pane)
             {
@@ -464,6 +493,7 @@ public partial class ShellWorkspaceRoot : Control
         maximizedRestoreButton.Visible = true;
         var content = paneContentFactory.GetContent(maximizedModel.PaneKind, maximizedModel.ContentKind);
         MountContent(maximizedContentHost, content, null);
+        ApplyConstraintStateToVisibleContent(maximizedModel.PaneKind, content);
     }
 
     private void RebuildTaskbar(WorkspaceDisplayModel displayModel)
@@ -703,24 +733,35 @@ public partial class ShellWorkspaceRoot : Control
 
     private void ApplyCurrentSplitRatios()
     {
-        if (currentSnapshot is null)
+        if (currentSnapshot is null || isApplyingSplitLayout)
         {
             return;
         }
 
-        if (splitContainers.TryGetValue(WorkspaceSplitRatioBinding.LeftColumn, out var leftSplit))
+        isApplyingSplitLayout = true;
+        try
         {
-            leftSplit.SplitOffsets = [Mathf.RoundToInt(leftSplit.Size.X * currentSnapshot.LeftRatio)];
-        }
+            if (splitContainers.TryGetValue(WorkspaceSplitRatioBinding.LeftColumn, out var leftSplit))
+            {
+                leftSplit.SplitOffsets = [ResolveOffsetFromRatio(WorkspaceSplitRatioBinding.LeftColumn, currentSnapshot.LeftRatio)];
+                ClampSplitOffset(WorkspaceSplitRatioBinding.LeftColumn);
+            }
 
-        if (splitContainers.TryGetValue(WorkspaceSplitRatioBinding.RightTop, out var rightSplit))
+            if (splitContainers.TryGetValue(WorkspaceSplitRatioBinding.RightTop, out var rightSplit))
+            {
+                rightSplit.SplitOffsets = [ResolveOffsetFromRatio(WorkspaceSplitRatioBinding.RightTop, currentSnapshot.RightTopRatio)];
+                ClampSplitOffset(WorkspaceSplitRatioBinding.RightTop);
+            }
+        }
+        finally
         {
-            rightSplit.SplitOffsets = [Mathf.RoundToInt(rightSplit.Size.Y * currentSnapshot.RightTopRatio)];
+            isApplyingSplitLayout = false;
         }
     }
 
     private void OnSplitDragEnded()
     {
+        activeDraggedSplitBinding = null;
         if (workspaceRuntime is null || currentSnapshot is null)
         {
             return;
@@ -742,6 +783,42 @@ public partial class ShellWorkspaceRoot : Control
         _ = workspaceRuntime.SetSplitRatios(nextLeftRatio, nextRightTopRatio);
     }
 
+    private void OnSplitDragStarted(WorkspaceSplitRatioBinding binding)
+    {
+        activeDraggedSplitBinding = binding;
+        ClampSplitOffset(binding);
+    }
+
+    private void OnSplitDragAreaGuiInput(WorkspaceSplitRatioBinding binding, InputEvent @event)
+    {
+        if (activeDraggedSplitBinding != binding)
+        {
+            return;
+        }
+
+        if (@event is not InputEventMouseMotion motion || (motion.ButtonMask & MouseButtonMask.Left) == 0)
+        {
+            return;
+        }
+
+        ClampSplitOffset(binding);
+    }
+
+    private void OnSplitResized(WorkspaceSplitRatioBinding binding)
+    {
+        if (isApplyingSplitLayout)
+        {
+            return;
+        }
+
+        if (!ClampSplitOffset(binding) || activeDraggedSplitBinding.HasValue)
+        {
+            return;
+        }
+
+        SyncClampedRatiosBackToRuntimeIfNeeded();
+    }
+
     private bool TryReadCurrentSplitRatio(WorkspaceSplitRatioBinding binding, out float ratio)
     {
         ratio = 0.0f;
@@ -750,12 +827,19 @@ public partial class ShellWorkspaceRoot : Control
             return false;
         }
 
-        var axisSize = binding == WorkspaceSplitRatioBinding.LeftColumn
-            ? split.Size.X
-            : split.Size.Y;
+        var axisSize = ResolveSplitAxisAvailableSize(split, binding);
         if (axisSize <= 0.0f)
         {
             return false;
+        }
+
+        if (split.GetChildCount() >= 1 && split.GetChild(0) is Control firstChild)
+        {
+            var firstSize = binding == WorkspaceSplitRatioBinding.LeftColumn
+                ? firstChild.Size.X
+                : firstChild.Size.Y;
+            ratio = Mathf.Clamp(firstSize / axisSize, 0.001f, 0.999f);
+            return true;
         }
 
         var splitOffsets = split.SplitOffsets;
@@ -812,6 +896,210 @@ public partial class ShellWorkspaceRoot : Control
 
         _ = workspaceRuntime.ActivatePane(WorkspacePaneKind.WorldMapTrace);
         _ = workspaceRuntime.FocusPane(WorkspacePaneKind.Terminal);
+    }
+
+    private int ResolveOffsetFromRatio(WorkspaceSplitRatioBinding binding, float ratio)
+    {
+        if (!splitContainers.TryGetValue(binding, out var split))
+        {
+            return 0;
+        }
+
+        var axisSize = ResolveSplitAxisAvailableSize(split, binding);
+        if (axisSize <= 0.0f)
+        {
+            return 0;
+        }
+
+        var desiredFirstSize = axisSize * Mathf.Clamp(ratio, 0.001f, 0.999f);
+        return ResolveOffsetFromDesiredFirstSize(split, binding, desiredFirstSize);
+    }
+
+    private bool ClampSplitOffset(WorkspaceSplitRatioBinding binding)
+    {
+        if (!splitContainers.TryGetValue(binding, out var split) ||
+            currentConstraintSnapshot is null ||
+            !currentConstraintSnapshot.SplitClampRules.TryGetValue(binding, out var clampRule))
+        {
+            return false;
+        }
+
+        var splitOffsets = split.SplitOffsets;
+        if (!splitOffsets.Any())
+        {
+            return false;
+        }
+
+        var axisSize = ResolveSplitAxisAvailableSize(split, binding);
+        if (axisSize <= 0.0f)
+        {
+            return false;
+        }
+
+        if (!TryGetCurrentFirstChildAxisSize(split, binding, out var currentFirstSize))
+        {
+            return false;
+        }
+
+        var clampedFirstSize = ClampFirstSizeToRule(currentFirstSize, axisSize, clampRule);
+        if (Mathf.IsEqualApprox(clampedFirstSize, currentFirstSize))
+        {
+            return false;
+        }
+
+        var clampedOffset = ResolveOffsetFromDesiredFirstSize(split, binding, clampedFirstSize);
+        if (clampedOffset == splitOffsets[0])
+        {
+            return false;
+        }
+
+        split.SplitOffsets = [clampedOffset];
+        return true;
+    }
+
+    private float ClampFirstSizeToRule(
+        float requestedFirstSize,
+        float axisSize,
+        WorkspaceSplitClampRule clampRule)
+    {
+        var firstMin = Mathf.Max(0.0f, clampRule.FirstBranchMinSizePx);
+        var secondMin = Mathf.Max(0.0f, clampRule.SecondBranchMinSizePx);
+        var available = Mathf.Max(0.0f, axisSize);
+        if (firstMin + secondMin > available && available > 0.0f)
+        {
+            var totalRequested = firstMin + secondMin;
+            var preferredFirstRatio = totalRequested <= 0.0f ? 0.5f : firstMin / totalRequested;
+            return available * preferredFirstRatio;
+        }
+
+        var minFirstSize = firstMin;
+        var maxFirstSize = Mathf.Max(0.0f, available - secondMin);
+        return Mathf.Clamp(requestedFirstSize, minFirstSize, maxFirstSize);
+    }
+
+    private int ResolveOffsetFromDesiredFirstSize(
+        SplitContainer split,
+        WorkspaceSplitRatioBinding binding,
+        float desiredFirstSize)
+    {
+        var splitOffsets = split.SplitOffsets;
+        var currentOffset = splitOffsets.Any() ? splitOffsets[0] : 0;
+        if (!TryGetCurrentFirstChildAxisSize(split, binding, out var currentFirstSize))
+        {
+            return Mathf.RoundToInt(desiredFirstSize);
+        }
+
+        var defaultFirstSize = currentFirstSize - currentOffset;
+        return Mathf.RoundToInt(defaultFirstSize < 0.0f
+            ? desiredFirstSize
+            : desiredFirstSize - defaultFirstSize);
+    }
+
+    private static bool TryGetCurrentFirstChildAxisSize(
+        SplitContainer split,
+        WorkspaceSplitRatioBinding binding,
+        out float firstSize)
+    {
+        firstSize = 0.0f;
+        if (split.GetChildCount() < 1 || split.GetChild(0) is not Control firstChild)
+        {
+            return false;
+        }
+
+        firstSize = binding == WorkspaceSplitRatioBinding.LeftColumn
+            ? firstChild.Size.X
+            : firstChild.Size.Y;
+        return true;
+    }
+
+    private float ResolveSplitAxisAvailableSize(SplitContainer split, WorkspaceSplitRatioBinding binding)
+    {
+        if (split.GetChildCount() >= 2 &&
+            split.GetChild(0) is Control firstChild &&
+            split.GetChild(1) is Control secondChild)
+        {
+            return binding == WorkspaceSplitRatioBinding.LeftColumn
+                ? firstChild.Size.X + secondChild.Size.X
+                : firstChild.Size.Y + secondChild.Size.Y;
+        }
+
+        return binding == WorkspaceSplitRatioBinding.LeftColumn
+            ? split.Size.X
+            : split.Size.Y;
+    }
+
+    private void SyncClampedRatiosBackToRuntimeIfNeeded()
+    {
+        if (workspaceRuntime is null || currentSnapshot is null || activeDraggedSplitBinding.HasValue || isApplyingSplitLayout)
+        {
+            return;
+        }
+
+        var nextLeftRatio = currentSnapshot.LeftRatio;
+        var nextRightTopRatio = currentSnapshot.RightTopRatio;
+        var changed = false;
+
+        if (TryReadCurrentSplitRatio(WorkspaceSplitRatioBinding.LeftColumn, out var leftRatio) &&
+            !Mathf.IsEqualApprox(leftRatio, currentSnapshot.LeftRatio))
+        {
+            if (Mathf.Abs(leftRatio - currentSnapshot.LeftRatio) > SplitRatioSyncEpsilon)
+            {
+                nextLeftRatio = leftRatio;
+                changed = true;
+            }
+        }
+
+        if (TryReadCurrentSplitRatio(WorkspaceSplitRatioBinding.RightTop, out var rightTopRatio) &&
+            !Mathf.IsEqualApprox(rightTopRatio, currentSnapshot.RightTopRatio))
+        {
+            if (Mathf.Abs(rightTopRatio - currentSnapshot.RightTopRatio) > SplitRatioSyncEpsilon)
+            {
+                nextRightTopRatio = rightTopRatio;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            _ = workspaceRuntime.SetSplitRatios(nextLeftRatio, nextRightTopRatio);
+        }
+    }
+
+    private void ApplyConstraintStateToVisibleContent(WorkspacePaneKind paneKind, Control content)
+    {
+        if (content is not IWorkspaceConstraintAwarePaneContent constraintAwareContent ||
+            currentConstraintSnapshot is null ||
+            !currentConstraintSnapshot.VisiblePaneStates.TryGetValue(paneKind, out var constraintState))
+        {
+            return;
+        }
+
+        constraintAwareContent.ApplyConstraintState(constraintState);
+    }
+
+    private void ApplySlotMinimumSizes(WorkspaceDisplayModel displayModel)
+    {
+        foreach (var pair in slotViews)
+        {
+            var minimumSize = Vector2.Zero;
+            if (displayModel.Mode == WorkspaceMode.Docked &&
+                currentConstraintSnapshot is not null &&
+                displayModel.DockedSlots.TryGetValue(pair.Key, out var slotModel) &&
+                slotModel.DisplayedPane.HasValue &&
+                currentConstraintSnapshot.VisiblePaneStates.TryGetValue(slotModel.DisplayedPane.Value, out var constraintState) &&
+                slotChromeMetrics.TryGetValue(pair.Key, out var chromeMetrics))
+            {
+                var minWidth = constraintState.HorizontalResolvePolicy == WorkspaceConstraintResolvePolicy.Clamp
+                    ? constraintState.MinUsableWidthPx + chromeMetrics.ExtraWidthPx
+                    : 0.0f;
+                var minHeight = constraintState.VerticalResolvePolicy == WorkspaceConstraintResolvePolicy.Clamp
+                    ? constraintState.MinUsableHeightPx + chromeMetrics.ExtraHeightPx
+                    : 0.0f;
+                minimumSize = new Vector2(minWidth, minHeight);
+            }
+
+            pair.Value.Root.CustomMinimumSize = minimumSize;
+        }
     }
 
     private static void ClearDisposableChildren(Node parent)
@@ -1078,6 +1366,7 @@ public partial class ShellWorkspaceRoot : Control
             {
                 Name = slot + "Title",
                 VerticalAlignment = VerticalAlignment.Center,
+                ClipText = true,
             };
             TitleLabel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
             header.AddChild(TitleLabel);
@@ -1096,6 +1385,7 @@ public partial class ShellWorkspaceRoot : Control
                 Text = "Maximize",
                 TooltipText = "Maximize this pane",
                 SizeFlagsHorizontal = Control.SizeFlags.ShrinkEnd,
+                CustomMinimumSize = new Vector2(86.0f, 0.0f),
             };
             MaximizeButton.Pressed += () => maximizeHandler(slot);
             header.AddChild(MaximizeButton);
@@ -1142,5 +1432,23 @@ public partial class ShellWorkspaceRoot : Control
         internal Button MaximizeButton { get; }
 
         internal Control ContentHost { get; }
+
+        internal WorkspaceSlotChromeMetrics MeasureChromeMetrics()
+        {
+            const float rootMarginHorizontal = 20.0f;
+            const float rootMarginVertical = 20.0f;
+            const float bodyMarginHorizontal = 16.0f;
+            const float bodyMarginVertical = 16.0f;
+            const float layoutSeparation = 8.0f;
+            const float headerHeight = 32.0f;
+            const float frameBorderHorizontal = 2.0f;
+            const float frameBorderVertical = 2.0f;
+            const float bodyBorderHorizontal = 2.0f;
+            const float bodyBorderVertical = 2.0f;
+
+            return new WorkspaceSlotChromeMetrics(
+                ExtraWidthPx: rootMarginHorizontal + bodyMarginHorizontal + frameBorderHorizontal + bodyBorderHorizontal,
+                ExtraHeightPx: rootMarginVertical + bodyMarginVertical + layoutSeparation + headerHeight + frameBorderVertical + bodyBorderVertical);
+        }
     }
 }

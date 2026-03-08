@@ -339,6 +339,16 @@ public sealed class WindowManagerPolicyTest
         Assert.Equal(300f, displayedRect.Size.Y, 3);
     }
 
+    /// <summary>Ensures WORLD_MAP_TRACE minimum usable viewport size is derived from the reference texture dimensions.</summary>
+    [Fact]
+    public void ResolveMinUsableViewportSize_UsesReferenceTextureTenPercentThreshold()
+    {
+        var threshold = WorldMapTracePane.ResolveMinUsableViewportSize(new Vector2I(2048, 1024));
+
+        Assert.Equal(205, threshold.X);
+        Assert.Equal(103, threshold.Y);
+    }
+
     /// <summary>Ensures fill color priority and outline mode mapping follow WORLD_MAP_TRACE icon contract.</summary>
     [Fact]
     public void ResolveWorldMapNodeStyle_AppliesFillPriorityAndOutlineModes()

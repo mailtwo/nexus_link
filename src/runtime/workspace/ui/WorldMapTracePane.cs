@@ -8,9 +8,10 @@ using Uplink2.Runtime;
 namespace Uplink2.Runtime.Workspace.Ui;
 
 /// <summary>Content-only world map trace pane rendered inside the shell workspace or legacy host windows.</summary>
-internal sealed partial class WorldMapTracePane : Control
+internal sealed partial class WorldMapTracePane : Control, IWorkspaceConstraintAwarePaneContent
 {
     internal static readonly Vector2I DefaultMapViewportSize = new(512, 256);
+    internal static readonly Vector2I ReferenceTextureFallbackSize = new(2048, 1024);
 
     private const string InternetNetId = "internet";
     private const string WorldMapTraceTexturePath = "res://gui/images/min_world_map_subtle_glow.png";
@@ -118,6 +119,8 @@ void fragment() {
     private readonly Dictionary<string, bool> toggleStatesById = new(StringComparer.Ordinal);
 
     private Control? mapViewportHost;
+    private ScrollContainer? mapViewportScroll;
+    private Control? mapViewportScrollContentRoot;
     private TextureRect? mapTextureRect;
     private HBoxContainer? topTabsContainer;
     private VBoxContainer? leftTogglesContainer;
@@ -125,6 +128,7 @@ void fragment() {
     private ButtonGroup? tabGroup;
     private string activeTabId = DefaultTabId;
     private bool isUiBuilt;
+    private WorkspacePaneConstraintRenderState? activeConstraintState;
 
     /// <inheritdoc/>
     public override void _Ready()
@@ -192,6 +196,21 @@ void fragment() {
         var drawPosition = (safeContainerSize - drawSize) * 0.5f;
         return new Rect2(drawPosition, drawSize);
     }
+
+    internal static Vector2I GetReferenceTextureSize()
+    {
+        // The workspace contract owns a canonical WORLD_MAP_TRACE reference texture size.
+        // The shipped UI asset may be downscaled, but constraint thresholds follow the contract value.
+        return ReferenceTextureFallbackSize;
+    }
+
+    internal static Vector2I ResolveMinUsableViewportSize(Vector2I textureSize)
+    {
+        return new Vector2I(
+            Mathf.Max(1, Mathf.CeilToInt(textureSize.X * 0.1f)),
+            Mathf.Max(1, Mathf.CeilToInt(textureSize.Y * 0.1f)));
+    }
+
 
     internal static Color ResolveWorldMapNodeFillColor(bool isOffline, bool isWorkstation)
     {
@@ -491,15 +510,31 @@ void fragment() {
         leftTogglesContainer.AddThemeConstantOverride("separation", RowColumnGap);
         bodyRow.AddChild(leftTogglesContainer);
 
+        mapViewportScroll = new ScrollContainer
+        {
+            Name = "MapViewportScroll",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+        };
+        bodyRow.AddChild(mapViewportScroll);
+
+        mapViewportScrollContentRoot = new Control
+        {
+            Name = "MapViewportScrollContent",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+        };
+        mapViewportScroll.AddChild(mapViewportScrollContentRoot);
+
         mapViewportHost = new ColorRect
         {
             Name = "MapViewport",
             Color = Colors.Black,
-            CustomMinimumSize = new Vector2(DefaultMapViewportSize.X, DefaultMapViewportSize.Y),
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             SizeFlagsVertical = Control.SizeFlags.ExpandFill,
         };
-        bodyRow.AddChild(mapViewportHost);
+        mapViewportHost.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        mapViewportScrollContentRoot.AddChild(mapViewportHost);
 
         mapTextureRect = new TextureRect
         {
@@ -569,6 +604,7 @@ void fragment() {
 
         BuildTabButtons();
         BuildToggleButtons();
+        ApplyViewportConstraintState();
     }
 
     private void UpdateNodeOverlay()
@@ -636,10 +672,56 @@ void fragment() {
             return;
         }
 
+        UpdateViewportConstraintLayout();
         var textureSize = mapTextureRect?.Texture?.GetSize() ?? new Vector2(DefaultMapViewportSize.X, DefaultMapViewportSize.Y);
         var displayedMapRect = ResolveDisplayedMapRect(mapViewportHost.Size, textureSize);
         nodeOverlay.Position = displayedMapRect.Position;
         nodeOverlay.Size = displayedMapRect.Size;
+    }
+
+    void IWorkspaceConstraintAwarePaneContent.ApplyConstraintState(WorkspacePaneConstraintRenderState state)
+    {
+        activeConstraintState = state ?? throw new ArgumentNullException(nameof(state));
+        ApplyViewportConstraintState();
+    }
+
+    private void ApplyViewportConstraintState()
+    {
+        if (!isUiBuilt)
+        {
+            return;
+        }
+
+        UpdateViewportConstraintLayout();
+    }
+
+    private void UpdateViewportConstraintLayout()
+    {
+        if (mapViewportScroll is null || mapViewportScrollContentRoot is null || mapViewportHost is null)
+        {
+            return;
+        }
+
+        var minWidth = 0.0f;
+        var minHeight = 0.0f;
+        if (activeConstraintState is not null)
+        {
+            if (activeConstraintState.HorizontalResolvePolicy == WorkspaceConstraintResolvePolicy.Scroll)
+            {
+                minWidth = activeConstraintState.MinUsableWidthPx;
+            }
+
+            if (activeConstraintState.VerticalResolvePolicy == WorkspaceConstraintResolvePolicy.Scroll)
+            {
+                minHeight = activeConstraintState.MinUsableHeightPx;
+            }
+        }
+
+        var viewportSize = mapViewportScroll.Size;
+        var targetWidth = Mathf.Max(viewportSize.X, minWidth);
+        var targetHeight = Mathf.Max(viewportSize.Y, minHeight);
+        mapViewportScrollContentRoot.CustomMinimumSize = new Vector2(minWidth, minHeight);
+        mapViewportScrollContentRoot.Size = new Vector2(targetWidth, targetHeight);
     }
 
     private bool IsHotToggleEnabled()

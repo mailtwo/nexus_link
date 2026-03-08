@@ -275,6 +275,17 @@ plans/ 문서의 설계 결정이 추가되거나 변경될 때 기록한다.
 - **결정**: 1단계 shell bootstrap state는 `TERMINAL`만 resident/pinned로 시작하며, 기본 split ratio는 `Left=0.42`, `RightTop=0.55`로 고정한다.
 - **이유**: shell 첫 진입 시 불필요한 정보 pane 자동 오픈을 피하고, 이후 pane open/taskbar/profile hydrate 단계를 분리해 구현 복잡도를 낮추기 위함.
 
+### [13] Pane Constraint System — 축별 minimum / resolve policy 도입
+- **결정**: pane별 축별 minimum(`MinUsableWidth`, `MinUsableHeight`)과 resolve policy(`CLAMP`, `SCROLL`)를 `13`의 canonical layout rule로 도입한다.
+  당시 알파 초기값은 `TERMINAL = width clamp / height scroll`, `WORLD_MAP_TRACE = width scroll / height clamp`로 정했다.
+  단, `WORLD_MAP_TRACE`의 가로 축 policy는 2026-03-09 결정으로 `CLAMP`로 supersede되었다.
+- **이유**: pane마다 usable minimum과 overflow 처리 방식이 다르므로, split 조절과 pane-local scroll을 문서 차원에서 분리해 일관된 layout 계약을 확보하기 위함.
+
+### [13] Pane Constraint System — split floor 계산 규칙
+- **결정**: split floor는 현재 표시 중인 pane 중 해당 축에서 `CLAMP` policy를 가진 pane만 참여시키고, branch minimum은 그 값의 `max(...)`로 계산한다.
+  `SCROLL` minimum은 split 제한이 아니라 pane-local overflow threshold로 해석한다.
+- **이유**: shared branch에서 여러 pane constraint가 동시에 충돌할 때 더 강한 floor만 split에 반영하고, scroll 가능한 pane은 내부 overflow로 처리해 규칙 충돌을 deterministic하게 해소하기 위함.
+
 ### [DOCS] Tier 2 문서 번호 체계 — 100번대 3자리 고정
 - **결정**: Tier 2 Feature Hub 문서는 `100`번대 3자리 번호 체계를 사용한다. 기존 `16~23` 허브 번호는 `100~107`로 재배치하고, 이후 신규 허브도 같은 대역을 사용한다.
 - **이유**: Tier 1 SSOT와 Tier 2 Feature Hub를 번호만 봐도 즉시 구분할 수 있게 하고, 향후 허브 확장 시 번호 공간과 문서 계층 가독성을 확보하기 위함.
@@ -290,3 +301,11 @@ plans/ 문서의 설계 결정이 추가되거나 변경될 때 기록한다.
 ### [16] Unavailable pinned pane 유지 — preference와 taskbar 표시 분리
 - **결정**: unavailable pane도 stored/effective pinned preference에는 유지하되, 현재 taskbar 표시 여부는 이후 UI 단계에서 availability 기반으로 파생한다.
 - **이유**: 사용자의 pin 취향을 저장 상태에서 잃지 않으면서도, 현재 save entitlement를 우회해 taskbar에 잘못 노출되는 문제를 막기 위함.
+
+## 2026-03-09
+
+### [13] Pane Constraint System — WORLD_MAP_TRACE 가로 resolve policy 수정
+- **결정**: `WORLD_MAP_TRACE`의 가로 축 resolve policy는 `SCROLL`이 아니라 `CLAMP`로 고정한다.
+  따라서 알파 기준 `WORLD_MAP_TRACE`는 가로/세로 모두 split clamp로 minimum을 보장한다.
+- **이유**: 가로 scroll fallback을 허용하면 split을 과도하게 줄이는 동안 map viewport가 사실상 붕괴하고,
+  정보 pane로서의 usable minimum을 보장하지 못해 UX가 오히려 악화되기 때문이다.

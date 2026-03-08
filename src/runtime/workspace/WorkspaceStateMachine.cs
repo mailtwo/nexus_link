@@ -16,6 +16,8 @@ public sealed class WorkspaceStateMachine
     /// <summary>Default normalized right-top ratio for a fresh shell workspace.</summary>
     public const float DefaultRightTopRatio = 0.55f;
 
+    private const float SplitRatioEpsilon = 0.0005f;
+
     private static readonly DockSlot[] SlotOrder =
     {
         DockSlot.Left,
@@ -342,7 +344,8 @@ public sealed class WorkspaceStateMachine
             return false;
         }
 
-        if (leftRatio.Equals(nextLeftRatio) && rightTopRatio.Equals(nextRightTopRatio))
+        if (MathF.Abs(leftRatio - nextLeftRatio) <= SplitRatioEpsilon &&
+            MathF.Abs(rightTopRatio - nextRightTopRatio) <= SplitRatioEpsilon)
         {
             return false;
         }
