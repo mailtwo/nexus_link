@@ -38,6 +38,8 @@ internal sealed class SystemCallProcessor
         {
             module.Register(registry);
         }
+
+        registry.Register(new RunCommandHandler(this));
     }
 
     internal SystemCallResult Execute(SystemCallRequest request)
@@ -105,6 +107,23 @@ internal sealed class SystemCallProcessor
 
         if (registry.TryGetHandler(command, out _))
         {
+            if (string.Equals(command, "run", StringComparison.Ordinal))
+            {
+                if (!TryParseRunLauncherArguments(arguments, out var programOrPath, out var programArguments, out var failure))
+                {
+                    immediateResult = failure;
+                    return true;
+                }
+
+                return TryPrepareProgramExecution(
+                    context!,
+                    programOrPath,
+                    request.CommandLine ?? string.Empty,
+                    programArguments,
+                    out launch,
+                    out immediateResult);
+            }
+
             if (string.Equals(command, "ping", StringComparison.Ordinal))
             {
                 return TryPreparePingLaunch(
@@ -130,53 +149,10 @@ internal sealed class SystemCallProcessor
                 out immediateResult);
         }
 
-        if (!TryResolveProgramPath(context!, command, out var resolvedProgram))
-        {
-            return false;
-        }
-
-        if (!context!.User.Privilege.Read || !context.User.Privilege.Execute)
-        {
-            immediateResult = SystemCallResultFactory.PermissionDenied(command);
-            return true;
-        }
-
-        if (resolvedProgram.ResolvedProgramEntry.FileKind == VfsFileKind.ExecutableScript)
-        {
-            return TryPrepareExecutableScriptLaunch(
-                context,
-                resolvedProgram.SourceServer,
-                command,
-                request.CommandLine ?? string.Empty,
-                resolvedProgram.ResolvedProgramPath,
-                arguments,
-                out launch,
-                out immediateResult);
-        }
-
-        if (resolvedProgram.ResolvedProgramEntry.FileKind != VfsFileKind.ExecutableHardcode)
-        {
-            return false;
-        }
-
-        if (!resolvedProgram.SourceServer.DiskOverlay.TryReadFileText(
-                resolvedProgram.ResolvedProgramPath,
-                out var executablePayload))
-        {
-            return false;
-        }
-
-        if (!TryParseExecutableHardcodePayload(executablePayload, out var executableId) ||
-            !string.Equals(executableId, "miniscript", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        return TryPrepareMiniScriptSourceLaunch(
-            context,
+        return TryPrepareProgramExecution(
+            context!,
             command,
             request.CommandLine ?? string.Empty,
-            resolvedProgram.ResolvedProgramPath,
             arguments,
             out launch,
             out immediateResult);
@@ -316,6 +292,69 @@ internal sealed class SystemCallProcessor
             arguments.ToArray());
         immediateResult = SystemCallResultFactory.Success();
         return true;
+    }
+
+    private bool TryPrepareProgramExecution(
+        SystemCallExecutionContext context,
+        string command,
+        string commandLine,
+        IReadOnlyList<string> arguments,
+        out MiniScriptProgramLaunch? launch,
+        out SystemCallResult? immediateResult)
+    {
+        launch = null;
+        immediateResult = null;
+
+        if (!TryResolveProgramPath(context, command, out var resolvedProgram))
+        {
+            return false;
+        }
+
+        if (!context.User.Privilege.Read || !context.User.Privilege.Execute)
+        {
+            immediateResult = SystemCallResultFactory.PermissionDenied(command);
+            return true;
+        }
+
+        if (resolvedProgram.ResolvedProgramEntry.FileKind == VfsFileKind.ExecutableScript)
+        {
+            return TryPrepareExecutableScriptLaunch(
+                context,
+                resolvedProgram.SourceServer,
+                command,
+                commandLine,
+                resolvedProgram.ResolvedProgramPath,
+                arguments,
+                out launch,
+                out immediateResult);
+        }
+
+        if (resolvedProgram.ResolvedProgramEntry.FileKind != VfsFileKind.ExecutableHardcode)
+        {
+            return false;
+        }
+
+        if (!resolvedProgram.SourceServer.DiskOverlay.TryReadFileText(
+                resolvedProgram.ResolvedProgramPath,
+                out var executablePayload))
+        {
+            return false;
+        }
+
+        if (!TryParseExecutableHardcodePayload(executablePayload, out var executableId) ||
+            !string.Equals(executableId, "miniscript", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return TryPrepareMiniScriptSourceLaunch(
+            context,
+            command,
+            commandLine,
+            resolvedProgram.ResolvedProgramPath,
+            arguments,
+            out launch,
+            out immediateResult);
     }
 
     private static bool TryPreparePingLaunch(
@@ -511,6 +550,21 @@ internal sealed class SystemCallProcessor
         }
 
         return false;
+    }
+
+    internal SystemCallResult ExecuteProgramLauncher(
+        SystemCallExecutionContext context,
+        string programOrPath,
+        IReadOnlyList<string> arguments)
+    {
+        if (string.IsNullOrWhiteSpace(programOrPath))
+        {
+            return SystemCallResultFactory.Usage("run <programOrPath> [args...]");
+        }
+
+        return TryExecuteProgram(context, programOrPath, arguments, out var result)
+            ? result
+            : SystemCallResultFactory.Failure(SystemCallErrorCode.UnknownCommand, $"unknown command: {programOrPath}");
     }
 
     private bool TryResolveProgramPath(
@@ -718,8 +772,66 @@ internal sealed class SystemCallProcessor
         return true;
     }
 
+    internal static bool TryParseRunLauncherArguments(
+        IReadOnlyList<string> arguments,
+        out string programOrPath,
+        out IReadOnlyList<string> programArguments,
+        out SystemCallResult failure)
+    {
+        programOrPath = string.Empty;
+        programArguments = Array.Empty<string>();
+        failure = SystemCallResultFactory.Success();
+
+        if (arguments.Count == 0 || string.IsNullOrWhiteSpace(arguments[0]))
+        {
+            failure = SystemCallResultFactory.Usage("run <programOrPath> [args...]");
+            return false;
+        }
+
+        programOrPath = arguments[0];
+        if (arguments.Count == 1)
+        {
+            return true;
+        }
+
+        var forwardedArguments = new string[arguments.Count - 1];
+        for (var index = 1; index < arguments.Count; index++)
+        {
+            forwardedArguments[index - 1] = arguments[index];
+        }
+
+        programArguments = forwardedArguments;
+        return true;
+    }
+
     private readonly record struct ResolvedProgram(
         ServerNodeRuntime SourceServer,
         string ResolvedProgramPath,
         VfsEntryMeta ResolvedProgramEntry);
+}
+
+internal sealed class RunCommandHandler : ISystemCallHandler
+{
+    private readonly SystemCallProcessor processor;
+
+    internal RunCommandHandler(SystemCallProcessor processor)
+    {
+        this.processor = processor ?? throw new ArgumentNullException(nameof(processor));
+    }
+
+    public string Command => "run";
+
+    public SystemCallResult Execute(SystemCallExecutionContext context, IReadOnlyList<string> arguments)
+    {
+        if (!SystemCallProcessor.TryParseRunLauncherArguments(
+                arguments,
+                out var programOrPath,
+                out var programArguments,
+                out var failure))
+        {
+            return failure;
+        }
+
+        return processor.ExecuteProgramLauncher(context, programOrPath, programArguments);
+    }
 }

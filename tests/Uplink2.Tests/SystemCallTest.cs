@@ -381,6 +381,140 @@ public sealed class SystemCallTest
         Assert.Null(result.Data);
     }
 
+    /// <summary>Ensures run requires a target program/path argument.</summary>
+    [Fact]
+    public void Execute_Run_WithoutTarget_ReturnsUsage()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+
+        var result = Execute(harness, "run");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.InvalidArgs, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Contains("usage: run <programOrPath> [args...]", result.Lines[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>Ensures run delegates to official inspect program behavior.</summary>
+    [Fact]
+    public void Execute_Run_Inspect_DelegatesToProgramContract()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(
+            harness,
+            "node-2",
+            "remote",
+            "10.0.1.20",
+            AuthMode.Static,
+            "pw",
+            userKey: "root",
+            userId: "root");
+
+        var result = Execute(harness, "run inspect 10.0.1.20 root");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Contains("ssh: open", result.Lines);
+        Assert.Contains("host: 10.0.1.20", result.Lines);
+        Assert.Contains("user: root", result.Lines);
+        Assert.Null(result.NextCwd);
+        Assert.Null(result.Data);
+    }
+
+    /// <summary>Ensures run forwards nexus_shell launch to the same executable contract.</summary>
+    [Fact]
+    public void Execute_Run_NexusShell_LocalWorkstation_OpensShellWithoutChangingTerminalContext()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/nexus_shell", "exec:nexus_shell", fileKind: VfsFileKind.ExecutableHardcode);
+
+        var result = Execute(harness, "run nexus_shell");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Empty(result.Lines);
+        Assert.True(harness.World.IsNexusShellOpen);
+        Assert.Null(result.NextCwd);
+        Assert.Null(result.Data);
+    }
+
+    /// <summary>Ensures run preserves nexus_shell already-running warning semantics.</summary>
+    [Fact]
+    public void Execute_Run_NexusShell_WhenAlreadyOpen_ReturnsWarningNoOp()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/nexus_shell", "exec:nexus_shell", fileKind: VfsFileKind.ExecutableHardcode);
+        Assert.True(harness.World.TryOpenNexusShell());
+
+        var result = Execute(harness, "run nexus_shell");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Equal("warning: NEXUS Shell is already running.", result.Lines[0]);
+        Assert.True(harness.World.IsNexusShellOpen);
+        Assert.Null(result.NextCwd);
+        Assert.Null(result.Data);
+    }
+
+    /// <summary>Ensures run preserves nexus_shell incompatible-system warning semantics.</summary>
+    [Fact]
+    public void Execute_Run_NexusShell_RemoteContext_ReturnsIncompatibleWarning()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        var remote = AddRemoteServer(harness, "node-2", "remote", "10.0.1.20", AuthMode.Static, "pw");
+        harness.BaseFileSystem.AddFile("/opt/bin/nexus_shell", "exec:nexus_shell", fileKind: VfsFileKind.ExecutableHardcode);
+
+        var result = Execute(harness, "run nexus_shell", nodeId: remote.NodeId, userId: "guest");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Equal("warning: NEXUS Shell is not compatible with this system.", result.Lines[0]);
+        Assert.False(harness.World.IsNexusShellOpen);
+        Assert.Null(result.NextCwd);
+        Assert.Null(result.Data);
+    }
+
+    /// <summary>Ensures run can execute direct-path executable-script targets.</summary>
+    [Fact]
+    public void Execute_Run_DirectPath_ExecutesProgram()
+    {
+        var harness = CreateHarness(includeVfsModule: true, cwd: "/work");
+        harness.BaseFileSystem.AddDirectory("/work");
+        harness.BaseFileSystem.AddFile(
+            "/work/local_runner.ms",
+            """
+            print "argc=" + str(argc)
+            print "argv0=" + argv[0]
+            """,
+            fileKind: VfsFileKind.ExecutableScript);
+
+        var result = Execute(harness, "run ./local_runner.ms blue");
+
+        Assert.True(result.Ok);
+        Assert.Equal(SystemCallErrorCode.None, result.Code);
+        Assert.Contains("argc=1", result.Lines);
+        Assert.Contains("argv0=blue", result.Lines);
+        Assert.Null(result.NextCwd);
+        Assert.Null(result.Data);
+    }
+
+    /// <summary>Ensures run does not fall back to system-call registry for bare command names.</summary>
+    [Fact]
+    public void Execute_Run_SystemCallNameWithoutProgram_ReturnsUnknownCommand()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+
+        var result = Execute(harness, "run pwd");
+
+        Assert.False(result.Ok);
+        Assert.Equal(SystemCallErrorCode.UnknownCommand, result.Code);
+        Assert.Single(result.Lines);
+        Assert.Contains("unknown command: pwd", result.Lines[0], StringComparison.Ordinal);
+    }
+
     /// <summary>Ensures miniscript exposes argv/argc and passes trailing command arguments to script source.</summary>
     [Fact]
     public void Execute_Miniscript_PassesTrailingArgumentsToScript()
@@ -1416,6 +1550,7 @@ public sealed class SystemCallTest
 
         Assert.True(result.Ok);
         Assert.NotEmpty(result.Lines);
+        Assert.Contains(result.Lines, static line => line.Contains("run <programOrPath> [args...]", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures help rejects extra arguments and returns usage error.</summary>
@@ -4032,6 +4167,99 @@ public sealed class SystemCallTest
         Assert.Contains("argc=2", outputLines);
         Assert.Contains("argv0=red", outputLines);
         Assert.Contains("argv1=blue", outputLines);
+    }
+
+    /// <summary>Ensures async run launcher preserves miniscript argv/argc behavior.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_RunMiniScript_PassesArgumentsToScript()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/ms", "exec:miniscript", fileKind: VfsFileKind.ExecutableHardcode);
+        harness.BaseFileSystem.AddDirectory("/scripts");
+        harness.BaseFileSystem.AddFile(
+            "/scripts/run_argv_async.ms",
+            """
+            print "argc=" + str(argc)
+            print "argv0=" + argv[0]
+            print "argv1=" + argv[1]
+            """,
+            fileKind: VfsFileKind.Text);
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "run ms /scripts/run_argv_async.ms one two",
+            "ts-run-ms-argv-async");
+        Assert.True(start.Handled);
+        Assert.True(start.Started);
+
+        WaitForTerminalProgramStop(harness.World, "ts-run-ms-argv-async");
+        var outputLines = SnapshotTerminalEventLines(harness.World);
+        Assert.Contains("argc=2", outputLines);
+        Assert.Contains("argv0=one", outputLines);
+        Assert.Contains("argv1=two", outputLines);
+    }
+
+    /// <summary>Ensures async run launcher preserves executable-script argv/argc behavior.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_RunExecutableScript_PassesArgumentsToScript()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile(
+            "/opt/bin/run_exec_async.ms",
+            """
+            print "argc=" + str(argc)
+            print "argv0=" + argv[0]
+            print "argv1=" + argv[1]
+            """,
+            fileKind: VfsFileKind.ExecutableScript);
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "run run_exec_async.ms red blue",
+            "ts-run-exec-argv-async");
+        Assert.True(start.Handled);
+        Assert.True(start.Started);
+
+        WaitForTerminalProgramStop(harness.World, "ts-run-exec-argv-async");
+        var outputLines = SnapshotTerminalEventLines(harness.World);
+        Assert.Contains("argc=2", outputLines);
+        Assert.Contains("argv0=red", outputLines);
+        Assert.Contains("argv1=blue", outputLines);
+    }
+
+    /// <summary>Ensures async run launcher leaves sync-only programs to the normal execute path.</summary>
+    [Fact]
+    public void TryStartTerminalProgramExecution_RunInspect_RemainsSync()
+    {
+        var harness = CreateHarness(includeVfsModule: true);
+        harness.BaseFileSystem.AddFile("/opt/bin/inspect", "exec:inspect", fileKind: VfsFileKind.ExecutableHardcode);
+        AddRemoteServer(
+            harness,
+            "node-2",
+            "remote",
+            "10.0.1.20",
+            AuthMode.Static,
+            "pw",
+            userKey: "root",
+            userId: "root");
+
+        var start = TryStartTerminalProgramExecutionCore(
+            harness.World,
+            harness.Server.NodeId,
+            harness.UserId,
+            harness.Cwd,
+            "run inspect 10.0.1.20 root",
+            "ts-run-inspect-sync");
+
+        Assert.False(start.Handled);
+        Assert.False(start.Started);
+        Assert.True(start.Response.Ok);
     }
 
     /// <summary>Ensures async miniscript execution enters running state and can be interrupted with Ctrl+C bridge API.</summary>

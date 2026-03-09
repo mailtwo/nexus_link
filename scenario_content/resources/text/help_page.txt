@@ -42,5 +42,8 @@ save [0-9]              현재 진행 상태를 슬롯(0~9)에 저장합니다.
 load [0-9]              슬롯(0~9) 저장 상태를 불러옵니다.
 
 [Program]
+run <programOrPath> [args...]
+                       실행 파일(ExecutableHardcode / ExecutableScript)을 명시적으로 실행합니다.
+                       예) run nexus_shell / run inspect 10.0.1.20 root / run ms ./job.ms
 ms <script> args...     스크립트를 miniscript 인터프리터로 실행합니다.
 password_breaker <num> <target> <userId?>  target 서버에 최대 num 길이로 패스워드 브루트포스 공격을 합니다. (userId 생략 시 root)
