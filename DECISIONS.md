@@ -309,3 +309,11 @@ plans/ 문서의 설계 결정이 추가되거나 변경될 때 기록한다.
   따라서 알파 기준 `WORLD_MAP_TRACE`는 가로/세로 모두 split clamp로 minimum을 보장한다.
 - **이유**: 가로 scroll fallback을 허용하면 split을 과도하게 줄이는 동안 map viewport가 사실상 붕괴하고,
   정보 pane로서의 usable minimum을 보장하지 못해 UX가 오히려 악화되기 때문이다.
+
+## 2026-03-11
+
+### [16] DebugOption pane availability override — 구현된 pane 전부 available
+- **결정**: `DebugOption=true` 런타임에서는 pane availability를 current save entitlement만으로 제한하지 않고,
+  현재 renderer slice에서 이미 구현된 pane은 모두 available로 간주한다.
+- **이유**: shell/workspace UI 반복 테스트 시 개별 unlock flag를 매번 맞출 필요 없이,
+  구현 완료된 pane을 즉시 열어볼 수 있게 해 개발 루프를 단축하기 위함.

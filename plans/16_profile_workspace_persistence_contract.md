@@ -404,6 +404,9 @@ pane-local state는 아래 위치에 저장한다.
 - 특정 프로그램을 아직 보유하지 않으면 pane unavailable
 - shell workspace가 아직 열 수 없는 상태면 shell pane unavailable
 
+단, 개발용 `DebugOption=true` 런타임에서는 **현재 renderer slice에서 이미 구현된 pane만 예외적으로 available 처리**할 수 있다.
+이 예외는 개발 편의 목적의 debug-only override이며, 미구현 pane이나 release 기준 entitlement 규칙을 대체하지 않는다.
+
 ### 9.2 저장된 취향의 유지
 Stored State에는 unavailable pane 관련 취향이 남아 있어도 된다.
 예:

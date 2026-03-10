@@ -2,6 +2,7 @@ using Godot;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using Uplink2.Runtime.Persistence;
 
 #nullable enable
@@ -197,7 +198,9 @@ internal sealed class WorkspacePaneStateBridge : IDisposable
 
             if (!TryNormalizeStateMap(rawState, out stateEntries))
             {
-                GD.PushWarning($"WorkspacePaneStateBridge: pane '{node.Name}' returned an invalid pane-state payload.");
+                var payloadType = rawState?.GetType().FullName ?? "null";
+                GD.PushWarning(
+                    $"WorkspacePaneStateBridge: pane '{node.Name}' returned an invalid pane-state payload (type='{payloadType}').");
                 return false;
             }
 
@@ -239,6 +242,7 @@ internal sealed class WorkspacePaneStateBridge : IDisposable
     private static bool TryNormalizeStateMap(object? rawState, out Dictionary<string, object?> normalizedState)
     {
         normalizedState = new Dictionary<string, object?>(StringComparer.Ordinal);
+        rawState = UnwrapGodotVariantValue(rawState);
         if (rawState is null)
         {
             return true;
@@ -261,7 +265,7 @@ internal sealed class WorkspacePaneStateBridge : IDisposable
 
         if (rawState is not IDictionary dictionary)
         {
-            return false;
+            return TryNormalizeGenericDictionaryLike(rawState, normalizedState);
         }
 
         foreach (DictionaryEntry entry in dictionary)
@@ -283,15 +287,158 @@ internal sealed class WorkspacePaneStateBridge : IDisposable
         return true;
     }
 
-    private static bool TryNormalizeStateValue(object? rawValue, out object? normalizedValue)
+    private static bool TryNormalizeGenericDictionaryLike(
+        object rawState,
+        Dictionary<string, object?> normalizedState)
     {
-        normalizedValue = null;
-        if (!SaveValueConverter.TryToDto(rawValue, out var dto, out _))
+        if (!TryGetGenericDictionaryEntryProperties(rawState.GetType(), out var keyProperty, out var valueProperty) ||
+            rawState is not IEnumerable enumerable)
         {
             return false;
         }
 
+        foreach (var entry in enumerable)
+        {
+            if (entry is null)
+            {
+                return false;
+            }
+
+            var key = keyProperty.GetValue(entry)?.ToString();
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                return false;
+            }
+
+            if (!TryNormalizeStateValue(valueProperty.GetValue(entry), out var normalizedValue))
+            {
+                return false;
+            }
+
+            normalizedState[key] = normalizedValue;
+        }
+
+        return true;
+    }
+
+    private static bool TryGetGenericDictionaryEntryProperties(
+        Type type,
+        out PropertyInfo keyProperty,
+        out PropertyInfo valueProperty)
+    {
+        foreach (var candidate in type.GetInterfaces())
+        {
+            if (!candidate.IsGenericType ||
+                candidate.GetGenericTypeDefinition() != typeof(IEnumerable<>))
+            {
+                continue;
+            }
+
+            var elementType = candidate.GetGenericArguments()[0];
+            if (!elementType.IsGenericType ||
+                elementType.GetGenericTypeDefinition() != typeof(KeyValuePair<,>))
+            {
+                continue;
+            }
+
+            keyProperty = elementType.GetProperty(nameof(KeyValuePair<int, int>.Key))
+                ?? throw new InvalidOperationException("KeyValuePair is missing Key property.");
+            valueProperty = elementType.GetProperty(nameof(KeyValuePair<int, int>.Value))
+                ?? throw new InvalidOperationException("KeyValuePair is missing Value property.");
+            return true;
+        }
+
+        keyProperty = null!;
+        valueProperty = null!;
+        return false;
+    }
+
+    private static bool TryNormalizeStateValue(object? rawValue, out object? normalizedValue)
+    {
+        normalizedValue = UnwrapGodotVariantValue(rawValue);
+        if (!SaveValueConverter.TryToDto(normalizedValue, out var dto, out _))
+        {
+            normalizedValue = null;
+            return false;
+        }
+
         return SaveValueConverter.TryFromDto(dto, out normalizedValue, out _);
+    }
+
+    private static object? UnwrapGodotVariantValue(object? rawValue)
+    {
+        if (rawValue is Variant variant)
+        {
+            rawValue = variant.Obj;
+        }
+
+        return rawValue switch
+        {
+            null => null,
+            IReadOnlyDictionary<string, object?> readOnlyDictionary => UnwrapReadOnlyDictionary(readOnlyDictionary),
+            IDictionary dictionary => UnwrapUntypedDictionary(dictionary),
+            _ when TryUnwrapGenericDictionaryLike(rawValue, out var dictionaryLike) => dictionaryLike,
+            IEnumerable enumerable when rawValue is not string => UnwrapEnumerableValues(enumerable),
+            _ => rawValue,
+        };
+    }
+
+    private static Dictionary<string, object?> UnwrapReadOnlyDictionary(
+        IReadOnlyDictionary<string, object?> dictionary)
+    {
+        var result = new Dictionary<string, object?>(dictionary.Count, StringComparer.Ordinal);
+        foreach (var pair in dictionary)
+        {
+            result[pair.Key] = UnwrapGodotVariantValue(pair.Value);
+        }
+
+        return result;
+    }
+
+    private static Hashtable UnwrapUntypedDictionary(IDictionary dictionary)
+    {
+        var result = new Hashtable(dictionary.Count);
+        foreach (DictionaryEntry entry in dictionary)
+        {
+            result[entry.Key] = UnwrapGodotVariantValue(entry.Value);
+        }
+
+        return result;
+    }
+
+    private static bool TryUnwrapGenericDictionaryLike(object rawValue, out Hashtable unwrappedDictionary)
+    {
+        unwrappedDictionary = null!;
+        if (!TryGetGenericDictionaryEntryProperties(rawValue.GetType(), out var keyProperty, out var valueProperty) ||
+            rawValue is not IEnumerable enumerable)
+        {
+            return false;
+        }
+
+        unwrappedDictionary = new Hashtable();
+        foreach (var entry in enumerable)
+        {
+            if (entry is null)
+            {
+                return false;
+            }
+
+            var key = keyProperty.GetValue(entry);
+            unwrappedDictionary[key ?? string.Empty] = UnwrapGodotVariantValue(valueProperty.GetValue(entry));
+        }
+
+        return true;
+    }
+
+    private static List<object?> UnwrapEnumerableValues(IEnumerable enumerable)
+    {
+        var result = new List<object?>();
+        foreach (var item in enumerable)
+        {
+            result.Add(UnwrapGodotVariantValue(item));
+        }
+
+        return result;
     }
 
     private static Variant ConvertToGodotVariant(object? value)

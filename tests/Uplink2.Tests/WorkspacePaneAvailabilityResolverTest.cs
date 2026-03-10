@@ -56,4 +56,22 @@ public sealed class WorkspacePaneAvailabilityResolverTest
         Assert.DoesNotContain(WorkspacePaneKind.WorldMapTrace, availablePaneKinds);
         Assert.DoesNotContain(WorkspacePaneKind.Mail, availablePaneKinds);
     }
+
+    /// <summary>Ensures debug override exposes every currently implemented pane without unlock flags.</summary>
+    [Fact]
+    public void Resolve_DebugOverride_MakesAllImplementedPanesAvailable()
+    {
+        var availablePaneKinds = WorkspacePaneAvailabilityResolver.Resolve(
+            new Dictionary<string, object>(),
+            new HashSet<WorkspacePaneKind>
+            {
+                WorkspacePaneKind.Terminal,
+                WorkspacePaneKind.WorldMapTrace,
+            },
+            enableDebugOverride: true);
+
+        Assert.Equal(2, availablePaneKinds.Count);
+        Assert.Contains(WorkspacePaneKind.Terminal, availablePaneKinds);
+        Assert.Contains(WorkspacePaneKind.WorldMapTrace, availablePaneKinds);
+    }
 }

@@ -18,7 +18,8 @@ internal static class WorkspacePaneAvailabilityResolver
     /// <summary>Resolves currently available pane kinds.</summary>
     internal static HashSet<WorkspacePaneKind> Resolve(
         IReadOnlyDictionary<string, object> scenarioFlags,
-        IReadOnlySet<WorkspacePaneKind> implementedPaneKinds)
+        IReadOnlySet<WorkspacePaneKind> implementedPaneKinds,
+        bool enableDebugOverride = false)
     {
         if (scenarioFlags is null)
         {
@@ -28,6 +29,11 @@ internal static class WorkspacePaneAvailabilityResolver
         if (implementedPaneKinds is null)
         {
             throw new ArgumentNullException(nameof(implementedPaneKinds));
+        }
+
+        if (enableDebugOverride)
+        {
+            return new HashSet<WorkspacePaneKind>(implementedPaneKinds);
         }
 
         var available = new HashSet<WorkspacePaneKind>();

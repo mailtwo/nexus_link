@@ -340,7 +340,8 @@ public partial class ProfileWorkspacePersistenceRuntime : Node
 
         return WorkspacePaneAvailabilityResolver.Resolve(
             worldRuntime.ScenarioFlags,
-            PaneContentFactory.DefaultImplementedPaneKinds);
+            PaneContentFactory.DefaultImplementedPaneKinds,
+            worldRuntime.DebugOption);
     }
 
     private static Dictionary<WorkspacePaneKind, WorkspacePaneStateTable> FilterRestorablePaneStateTables(
