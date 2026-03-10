@@ -6,8 +6,6 @@ on:
       - main
     paths:
       - "docfx_api_document/**"
-      - "src/**"
-      - "Uplink2.csproj"
       - ".github/workflows/docfx-pages.yml"
   workflow_dispatch:
 
