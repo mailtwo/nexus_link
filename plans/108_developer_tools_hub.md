@@ -8,6 +8,7 @@ Aliases: dev tools hub, debug boot hub
 - 문서 역할: **Tier 2 Feature Hub**
 - 상태: ACTIVE (draft)
 - 관련 Tier 1 문서:
+  - `07` — debug 전용 터미널 명령 노출 경계
   - `15` — 정식 플레이 흐름, pre-shell 온보딩, shell 도입 타이밍
   - `13` — shell bootstrap 상태와 workspace 의미 규칙
   - `16` — profile/workspace 복원 기반 시작점의 경계
@@ -138,18 +139,47 @@ Canonical rule은 `13`를 따른다.
 
 ---
 
-## 7. 권장 읽기 순서
+## 7. DebugOption 추적 메모
 
-1. 이 문서 (`108`)
-2. `15`
-3. `13`
-4. `16`
-5. `12`
+현재 `DebugOption`은 단일 기능이 아니라, 여러 개발 편의 예외를 느슨하게 묶는 진입점으로 사용되기 시작했다.
+하지만 아직은 독립 SSOT를 만들 정도로 concrete contract가 분리되지 않았으므로,
+이 문서는 **`DebugOption` 관련 변경의 라우팅 허브/추적 메모** 역할만 맡는다.
+
+### 7.1 현재 확인된 영향 범위
+- debug 전용 터미널 명령 노출: Canonical rule: See DOCS_INDEX -> 07
+- direct-to-shell 개발 진입과 shell bootstrap 테스트 문맥: Canonical rule: See DOCS_INDEX -> 13, See DOCS_INDEX -> 15
+- workspace pane availability의 debug-only override: Canonical rule: See DOCS_INDEX -> 16
+- gameplay save/load 및 profile/workspace 복원과의 경계: Canonical rule: See DOCS_INDEX -> 12, See DOCS_INDEX -> 16
+
+### 7.2 현재 문서 운용 원칙
+- `DebugOption` 관련 concrete rule은 이 문서에 직접 쓰지 않는다.
+- 실제 규칙 변경은 owner Tier 1 문서에 기록하고, 여기에는 어떤 규칙이 어디로 들어갔는지만 남긴다.
+- 설계 결정과 변경 이유는 `DECISIONS.md`에 함께 기록한다.
+
+### 7.3 별도 문서 분리 기준
+아래 중 하나가 발생하면 `DebugOption`을 별도 문서/섹션 체계로 승격하는 것을 검토한다.
+
+- `DebugOption`이 3개 이상 Tier 1 문서를 반복적으로 동시에 수정하게 될 때
+- release 차단, precedence, override matrix, debug feature taxonomy 같은 고유 계약이 생길 때
+- "어느 문서가 owner인지"를 매번 판단해야 할 정도로 라우팅 비용이 커질 때
+
+그 전까지는 이 허브를 **변경 추적용 index**로 유지하고, concrete rule은 각 owner 문서에 분산 소유시킨다.
 
 ---
 
-## 8. 한 줄 결론
+## 8. 권장 읽기 순서
 
-**개발자용 direct-to-shell 시작점은 정식 플레이 흐름을 대체하는 기능이 아니라, shell 반복 테스트 속도를 높이기 위한 개발 전용 우회 진입점이다.**
+1. 이 문서 (`108`)
+2. `07`
+3. `15`
+4. `13`
+5. `16`
+6. `12`
+
+---
+
+## 9. 한 줄 결론
+
+**현재 `DebugOption`은 독립 규격이 아니라 여러 debug-only 예외의 묶음이므로, concrete rule은 owner SSOT에 두고 `108`은 그 변경을 추적하는 허브로 유지한다.**
  
 
