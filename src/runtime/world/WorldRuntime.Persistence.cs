@@ -147,6 +147,7 @@ public partial class WorldRuntime
 
         if (applyFailure is null)
         {
+            SaveSlotLoaded?.Invoke(resolvedSavePath);
             return CreateSuccessResult("load completed.", resolvedSavePath);
         }
 
@@ -707,11 +708,7 @@ public partial class WorldRuntime
             KnownNodesByNet[netPair.Key] = nodeSet;
         }
 
-        ScenarioFlags.Clear();
-        foreach (var flagPair in scenarioFlags)
-        {
-            ScenarioFlags[flagPair.Key] = flagPair.Value;
-        }
+        ReplaceScenarioFlagsForLoad(scenarioFlags);
 
         RefreshServerExposureFromKnownNodes();
         return true;

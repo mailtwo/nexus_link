@@ -157,6 +157,7 @@ public sealed class WorkspaceConstraintResolverTest
         return WorkspaceDisplayModelBuilder.Build(
             snapshot,
             WorkspaceLayoutDefinition.CreateAlpha(),
+            ImplementedPaneKinds,
             ImplementedPaneKinds);
     }
 

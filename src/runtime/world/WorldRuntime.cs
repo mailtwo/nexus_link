@@ -128,6 +128,10 @@ public partial class WorldRuntime : Node
     /// <summary>Gets a value indicating whether NEXUS Shell is currently open for the active runtime session.</summary>
     public bool IsNexusShellOpen { get; private set; }
 
+    internal event Action? ScenarioFlagsChanged;
+
+    internal event Action<string>? SaveSlotLoaded;
+
     // System-call processor for command dispatch.
     private SystemCallProcessor systemCallProcessor = null!;
 

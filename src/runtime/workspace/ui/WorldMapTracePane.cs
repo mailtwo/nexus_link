@@ -8,7 +8,7 @@ using Uplink2.Runtime;
 namespace Uplink2.Runtime.Workspace.Ui;
 
 /// <summary>Content-only world map trace pane rendered inside the shell workspace or legacy host windows.</summary>
-internal sealed partial class WorldMapTracePane : Control, IWorkspaceConstraintAwarePaneContent
+internal sealed partial class WorldMapTracePane : Control, IWorkspaceConstraintAwarePaneContent, IWorkspacePaneStateParticipant
 {
     internal static readonly Vector2I DefaultMapViewportSize = new(512, 256);
     internal static readonly Vector2I ReferenceTextureFallbackSize = new(2048, 1024);
@@ -128,7 +128,16 @@ void fragment() {
     private ButtonGroup? tabGroup;
     private string activeTabId = DefaultTabId;
     private bool isUiBuilt;
+    private bool suppressPaneStateChanged;
     private WorkspacePaneConstraintRenderState? activeConstraintState;
+
+    event Action? IWorkspacePaneStateParticipant.WorkspacePaneStateChanged
+    {
+        add => workspacePaneStateChanged += value;
+        remove => workspacePaneStateChanged -= value;
+    }
+
+    private event Action? workspacePaneStateChanged;
 
     /// <inheritdoc/>
     public override void _Ready()
@@ -729,6 +738,29 @@ void fragment() {
         return !toggleStatesById.TryGetValue("hot", out var enabled) || enabled;
     }
 
+    IReadOnlyDictionary<string, object?> IWorkspacePaneStateParticipant.CaptureWorkspacePaneState()
+    {
+        return WorldMapTracePaneStateCodec.Capture(ResolvePersistedActiveTabId(), IsHotToggleEnabled());
+    }
+
+    void IWorkspacePaneStateParticipant.RestoreWorkspacePaneState(IReadOnlyDictionary<string, object?> state)
+    {
+        var restoredState = WorldMapTracePaneStateCodec.Restore(state);
+
+        suppressPaneStateChanged = true;
+        try
+        {
+            ApplyTabState(restoredState.ActiveTabId, emitChange: false);
+            ApplyToggleState("hot", restoredState.FilterHot, emitChange: false);
+        }
+        finally
+        {
+            suppressPaneStateChanged = false;
+        }
+
+        UpdateNodeOverlay();
+    }
+
     private void BuildTabButtons()
     {
         if (topTabsContainer is null)
@@ -772,10 +804,10 @@ void fragment() {
             }
         }
 
-        activeTabId = string.IsNullOrWhiteSpace(defaultTabId)
+        var initialTabId = string.IsNullOrWhiteSpace(defaultTabId)
             ? fallbackTabId ?? DefaultTabId
             : defaultTabId;
-        HandleTabPressed(activeTabId);
+        ApplyTabState(initialTabId, emitChange: false);
     }
 
     private void BuildToggleButtons()
@@ -810,7 +842,7 @@ void fragment() {
             toggleButton.Toggled += enabled => HandleToggleChanged(definition.Id, enabled);
             leftTogglesContainer.AddChild(toggleButton);
             toggleButtons[definition.Id] = toggleButton;
-            HandleToggleChanged(definition.Id, definition.DefaultEnabled);
+            ApplyToggleState(definition.Id, definition.DefaultEnabled, emitChange: false);
         }
     }
 
@@ -821,13 +853,7 @@ void fragment() {
             return;
         }
 
-        activeTabId = tabId;
-        foreach (var pair in tabButtons)
-        {
-            pair.Value.SetPressedNoSignal(string.Equals(pair.Key, activeTabId, StringComparison.Ordinal));
-        }
-
-        UpdateNodeOverlay();
+        ApplyTabState(tabId, emitChange: true);
     }
 
     private void HandleToggleChanged(string toggleId, bool isEnabled)
@@ -837,8 +863,96 @@ void fragment() {
             return;
         }
 
-        toggleStatesById[toggleId] = isEnabled;
+        ApplyToggleState(toggleId, isEnabled, emitChange: true);
+    }
+
+    private void ApplyTabState(string tabId, bool emitChange)
+    {
+        var nextTabId = ResolveVisibleTabIdOrDefault(tabId);
+        var changed = !string.Equals(activeTabId, nextTabId, StringComparison.Ordinal);
+        activeTabId = nextTabId;
+        foreach (var pair in tabButtons)
+        {
+            pair.Value.SetPressedNoSignal(string.Equals(pair.Key, activeTabId, StringComparison.Ordinal));
+        }
+
         UpdateNodeOverlay();
+        if (changed && emitChange)
+        {
+            EmitPaneStateChanged();
+        }
+    }
+
+    private void ApplyToggleState(string toggleId, bool isEnabled, bool emitChange)
+    {
+        if (string.IsNullOrWhiteSpace(toggleId))
+        {
+            return;
+        }
+
+        var hadExistingValue = toggleStatesById.TryGetValue(toggleId, out var existingValue);
+        var changed = !hadExistingValue || existingValue != isEnabled;
+        toggleStatesById[toggleId] = isEnabled;
+        if (toggleButtons.TryGetValue(toggleId, out var toggleButton))
+        {
+            toggleButton.SetPressedNoSignal(isEnabled);
+        }
+
+        UpdateNodeOverlay();
+        if (changed && emitChange)
+        {
+            EmitPaneStateChanged();
+        }
+    }
+
+    private string ResolvePersistedActiveTabId()
+    {
+        return ResolveVisibleTabIdOrDefault(activeTabId);
+    }
+
+    private static string ResolveVisibleTabIdOrDefault(string? tabId)
+    {
+        foreach (var definition in TabDefinitions)
+        {
+            if (!definition.IncludeInPhaseOneUi)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(tabId) &&
+                string.Equals(definition.Id, tabId.Trim(), StringComparison.Ordinal))
+            {
+                return definition.Id;
+            }
+        }
+
+        foreach (var definition in TabDefinitions)
+        {
+            if (definition.IncludeInPhaseOneUi && definition.DefaultSelected)
+            {
+                return definition.Id;
+            }
+        }
+
+        foreach (var definition in TabDefinitions)
+        {
+            if (definition.IncludeInPhaseOneUi)
+            {
+                return definition.Id;
+            }
+        }
+
+        return DefaultTabId;
+    }
+
+    private void EmitPaneStateChanged()
+    {
+        if (suppressPaneStateChanged)
+        {
+            return;
+        }
+
+        workspacePaneStateChanged?.Invoke();
     }
 
     private static void AddSshStartArcAngleRange(

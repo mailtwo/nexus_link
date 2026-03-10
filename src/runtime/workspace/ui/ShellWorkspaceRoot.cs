@@ -15,8 +15,10 @@ public partial class ShellWorkspaceRoot : Control
     private readonly Dictionary<WorkspaceSplitRatioBinding, SplitContainer> splitContainers = new();
 
     private global::Uplink2.Runtime.WorldRuntime? runtimeRoot;
+    private ProfileWorkspacePersistenceRuntime? persistenceRuntime;
     private ShellWorkspaceRuntime? workspaceRuntime;
     private PaneContentFactory? paneContentFactory;
+    private WorkspacePaneStateBridge? paneStateBridge;
     private WorkspaceStateSnapshot? currentSnapshot;
     private WorkspaceDisplayModel? currentDisplayModel;
     private WorkspaceConstraintSnapshot? currentConstraintSnapshot;
@@ -56,6 +58,8 @@ public partial class ShellWorkspaceRoot : Control
         feedbackLayer = GetNode<Control>("FeedbackLayer");
         taskbarContextMenu = GetNode<PopupMenu>("TaskbarContextMenu");
         paneContentFactory = new PaneContentFactory();
+        paneStateBridge = new WorkspacePaneStateBridge();
+        persistenceRuntime = ProfileWorkspacePersistenceRuntime.Instance;
         workspaceRuntime = ShellWorkspaceRuntime.Instance;
         if (workspaceRuntime is null)
         {
@@ -69,16 +73,16 @@ public partial class ShellWorkspaceRoot : Control
         BuildTaskbarChrome();
         ConfigureTaskbarContextMenu();
 
-        workspaceRuntime.ResetToDefaultState();
+        if (persistenceRuntime is not null && paneStateBridge is not null)
+        {
+            persistenceRuntime.AvailablePaneKindsChanged += OnAvailablePaneKindsChanged;
+            persistenceRuntime.RegisterPaneStateBridge(paneStateBridge);
+        }
+
         workspaceRuntime.StateChanged += OnWorkspaceStateChanged;
         if (runtimeRoot is not null)
         {
             runtimeRoot.NexusShellOpenStateChanged += OnNexusShellOpenStateChanged;
-        }
-
-        if (runtimeRoot?.IsNexusShellOpen == true)
-        {
-            ApplyDevelopmentBootstrapOverride();
         }
 
         ApplyCurrentWorkspaceState();
@@ -97,13 +101,26 @@ public partial class ShellWorkspaceRoot : Control
             workspaceRuntime.StateChanged -= OnWorkspaceStateChanged;
         }
 
+        if (persistenceRuntime is not null)
+        {
+            persistenceRuntime.AvailablePaneKindsChanged -= OnAvailablePaneKindsChanged;
+        }
+
         if (taskbarContextMenu is not null)
         {
             taskbarContextMenu.IdPressed -= OnTaskbarContextMenuIdPressed;
         }
 
+        if (persistenceRuntime is not null && paneStateBridge is not null)
+        {
+            persistenceRuntime.UnregisterPaneStateBridge(paneStateBridge);
+        }
+
+        paneStateBridge?.Dispose();
+        paneStateBridge = null;
         paneContentFactory?.DisposeCachedContent();
         paneContentFactory = null;
+        persistenceRuntime = null;
         runtimeRoot = null;
     }
 
@@ -446,10 +463,12 @@ public partial class ShellWorkspaceRoot : Control
         }
 
         currentSnapshot = workspaceRuntime.GetSnapshot();
+        var availablePaneKinds = persistenceRuntime?.GetAvailablePaneKinds() ?? paneContentFactory.ImplementedPaneKinds;
         currentDisplayModel = WorkspaceDisplayModelBuilder.Build(
             currentSnapshot,
             layoutDefinition,
-            paneContentFactory.ImplementedPaneKinds);
+            paneContentFactory.ImplementedPaneKinds,
+            availablePaneKinds);
         currentConstraintSnapshot = WorkspaceConstraintResolver.Resolve(
             currentDisplayModel,
             layoutDefinition,
@@ -521,6 +540,11 @@ public partial class ShellWorkspaceRoot : Control
 
         var content = paneContentFactory.GetContent(slotModel.DisplayedPane.Value, slotModel.ContentKind);
         MountContent(view.ContentHost, content, null);
+        if (slotModel.ContentKind == WorkspaceRenderedContentKind.Implemented)
+        {
+            paneStateBridge?.AttachPane(slotModel.DisplayedPane.Value, content);
+        }
+
         ApplyConstraintStateToVisibleContent(slotModel.DisplayedPane.Value, content);
     }
 
@@ -574,6 +598,11 @@ public partial class ShellWorkspaceRoot : Control
         maximizedRestoreButton.Visible = true;
         var content = paneContentFactory.GetContent(maximizedModel.PaneKind, maximizedModel.ContentKind);
         MountContent(maximizedContentHost, content, null);
+        if (maximizedModel.ContentKind == WorkspaceRenderedContentKind.Implemented)
+        {
+            paneStateBridge?.AttachPane(maximizedModel.PaneKind, content);
+        }
+
         ApplyConstraintStateToVisibleContent(maximizedModel.PaneKind, content);
     }
 
@@ -950,9 +979,15 @@ public partial class ShellWorkspaceRoot : Control
             WorkspacePaneKind.Terminal,
             WorkspaceRenderedContentKind.Implemented);
         MountContent(preShellContentHost, terminalContent, null);
+        paneStateBridge?.AttachPane(WorkspacePaneKind.Terminal, terminalContent);
     }
 
     private void OnWorkspaceStateChanged()
+    {
+        ApplyCurrentWorkspaceState();
+    }
+
+    private void OnAvailablePaneKindsChanged()
     {
         ApplyCurrentWorkspaceState();
     }

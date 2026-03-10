@@ -102,3 +102,16 @@ func test_terminal_scene_compatibility_scene_preserves_editor_overlay_flow() -> 
 	runner.invoke("_exit_editor_mode")
 	assert_bool(scene.editor_overlay.visible).is_false()
 	assert_bool(scene.terminal_vbox.visible).is_true()
+
+
+func test_workspace_pane_state_bridge_contract_is_noop() -> void:
+	var runner := scene_runner(TERMINAL_PANE_PATH)
+	var scene := runner.scene() as Control
+	assert_object(scene).is_not_null()
+
+	assert_bool(scene.has_signal("workspace_pane_state_changed")).is_true()
+	var state := scene.call("capture_workspace_pane_state") as Dictionary
+	assert_object(state).is_not_null()
+	assert_int(state.size()).is_equal(0)
+
+	scene.call("restore_workspace_pane_state", {})

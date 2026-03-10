@@ -40,7 +40,15 @@ public sealed class WorkspaceDisplayModelBuilderTest
     {
         var snapshot = new WorkspaceStateMachine().GetSnapshot();
 
-        var displayModel = WorkspaceDisplayModelBuilder.Build(snapshot, WorkspaceLayoutDefinition.CreateAlpha(), ImplementedPaneKinds);
+        var displayModel = WorkspaceDisplayModelBuilder.Build(
+            snapshot,
+            WorkspaceLayoutDefinition.CreateAlpha(),
+            ImplementedPaneKinds,
+            new HashSet<WorkspacePaneKind>
+            {
+                WorkspacePaneKind.Terminal,
+                WorkspacePaneKind.WebViewer,
+            });
 
         Assert.Equal(WorkspaceMode.Docked, displayModel.Mode);
         Assert.Equal(WorkspacePaneKind.Terminal, displayModel.DockedSlots[DockSlot.Left].DisplayedPane);
@@ -76,7 +84,15 @@ public sealed class WorkspaceDisplayModelBuilderTest
                 [DockSlot.RightBottom] = CreateSlotState(DockSlot.RightBottom, [], null),
             });
 
-        var displayModel = WorkspaceDisplayModelBuilder.Build(snapshot, WorkspaceLayoutDefinition.CreateAlpha(), ImplementedPaneKinds);
+        var displayModel = WorkspaceDisplayModelBuilder.Build(
+            snapshot,
+            WorkspaceLayoutDefinition.CreateAlpha(),
+            ImplementedPaneKinds,
+            new HashSet<WorkspacePaneKind>
+            {
+                WorkspacePaneKind.Terminal,
+                WorkspacePaneKind.WebViewer,
+            });
 
         Assert.Equal(WorkspacePaneKind.WebViewer, displayModel.DockedSlots[DockSlot.Left].DisplayedPane);
         Assert.Equal(WorkspaceRenderedContentKind.Placeholder, displayModel.DockedSlots[DockSlot.Left].ContentKind);
@@ -99,7 +115,15 @@ public sealed class WorkspaceDisplayModelBuilderTest
                 [DockSlot.RightBottom] = CreateSlotState(DockSlot.RightBottom, [], null),
             });
 
-        var displayModel = WorkspaceDisplayModelBuilder.Build(snapshot, WorkspaceLayoutDefinition.CreateAlpha(), ImplementedPaneKinds);
+        var displayModel = WorkspaceDisplayModelBuilder.Build(
+            snapshot,
+            WorkspaceLayoutDefinition.CreateAlpha(),
+            ImplementedPaneKinds,
+            new HashSet<WorkspacePaneKind>
+            {
+                WorkspacePaneKind.Terminal,
+                WorkspacePaneKind.WebViewer,
+            });
 
         Assert.Null(displayModel.DockedSlots[DockSlot.Left].DisplayedPane);
         Assert.Equal(WorkspaceRenderedContentKind.Empty, displayModel.DockedSlots[DockSlot.Left].ContentKind);
@@ -123,7 +147,11 @@ public sealed class WorkspaceDisplayModelBuilderTest
                 [DockSlot.RightBottom] = CreateSlotState(DockSlot.RightBottom, [], null),
             });
 
-        var displayModel = WorkspaceDisplayModelBuilder.Build(snapshot, WorkspaceLayoutDefinition.CreateAlpha(), ImplementedPaneKinds);
+        var displayModel = WorkspaceDisplayModelBuilder.Build(
+            snapshot,
+            WorkspaceLayoutDefinition.CreateAlpha(),
+            ImplementedPaneKinds,
+            ImplementedPaneKinds);
 
         Assert.Equal(WorkspacePaneKind.WebViewer, displayModel.DockedSlots[DockSlot.Left].DisplayedPane);
         Assert.Equal(WorkspaceRenderedContentKind.Placeholder, displayModel.DockedSlots[DockSlot.Left].ContentKind);
@@ -149,7 +177,11 @@ public sealed class WorkspaceDisplayModelBuilderTest
                 [DockSlot.RightBottom] = CreateSlotState(DockSlot.RightBottom, [], null),
             });
 
-        var displayModel = WorkspaceDisplayModelBuilder.Build(snapshot, WorkspaceLayoutDefinition.CreateAlpha(), ImplementedPaneKinds);
+        var displayModel = WorkspaceDisplayModelBuilder.Build(
+            snapshot,
+            WorkspaceLayoutDefinition.CreateAlpha(),
+            ImplementedPaneKinds,
+            ImplementedPaneKinds);
 
         Assert.Equal(WorkspacePaneKind.WorldMapTrace, displayModel.DockedSlots[DockSlot.RightTop].DisplayedPane);
         Assert.Equal(WorkspaceRenderedContentKind.Implemented, displayModel.DockedSlots[DockSlot.RightTop].ContentKind);
@@ -172,7 +204,11 @@ public sealed class WorkspaceDisplayModelBuilderTest
                 [DockSlot.RightBottom] = CreateSlotState(DockSlot.RightBottom, [], null),
             });
 
-        var displayModel = WorkspaceDisplayModelBuilder.Build(snapshot, WorkspaceLayoutDefinition.CreateAlpha(), ImplementedPaneKinds);
+        var displayModel = WorkspaceDisplayModelBuilder.Build(
+            snapshot,
+            WorkspaceLayoutDefinition.CreateAlpha(),
+            ImplementedPaneKinds,
+            ImplementedPaneKinds);
 
         Assert.Equal(WorkspacePaneKind.WebViewer, displayModel.DockedSlots[DockSlot.Left].DisplayedPane);
         Assert.Equal(WorkspaceRenderedContentKind.Placeholder, displayModel.DockedSlots[DockSlot.Left].ContentKind);
@@ -199,6 +235,7 @@ public sealed class WorkspaceDisplayModelBuilderTest
         var terminalDisplay = WorkspaceDisplayModelBuilder.Build(
             terminalSnapshot,
             WorkspaceLayoutDefinition.CreateAlpha(),
+            ImplementedPaneKinds,
             ImplementedPaneKinds);
 
         Assert.NotNull(terminalDisplay.MaximizedPane);
@@ -223,6 +260,7 @@ public sealed class WorkspaceDisplayModelBuilderTest
         var placeholderDisplay = WorkspaceDisplayModelBuilder.Build(
             placeholderSnapshot,
             WorkspaceLayoutDefinition.CreateAlpha(),
+            ImplementedPaneKinds,
             ImplementedPaneKinds);
 
         Assert.NotNull(placeholderDisplay.MaximizedPane);
@@ -251,7 +289,11 @@ public sealed class WorkspaceDisplayModelBuilderTest
             [WorkspacePaneKind.Terminal],
             WorkspacePaneKind.Terminal);
 
-        var displayModel = WorkspaceDisplayModelBuilder.Build(snapshot, WorkspaceLayoutDefinition.CreateAlpha(), ImplementedPaneKinds);
+        var displayModel = WorkspaceDisplayModelBuilder.Build(
+            snapshot,
+            WorkspaceLayoutDefinition.CreateAlpha(),
+            ImplementedPaneKinds,
+            ImplementedPaneKinds);
 
         Assert.Collection(
             displayModel.TaskbarItems,
@@ -286,7 +328,15 @@ public sealed class WorkspaceDisplayModelBuilderTest
             [WorkspacePaneKind.Terminal],
             WorkspacePaneKind.WebViewer);
 
-        var displayModel = WorkspaceDisplayModelBuilder.Build(snapshot, WorkspaceLayoutDefinition.CreateAlpha(), ImplementedPaneKinds);
+        var displayModel = WorkspaceDisplayModelBuilder.Build(
+            snapshot,
+            WorkspaceLayoutDefinition.CreateAlpha(),
+            ImplementedPaneKinds,
+            new HashSet<WorkspacePaneKind>
+            {
+                WorkspacePaneKind.Terminal,
+                WorkspacePaneKind.WebViewer,
+            });
         var taskbarItems = displayModel.TaskbarItems.ToDictionary(item => item.PaneKind);
 
         Assert.Equal(WorkspaceTaskbarItemVisualState.OpenHidden, taskbarItems[WorkspacePaneKind.Terminal].VisualState);
@@ -318,7 +368,17 @@ public sealed class WorkspaceDisplayModelBuilderTest
             [WorkspacePaneKind.Mail, WorkspacePaneKind.Terminal],
             WorkspacePaneKind.Terminal);
 
-        var displayModel = WorkspaceDisplayModelBuilder.Build(snapshot, WorkspaceLayoutDefinition.CreateAlpha(), ImplementedPaneKinds);
+        var displayModel = WorkspaceDisplayModelBuilder.Build(
+            snapshot,
+            WorkspaceLayoutDefinition.CreateAlpha(),
+            ImplementedPaneKinds,
+            new HashSet<WorkspacePaneKind>
+            {
+                WorkspacePaneKind.Mail,
+                WorkspacePaneKind.Terminal,
+                WorkspacePaneKind.WebViewer,
+                WorkspacePaneKind.WorldMapTrace,
+            });
 
         Assert.Equal(
             new[]
@@ -330,6 +390,41 @@ public sealed class WorkspaceDisplayModelBuilderTest
             },
             displayModel.TaskbarItems.Select(item => item.PaneKind).ToArray());
         Assert.Equal(WorkspaceTaskbarItemVisualState.PinnedClosed, displayModel.TaskbarItems[0].VisualState);
+    }
+
+    /// <summary>Ensures unavailable pinned or resident panes are omitted from the taskbar.</summary>
+    [Fact]
+    public void Build_Taskbar_SkipsUnavailablePanes()
+    {
+        var snapshot = CreateSnapshot(
+            WorkspaceMode.Docked,
+            null,
+            new Dictionary<DockSlot, WorkspaceDockSlotState>
+            {
+                [DockSlot.Left] = CreateSlotState(
+                    DockSlot.Left,
+                    [WorkspacePaneKind.Terminal],
+                    WorkspacePaneKind.Terminal),
+                [DockSlot.RightTop] = CreateSlotState(
+                    DockSlot.RightTop,
+                    [WorkspacePaneKind.WorldMapTrace],
+                    WorkspacePaneKind.WorldMapTrace),
+                [DockSlot.RightBottom] = CreateSlotState(DockSlot.RightBottom, [], null),
+            },
+            [WorkspacePaneKind.Terminal, WorkspacePaneKind.Mail],
+            WorkspacePaneKind.Terminal);
+
+        var displayModel = WorkspaceDisplayModelBuilder.Build(
+            snapshot,
+            WorkspaceLayoutDefinition.CreateAlpha(),
+            ImplementedPaneKinds,
+            new HashSet<WorkspacePaneKind>
+            {
+                WorkspacePaneKind.Terminal,
+            });
+
+        Assert.Single(displayModel.TaskbarItems);
+        Assert.Equal(WorkspacePaneKind.Terminal, displayModel.TaskbarItems[0].PaneKind);
     }
 
     private static WorkspaceStateSnapshot CreateSnapshot(

@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using Uplink2.Blueprint;
 using Uplink2.Runtime.Events;
+using Uplink2.Runtime.Workspace;
 
 #nullable enable
 
@@ -13,6 +14,12 @@ namespace Uplink2.Runtime;
 
 public partial class WorldRuntime
 {
+    private static readonly WorkspacePaneKind[] DefaultWorkspacePaneUnlockKinds =
+    {
+        WorkspacePaneKind.Terminal,
+        WorkspacePaneKind.WorldMapTrace,
+    };
+
     private readonly EventQueue eventQueue = new();
     private readonly HashSet<string> firedHandlerIds = new(StringComparer.Ordinal);
     private readonly Queue<TerminalEventLine> terminalEventLines = new();
@@ -237,6 +244,8 @@ public partial class WorldRuntime
                 scheduledProcessEndAtById[processPair.Key] = processPair.Value.EndAt;
             }
         }
+
+        EnsureDefaultWorkspacePaneUnlockFlags();
     }
 
     internal void ResetEventRuntimeState()
@@ -254,6 +263,46 @@ public partial class WorldRuntime
         processScheduler.Clear();
         scheduledProcessEndAtById.Clear();
         initiallyExposedNodesByNet.Clear();
+    }
+
+    internal bool SetScenarioFlag(string key, object value)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new ArgumentException("Scenario flag key cannot be empty.", nameof(key));
+        }
+
+        var normalizedKey = key.Trim();
+        if (ScenarioFlags.TryGetValue(normalizedKey, out var existingValue) &&
+            Equals(existingValue, value))
+        {
+            return false;
+        }
+
+        ScenarioFlags[normalizedKey] = value;
+        ScenarioFlagsChanged?.Invoke();
+        return true;
+    }
+
+    internal void ReplaceScenarioFlagsForLoad(IReadOnlyDictionary<string, object> scenarioFlags)
+    {
+        if (scenarioFlags is null)
+        {
+            throw new ArgumentNullException(nameof(scenarioFlags));
+        }
+
+        ScenarioFlags.Clear();
+        foreach (var flagPair in scenarioFlags)
+        {
+            if (string.IsNullOrWhiteSpace(flagPair.Key))
+            {
+                continue;
+            }
+
+            ScenarioFlags[flagPair.Key.Trim()] = flagPair.Value;
+        }
+
+        EnsureDefaultWorkspacePaneUnlockFlags();
     }
 
     private void WorldTick()
@@ -650,5 +699,19 @@ public partial class WorldRuntime
         }
 
         nodeIds.Add(nodeId);
+    }
+
+    private void EnsureDefaultWorkspacePaneUnlockFlags()
+    {
+        foreach (var paneKind in DefaultWorkspacePaneUnlockKinds)
+        {
+            var flagKey = WorkspacePaneAvailabilityResolver.GetFlagKey(paneKind);
+            if (ScenarioFlags.ContainsKey(flagKey))
+            {
+                continue;
+            }
+
+            ScenarioFlags[flagKey] = true;
+        }
     }
 }

@@ -154,11 +154,13 @@ internal static class WorkspaceDisplayModelBuilder
     /// <param name="snapshot">Canonical workspace snapshot.</param>
     /// <param name="layoutDefinition">Layout definition used by the renderer.</param>
     /// <param name="implementedPaneKinds">Pane kinds with concrete renderers in the current slice.</param>
+    /// <param name="availablePaneKinds">Pane kinds currently available in the loaded gameplay context.</param>
     /// <returns>The renderer-facing display model.</returns>
     internal static WorkspaceDisplayModel Build(
         WorkspaceStateSnapshot snapshot,
         WorkspaceLayoutDefinition layoutDefinition,
-        IReadOnlySet<WorkspacePaneKind> implementedPaneKinds)
+        IReadOnlySet<WorkspacePaneKind> implementedPaneKinds,
+        IReadOnlySet<WorkspacePaneKind> availablePaneKinds)
     {
         if (snapshot is null)
         {
@@ -173,6 +175,11 @@ internal static class WorkspaceDisplayModelBuilder
         if (implementedPaneKinds is null)
         {
             throw new ArgumentNullException(nameof(implementedPaneKinds));
+        }
+
+        if (availablePaneKinds is null)
+        {
+            throw new ArgumentNullException(nameof(availablePaneKinds));
         }
 
         var displayedPaneBySlot = new Dictionary<DockSlot, WorkspacePaneKind?>(layoutDefinition.SlotOrder.Count);
@@ -221,7 +228,7 @@ internal static class WorkspaceDisplayModelBuilder
             visiblePaneKinds.Add(snapshot.MaximizedPane.Value);
         }
 
-        var taskbarItems = BuildTaskbarItems(snapshot, layoutDefinition.SlotOrder, visiblePaneKinds);
+        var taskbarItems = BuildTaskbarItems(snapshot, layoutDefinition.SlotOrder, visiblePaneKinds, availablePaneKinds);
 
         return new WorkspaceDisplayModel(
             snapshot.Mode,
@@ -278,7 +285,8 @@ internal static class WorkspaceDisplayModelBuilder
     private static List<WorkspaceTaskbarItemDisplayModel> BuildTaskbarItems(
         WorkspaceStateSnapshot snapshot,
         IReadOnlyList<DockSlot> slotOrder,
-        IReadOnlySet<WorkspacePaneKind> visiblePaneKinds)
+        IReadOnlySet<WorkspacePaneKind> visiblePaneKinds,
+        IReadOnlySet<WorkspacePaneKind> availablePaneKinds)
     {
         var items = new List<WorkspaceTaskbarItemDisplayModel>();
         var residentPaneKinds = new HashSet<WorkspacePaneKind>();
@@ -294,6 +302,11 @@ internal static class WorkspaceDisplayModelBuilder
 
         foreach (var pane in snapshot.PinnedSet)
         {
+            if (!availablePaneKinds.Contains(pane))
+            {
+                continue;
+            }
+
             items.Add(CreateTaskbarItem(snapshot, pane, residentPaneKinds, visiblePaneKinds));
             emittedPaneKinds.Add(pane);
         }
@@ -302,6 +315,11 @@ internal static class WorkspaceDisplayModelBuilder
         {
             foreach (var pane in snapshot.Slots[slot].DockStack)
             {
+                if (!availablePaneKinds.Contains(pane))
+                {
+                    continue;
+                }
+
                 if (!emittedPaneKinds.Add(pane))
                 {
                     continue;

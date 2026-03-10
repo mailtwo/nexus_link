@@ -1,5 +1,7 @@
 extends Control
 
+signal workspace_pane_state_changed
+
 @export var max_scrollback_lines: int = 1000
 @export var terminal_background_color: Color = Color(0.0470588, 0.0588235, 0.0705882, 1.0)
 @export var terminal_text_color: Color = Color(0.839216, 0.976471, 0.858824, 1.0)
@@ -1533,3 +1535,11 @@ func focus_terminal_input() -> void:
 		return
 
 	input_line.call_deferred("grab_focus")
+
+
+func capture_workspace_pane_state() -> Dictionary:
+	return {}
+
+
+func restore_workspace_pane_state(_state: Dictionary) -> void:
+	pass

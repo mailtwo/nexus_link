@@ -78,7 +78,7 @@ internal sealed class ActionExecutor
             return;
         }
 
-        world.ScenarioFlags[key] = value;
+        world.SetScenarioFlag(key, value);
     }
 
 }
