@@ -1,20 +1,26 @@
 # 게임 API 모듈 설계 (RealWorld 요청 큐 기반, 프로토타입 v0.2)
 
-Purpose: MiniScript intrinsic API contract for player-facing runtime modules, ResultMap, and shared error semantics.
-Keywords: miniscript intrinsic, player API, result map, error code, term module, fs module, net module, ssh module, ftp module
+Purpose: MiniScript intrinsic API contract for player-facing modules, privileged execution profiles, ResultMap, and shared error semantics.
+Keywords: miniscript intrinsic, player API, privileged API, execution profile, capability matrix, result map, error code, hook profile, fs module, ssh module
 Aliases: intrinsic API, player API
 
-이 문서는 유저 MiniScript 프로그램이 접근할 **intrinsic API 표면**을 정의한다.
+이 문서는 player-facing 공개 intrinsic API와, 엔진이 선택한 non-player privileged execution profile에서만 바인딩되는
+내부 intrinsic surface를 함께 정의한다.
+hook runtime semantics 자체는 `11`을 따른다. See DOCS_INDEX -> 11.
 
 스코프(이번 버전):
 - 쉬움/중간/어려움(v0) 시나리오를 **클리어 가능**하게 만드는 최소 API 세트
-- 현재 노출 모듈: `term`, `fs`, `net`, `ssh`, `ftp`, `time`, `http`, `web`, `proc`
+- 현재 player-facing 공개 모듈: `term`, `fs`, `net`, `ssh`, `ftp`, `time`, `http`, `web`, `proc`
+- privileged non-player execution profile 전용 모듈: `flags`, `mailbox`, `world`, `server`, `trace`, `mission`, `reward`
+- 어떤 실행 프로필에 어떤 모듈이 노출되는지는 capability matrix를 따른다.
 - 설계 보류 모듈: `db`, `crypto`
 
 핵심 원칙:
 - 유저는 **실제 OS/네트워크/디스크에 절대 접근하지 못한다.** 모든 API는 “가상 월드 RealWorld 상태”만 조작한다.
 - API는 “실제 해킹 페이로드”가 아니라, **전략·추론·리소스 관리**에 맞춘 추상화 계층이다.
 - 모든 API는 **권한 검사 + 비용(cost) + 탐지(trace) + (필요 시) 이벤트 enqueue** 규약을 따른다.
+- privileged intrinsic은 플레이어 공개 API가 아니라, 엔진이 부여한 execution profile에서만 접근 가능한 내부 surface다.
+- 같은 함수라도 어떤 execution profile에 열리는지는 capability matrix가 결정하며, 스크립트 내부에서 권한 상승으로 profile을 바꿀 수 없다.
 
 ---
 
@@ -76,7 +82,7 @@ Aliases: intrinsic API, player API
 ```text
 Session
 - kind: "sshSession"
-- sessionId: string
+- sessionId: int              # 서버 런타임이 접속 시 발급하는 양의 정수 핸들
 - sessionNodeId: string     # 접속한 서버 nodeId
 - sourceNodeId: string      # 이 hop을 연 source endpoint nodeId
 - sourceUserId: string      # source endpoint의 플레이어 노출 userId
@@ -160,11 +166,14 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 - 인자가 없으면 `argv=[]`, `argc=0`이다.
 
 ### 0.11 intrinsic 호출 속도 제한(shared 100k)
-- 본 문서에서 정의하는 인게임 API intrinsic은 기본적으로 **인터프리터 단위 shared 버킷(초당 100,000회)** 제한 대상이다.
-- 현재 버전의 **제외 API group**은 `term`만이다.
-- 따라서 현재 포함 모듈 기준으로는 `fs`, `net`(`interfaces/scan/ports/banner` 포함), `ssh`, `ftp`, `time`, `http`, `web`, `proc`가 shared 100k 제한 대상이다.
-- 추후 확장되는 API group(예: `db/crypto` 등)도 **별도 제외 선언이 없으면** 동일하게 shared 100k 제한에 포함한다.
-- 제외 API group 목록은 향후 늘어날 수 있으나, 본 문서(v0.2) 기준 공식 제외 목록은 `term`만으로 본다.
+- **Player Script Profile**에서 실행되는 player-facing intrinsic은 기본적으로 **인터프리터 단위 shared 버킷(초당 100,000회)** 제한 대상이다.
+- 현재 버전의 **Player Script Profile 제외 API group**은 `term`만이다.
+- 따라서 현재 포함 player-facing 모듈 기준으로는 `fs`, `net`(`interfaces/scan/ports/banner` 포함), `ssh`, `ftp`, `time`, `http`, `web`, `proc`가 shared 100k 제한 대상이다.
+- 추후 확장되는 player-facing API group(예: `db/crypto` 등)도 **별도 제외 선언이 없으면** 동일하게 shared 100k 제한에 포함한다.
+- Server Defense Hook Profile 및 Mission / Scenario Profile에는 이 shared 100k 제한을 적용하지 않는다.
+  - hook execution profile과 runtime semantics는 `11`을 따른다. See DOCS_INDEX -> 11.
+- 즉, player-facing shared 버킷 규칙은 non-player privileged execution profile로 자동 상속되지 않는다.
+- 제외 API group 목록은 향후 늘어날 수 있으나, 본 문서(v0.2) 기준 Player Script Profile 공식 제외 목록은 `term`만으로 본다.
 
 ### 0.12 API 문서 파생/생성 규약
 - 본 문서(03)는 intrinsic API 규약의 SSOT다. ResultMap 규약, 에러 코드, 시그니처/인자/반환/부작용 정의는 이 문서에서만 정의한다.
@@ -232,6 +241,77 @@ PortConfig(`ports[portNum]`)의 `exposure`는 아래 규칙으로 평가한다.
 ### 0.14 `SandboxValidated` 호환 라벨
 - `MiniScriptSshExecutionMode.SandboxValidated`는 호환성 유지를 위한 라벨이다.
 - 본 문서 기준 동작 의미는 검증-only가 아니며, RealWorld 상태 반영을 허용한다.
+
+### 0.15 실행 프로필 / capability matrix
+
+본 문서는 intrinsic surface를 정의하지만, **모든 intrinsic이 모든 실행 컨텍스트에 노출되는 것은 아니다.**
+엔진은 스크립트 실행 시점에 execution profile을 결정하고, 해당 프로필에 허용된 모듈만 바인딩한다.
+
+알파 버전 기준 execution profile은 아래 3가지를 사용한다.
+
+1. **Player Script Profile**
+   - 플레이어가 작성/실행하는 MiniScript 프로그램 및 공식 프로그램 런타임
+   - 공개 player-facing intrinsic만 노출한다.
+
+2. **Server Defense Hook Profile**
+   - 서버 방어 훅(scriptRef 기반 behavior script) 실행 프로필
+   - 서버 로컬 상태 변경 및 trace 제어용 privileged surface를 노출한다.
+
+3. **Mission / Scenario Profile**
+   - 미션 훅 및 시나리오 훅 실행 프로필
+   - 플래그/메일/월드 반영 및 미션 판정/보상용 privileged surface를 노출한다.
+
+프로필별 허용 모듈은 아래 capability matrix를 따른다.
+
+| Module | Player Script | Server Defense Hook | Mission / Scenario |
+|---|---:|---:|---:|
+| `term` | O | X | X |
+| `fs` | O | X | X |
+| `net` | O | X | X |
+| `ssh` | O | X | X |
+| `ftp` | O | X | X |
+| `time` | O | X | X |
+| `http` | O | X | X |
+| `web` | O | X | X |
+| `proc` | O | X | X |
+| `import` | O | X | X |
+| `flags` | X | O | O |
+| `mailbox` | X | O | O |
+| `world` | X | O | O |
+| `server` | X | O | X |
+| `trace` | X | O | X |
+| `mission` | X | X | O |
+| `reward` | X | X | O |
+
+규칙:
+- profile에 없는 모듈은 해당 스크립트 VM에 바인딩하지 않는다.
+- 스크립트 내부에서 execution profile을 전환하거나 capability를 상승시킬 수 없다.
+- `11`은 어떤 hook가 어떤 profile로 실행되는지를 정의하고, `03`은 각 profile에서 보이는 module/function surface를 정의한다.
+
+### 0.16 privileged module 공통 규칙
+
+`flags`, `mailbox`, `world`, `server`, `trace`, `mission`, `reward`는 privileged non-player intrinsic이다.
+이 모듈들은 플레이어에게 직접 노출되지 않으며, 엔진이 부여한 non-player execution profile에서만 사용한다.
+
+공통 규칙:
+- 모든 privileged intrinsic은 기본적으로 공통 ResultMap 규약을 따른다.
+- privileged intrinsic도 예외를 던지지 않고 `{ ok, code, err, ...payload }` 형태를 반환한다.
+- 잘못된 인자 타입/개수/열거값은 `ERR_INVALID_ARGS`를 사용한다.
+- 권한/프로필상 허용되지 않은 intrinsic은 해당 profile에 바인딩되지 않으므로, 런타임에서 "없는 전역 이름"으로 취급한다.
+- privileged intrinsic의 세부 부작용은 owning runtime 문서와 함께 해석한다.
+  - hook dispatch / payload / 실행 순서: `11`
+  - runtime state schema: `09`
+  - blueprint authoring/binding placement: `10`
+
+### 0.17 import profile 제한
+
+알파 버전에서 `import`는 **Player Script Profile에서만** 지원한다.
+
+- Server Defense Hook Profile: `import` 전역을 바인딩하지 않는다.
+- Mission / Scenario Profile: `import` 전역을 바인딩하지 않는다.
+
+즉, hook/mission/scenario 스크립트는 알파 버전에서 외부 스크립트 로더를 사용할 수 없다.
+필요한 로직 재사용은 엔진 쪽 scriptRef / function dispatch / profile별 intrinsic surface로 해결한다.
 
 ---
 
@@ -883,7 +963,343 @@ docstring 컨벤션:
 
 ---
 
-## 9) 레거시 정보
+## 9) Privileged Non-Player Modules
+
+본 섹션은 플레이어에게 직접 노출되지 않는 privileged intrinsic surface를 정의한다.
+이 모듈들은 `0.15 capability matrix`에 따라 Server Defense Hook Profile 또는 Mission / Scenario Profile에서만 바인딩된다.
+
+이 섹션의 intrinsic은 공통 ResultMap 규약을 따른다.
+세부 dispatch / payload / 실행 시점은 `11`을 따른다. See DOCS_INDEX -> 11.
+
+비고:
+- hook dispatch / payload / ordering / non-reentrancy는 `11`이 소유한다. See DOCS_INDEX -> 11.
+- runtime state schema(`server.sessions`, trace lineage stores 등)는 `09`가 소유한다. See DOCS_INDEX -> 09.
+- blueprint 상 script binding 위치와 authoring shape는 `10`이 소유한다. See DOCS_INDEX -> 10.
+
+### 9.1 `flags` (공통 도메인 모듈)
+
+`flags`는 시나리오/미션/서버 훅이 공유하는 전역 진행 플래그 surface다.
+플래그의 저장 위치/영속화 경계는 본 문서가 아니라 owning runtime/persistence 문서를 따른다.
+
+#### 9.1.1 `flags.set(key, value)`
+- 목적: 전역 플래그 값을 설정/덮어쓴다.
+- 인자:
+  - `key: string`
+  - `value: any`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, key:string, value:any }`
+- 실패:
+  - `ERR_INVALID_ARGS`: `key`가 빈 문자열이거나 string이 아닐 때.
+
+#### 9.1.2 `flags.get(key)`
+- 목적: 전역 플래그 값을 조회한다.
+- 인자:
+  - `key: string`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, found:0|1, key:string, value:any }`
+  - 미설정 상태는 `found=0`, `value=null`을 권장한다.
+- 실패:
+  - `ERR_INVALID_ARGS`: `key` 형식 오류.
+
+#### 9.1.3 `flags.unset(key)`
+- 목적: 플래그를 제거하거나 미설정 상태로 되돌린다.
+- 인자:
+  - `key: string`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, key:string, removed:0|1 }`
+- 실패:
+  - `ERR_INVALID_ARGS`: `key` 형식 오류.
+
+### 9.2 `mailbox` (공통 도메인 모듈)
+
+#### 9.2.1 `mailbox.deliverTemplate(templateId, vars=null)`
+- 목적: 템플릿 기반 메일을 생성하여 발송한다.
+- 인자:
+  - `templateId: string`
+  - `vars?: map|null`
+- 동작:
+  - `templateId`에 대응하는 템플릿을 찾고, `vars`를 적용해 최종 메일을 생성한다.
+  - 실제 메일 저장 구조/큐잉/표시 규약은 owning content/runtime 문서를 따른다.
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, templateId:string, messageId:string|null }`
+  - `messageId`가 즉시 발급되지 않는 구현이면 `null` 허용.
+- 실패:
+  - `ERR_INVALID_ARGS`: `templateId`/`vars` 형식 오류.
+  - `ERR_NOT_FOUND`: 템플릿이 없을 때.
+
+### 9.3 `world` (공통 도메인 모듈)
+
+#### 9.3.1 `world.revealNode(nodeId)`
+- 목적: 플레이어가 특정 노드를 인지한 상태로 공개한다.
+- 인자:
+  - `nodeId: string`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, nodeId:string, changed:0|1 }`
+  - 이미 공개된 노드면 `changed=0` 허용.
+- 실패:
+  - `ERR_INVALID_ARGS`: `nodeId` 형식 오류.
+  - `ERR_NOT_FOUND`: 해당 node가 존재하지 않을 때.
+
+#### 9.3.2 `world.revealNet(netId)`
+- 목적: 플레이어가 특정 네트워크를 인지한 상태로 공개한다.
+- 인자:
+  - `netId: string`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, netId:string, changed:0|1 }`
+  - 이미 공개된 네트워크면 `changed=0` 허용.
+- 실패:
+  - `ERR_INVALID_ARGS`: `netId` 형식 오류.
+  - `ERR_NOT_FOUND`: 해당 net이 존재하지 않을 때.
+
+> 주의: `world.spawnServer(...)`는 이번 버전의 privileged module surface에 포함하지 않는다.
+
+### 9.4 `server` (Server Defense Hook Profile 전용)
+
+`server` 모듈은 **현재 hook가 실행 중인 서버 문맥**을 대상으로 동작한다.
+다른 서버를 직접 지정하는 cross-server 조작 API는 알파 버전 범위에 포함하지 않는다.
+
+추가 원칙:
+- `server.sessions.*`는 raw runtime state 노출이 아니라, **현재 서버 문맥의 session snapshot을 읽기 전용으로 조회하는 accessor**다.
+- `server.sessions[sessionId]` 같은 내부 object를 script에 직접 노출하지 않는다.
+- snapshot field는 `09`의 canonical session runtime field와 직접 파생 가능한 정보 범위에서만 정의한다.
+
+```text
+SessionView
+- sessionId: int
+- userKey: string
+- remoteIp: string
+- cwd: string
+```
+
+#### 9.4.1 `server.sessions.get(sessionId)`
+- 목적: 현재 hook의 서버 문맥에서 단일 열린 세션을 조회한다.
+- 인자:
+  - `sessionId: int`
+- 규칙:
+  - lookup 범위는 **현재 hook의 target server**로 고정한다.
+  - 다른 서버의 session을 직접 조회하는 인자는 두지 않는다.
+  - 반환값은 live object가 아니라 **read-only session snapshot**이다.
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, session:{ ...SessionView... } }`
+- 실패:
+  - `ERR_INVALID_ARGS`: `sessionId` 형식 오류.
+  - `ERR_NOT_FOUND`: 해당 세션이 없거나 이미 닫혔을 때.
+
+#### 9.4.2 `server.sessions.listOpen()`
+- 목적: 현재 hook의 서버 문맥에서 열려 있는 세션 목록을 조회한다.
+- 인자: 없음
+- 규칙:
+  - 현재 hook의 target server 범위만 조회한다.
+  - 반환되는 각 요소는 `server.sessions.get`과 동일한 **read-only SessionView snapshot**이다.
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, sessions:[ ...SessionView ] }`
+
+#### 9.4.3 `server.account.lock(userKey, durationSec=null)`
+- 목적: 지정 계정을 잠그고 필요하면 잠금 시간을 설정한다.
+- 인자:
+  - `userKey: string`
+  - `durationSec?: number|null`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, userKey:string, locked:1, durationSec:number|null }`
+- 실패:
+  - `ERR_INVALID_ARGS`: `userKey`/`durationSec` 형식 오류.
+  - `ERR_NOT_FOUND`: 계정이 없을 때.
+
+#### 9.4.4 `server.account.unlock(userKey)`
+- 목적: 지정 계정의 잠금을 해제한다.
+- 인자:
+  - `userKey: string`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, userKey:string, unlocked:0|1 }`
+- 실패:
+  - `ERR_INVALID_ARGS`: `userKey` 형식 오류.
+  - `ERR_NOT_FOUND`: 계정이 없을 때.
+
+#### 9.4.5 `server.account.setPassword(userKey, newPassword)`
+- 목적: 지정 계정의 비밀번호를 변경한다.
+- 인자:
+  - `userKey: string`
+  - `newPassword: string`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, userKey:string, changed:1 }`
+- 실패:
+  - `ERR_INVALID_ARGS`: 인자 형식 오류.
+  - `ERR_NOT_FOUND`: 계정이 없을 때.
+
+#### 9.4.6 `server.port.open(port, opts=null)`
+- 목적: 서버의 특정 포트를 연다.
+- 인자:
+  - `port: int`
+  - `opts?: map|null`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, port:int, changed:0|1 }`
+- 실패:
+  - `ERR_INVALID_ARGS`: `port`/`opts` 형식 오류.
+  - `ERR_NOT_FOUND`: 포트 슬롯/서비스 정의가 없고 열 수 없는 경우.
+
+#### 9.4.7 `server.port.close(port)`
+- 목적: 서버의 특정 포트를 닫는다.
+- 인자:
+  - `port: int`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, port:int, changed:0|1 }`
+- 실패:
+  - `ERR_INVALID_ARGS`: `port` 형식 오류.
+
+#### 9.4.8 `server.port.setExposure(port, exposure)`
+- 목적: 포트의 노출도를 변경한다.
+- 인자:
+  - `port: int`
+  - `exposure: string` (`"public" | "lan" | "localhost"`)
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, port:int, exposure:string, changed:0|1 }`
+- 실패:
+  - `ERR_INVALID_ARGS`: `port` 형식 오류 또는 `exposure` enum 오류.
+  - `ERR_NOT_FOUND`: 대상 포트가 없을 때.
+
+#### 9.4.9 `server.log.append(category, text)`
+- 목적: 현재 서버 로그에 항목을 추가한다.
+- 인자:
+  - `category: string`
+  - `text: string`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, category:string, appended:1 }`
+- 실패:
+  - `ERR_INVALID_ARGS`: 인자 형식 오류.
+
+#### 9.4.10 `server.fs.writeText(path, text)`
+- 목적: 현재 서버 파일시스템에 텍스트 파일을 생성하거나 덮어쓴다.
+- 인자:
+  - `path: string`
+  - `text: string`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, path:string, written:1 }`
+- 실패:
+  - `ERR_INVALID_ARGS`: 인자 형식 오류.
+  - `ERR_NOT_DIRECTORY`: 부모 경로가 디렉토리가 아닐 때.
+  - `ERR_NOT_FOUND`: 부모 경로가 없을 때.
+  - `ERR_INTERNAL_ERROR`: VFS 반영 실패.
+
+#### 9.4.11 `server.fs.delete(path)`
+- 목적: 현재 서버 파일시스템에서 파일을 삭제한다.
+- 인자:
+  - `path: string`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, path:string, deleted:0|1 }`
+- 실패:
+  - `ERR_INVALID_ARGS`: 인자 형식 오류.
+  - `ERR_NOT_FOUND`: 대상이 없을 때.
+  - `ERR_NOT_EMPTY`: 비어있지 않은 디렉토리 삭제 시.
+
+### 9.5 `trace` (Server Defense Hook Profile 전용)
+
+`trace` 모듈은 현재 서버 문맥에서 Hot Trace / Forensic Trace / evidence marking을 제어한다.
+세부 runtime semantics는 `11`, lineage/evidence 저장 구조는 `09`를 따른다.
+특히 `trace.markEvidence` / `trace.hasEvidence` / `trace.consumeEvidence`는
+별도 evidence 저장소를 만드는 API가 아니라, 현재 서버 문맥의 `SessionKey(targetNodeId, sessionId)`에 대응하는
+`09`의 `ForensicIncidentBufferStore`를 조작/조회하는 hook-facing façade로 본다.
+
+#### 9.5.1 `trace.startHotFromSession(sessionId)`
+- 목적: 지정 세션을 기준으로 hot trace를 시작한다.
+- 인자:
+  - `sessionId: int`
+- 동작:
+  - 현재 서버 문맥의 `sessions[sessionId]`를 조회해 hot trace origin을 결정한다.
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, sessionId:int, started:0|1 }`
+- 실패:
+  - `ERR_INVALID_ARGS`: `sessionId` 형식 오류.
+  - `ERR_NOT_FOUND`: 해당 세션이 없을 때.
+
+#### 9.5.2 `trace.startForensicFromSession(sessionId)`
+- 목적: 지정 세션을 기준으로 forensic trace를 시작한다.
+- 인자:
+  - `sessionId: int`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, sessionId:int, started:0|1 }`
+- 실패:
+  - `ERR_INVALID_ARGS`: `sessionId` 형식 오류.
+  - `ERR_NOT_FOUND`: 해당 세션이 없을 때.
+
+#### 9.5.3 `trace.markEvidence(sessionId, kind, ttlSec=null)`
+- 목적: 지정 세션에 특정 종류의 evidence를 기록한다.
+- 인자:
+  - `sessionId: int`
+  - `kind: string`
+  - `ttlSec?: number|null`
+- 규칙:
+  - `kind`는 required다.
+  - hook-facing semantics는 set-like semantics를 기본으로 한다.
+  - backing store는 `09`의 `ForensicIncidentBufferStore.bySessionKey[sessionKey]`이며,
+    최소한 `IncidentBufferEntry.incidentKinds`에 `kind`가 반영되어야 한다.
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, sessionId:int, kind:string, marked:1 }`
+- 실패:
+  - `ERR_INVALID_ARGS`: 인자 형식 오류.
+  - `ERR_NOT_FOUND`: 해당 세션이 없을 때.
+
+#### 9.5.4 `trace.hasEvidence(sessionId, kind=null)`
+- 목적: 지정 세션에 evidence가 존재하는지 확인한다.
+- 인자:
+  - `sessionId: int`
+  - `kind?: string|null`
+- 규칙:
+  - 내부적으로는 해당 `sessionKey`의 `IncidentBufferEntry.incidentKinds`를 조회한다.
+  - `kind`가 있으면 해당 종류 존재 여부를 본다.
+  - `kind`가 없으면 **어떤 종류든 하나라도 존재하는지** 확인한다.
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, sessionId:int, kind:string|null, found:0|1 }`
+- 실패:
+  - `ERR_INVALID_ARGS`: 인자 형식 오류.
+  - `ERR_NOT_FOUND`: 해당 세션이 없을 때.
+
+#### 9.5.5 `trace.consumeEvidence(sessionId, kind=null)`
+- 목적: 지정 세션의 evidence를 소비하고 제거한다.
+- 인자:
+  - `sessionId: int`
+  - `kind?: string|null`
+- 규칙:
+  - 내부적으로는 해당 `sessionKey`의 incident buffer entry를 소비/정리하는 동작으로 본다.
+  - `kind`가 있으면 해당 종류만 제거한다.
+  - `kind`가 없으면 **해당 세션의 모든 evidence**를 제거한다.
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, sessionId:int, kind:string|null, consumed:0|1 }`
+- 실패:
+  - `ERR_INVALID_ARGS`: 인자 형식 오류.
+  - `ERR_NOT_FOUND`: 해당 세션이 없을 때.
+
+### 9.6 `mission` (Mission / Scenario Profile 전용)
+
+#### 9.6.1 `mission.complete()`
+- 목적: 현재 미션을 성공 완료 상태로 확정한다.
+- 인자: 없음
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, completed:1 }`
+- 실패:
+  - `ERR_INTERNAL_ERROR`: 현재 실행 컨텍스트에 active mission이 없을 때 등.
+
+#### 9.6.2 `mission.fail(reason=null)`
+- 목적: 현재 미션을 실패 상태로 확정한다.
+- 인자:
+  - `reason?: string|null`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, failed:1, reason:string|null }`
+- 실패:
+  - `ERR_INVALID_ARGS`: `reason` 형식 오류.
+  - `ERR_INTERNAL_ERROR`: 현재 active mission이 없을 때.
+
+### 9.7 `reward` (Mission / Scenario Profile 전용)
+
+#### 9.7.1 `reward.grantCredits(amount)`
+- 목적: 현재 미션 보상으로 크레딧을 지급한다.
+- 인자:
+  - `amount: number`
+- 반환:
+  - 성공: `{ ok:1, code:"OK", err:null, granted:number }`
+- 실패:
+  - `ERR_INVALID_ARGS`: `amount`가 음수이거나 number가 아닐 때.
+
+## 10) 레거시 정보
 
 ### 1) 웹/DB/앱 계층 모듈
 
@@ -953,4 +1369,3 @@ docstring 컨벤션:
 
 ---
  
-
