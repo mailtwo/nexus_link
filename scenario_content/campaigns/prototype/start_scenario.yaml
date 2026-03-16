@@ -17,35 +17,35 @@ ServerSpec:
       overlayEntries:
         /opt/bin/ms:
           entryKind: File
-          contentId: exec:miniscript
+          contentRef: exec:miniscript
           fileKind: ExecutableHardcode
           size: 32000
         /opt/bin/inspect:
           entryKind: File
-          contentId: exec:inspect
+          contentRef: exec:inspect
           fileKind: ExecutableHardcode
           size: 5000
         /opt/bin/nexus_shell:
           entryKind: File
-          contentId: exec:nexus_shell
+          contentRef: exec:nexus_shell
           fileKind: ExecutableHardcode
           size: 5000
         /opt/bin/password_breaker:
           entryKind: File
-          contentId: res://scenario_content/resources/text/executions/password_breaker.ms
+          contentRef: res://scenario_content/resources/text/executions/password_breaker.ms
           fileKind: ExecutableScript
         /opt/bin/password_breaker.ms:
           entryKind: File
-          contentId: res://scenario_content/resources/text/executions/password_breaker.ms
+          contentRef: res://scenario_content/resources/text/executions/password_breaker.ms
           fileKind: Text
           size: 32000
         /etc/motd:
           entryKind: File
-          contentId: res://scenario_content/resources/text/myworkstation_prototype_motd.txt
+          contentRef: res://scenario_content/resources/text/myworkstation_prototype_motd.txt
           fileKind: Text
         /leaked_password.txt:
           entryKind: File
-          contentId: res://scenario_content/resources/text/leaked_password.txt
+          contentRef: res://scenario_content/resources/text/leaked_password.txt
           fileKind: Text
 Scenario:
   startScenario:

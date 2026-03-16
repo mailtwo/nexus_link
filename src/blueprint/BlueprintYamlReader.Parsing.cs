@@ -1521,9 +1521,13 @@ public sealed partial class BlueprintYamlReader
             }
         }
 
-        if (TryGetValueIgnoreCase(entryMap, "contentId", out var contentIdValue))
+        if (TryGetValueIgnoreCase(entryMap, "contentRef", out var contentRefValue))
         {
-            entry.ContentId = ReadString(contentIdValue);
+            entry.ContentRef = ReadString(contentRefValue);
+        }
+        else if (TryGetValueIgnoreCase(entryMap, "contentId", out var legacyContentIdValue))
+        {
+            entry.ContentRef = ReadString(legacyContentIdValue);
         }
 
         if (TryGetValueIgnoreCase(entryMap, "size", out var sizeValue))

@@ -286,11 +286,11 @@ public sealed class BlueprintTest
                     /opt/bin/script_exec:
                       entryKind: File
                       fileKind: ExecutableScript
-                      contentId: print "hello"
+                      contentRef: print "hello"
                     /opt/bin/hard_exec:
                       entryKind: File
                       fileKind: ExecutableHardcode
-                      contentId: noop
+                      contentRef: noop
             """);
 
         var reader = new BlueprintYamlReader();
@@ -320,12 +320,12 @@ public sealed class BlueprintTest
                     /opt/bin/hard_exec:
                       entryKind: File
                       fileKind: ExecutableHardcode
-                      contentId: noop
+                      contentRef: noop
                       size: 4096
                     /opt/bin/default_exec:
                       entryKind: File
                       fileKind: ExecutableHardcode
-                      contentId: noop2
+                      contentRef: noop2
             """);
 
         var reader = new BlueprintYamlReader();
@@ -351,7 +351,7 @@ public sealed class BlueprintTest
 
         Assert.Equal(BlueprintEntryKind.File, entry.EntryKind);
         Assert.Equal(BlueprintFileKind.ExecutableHardcode, entry.FileKind);
-        Assert.Equal("exec:miniscript", entry.ContentId);
+        Assert.Equal("exec:miniscript", entry.ContentRef);
     }
 
     /// <summary>Ensures PortConfig accepts portType none for unassigned-port declarations.</summary>
@@ -697,6 +697,31 @@ public sealed class BlueprintTest
         }
 
         throw new InvalidOperationException("Could not locate repository root (project.godot).");
+    }
+
+    /// <summary>Ensures legacy contentId YAML input still maps into blueprint contentRef.</summary>
+    [Fact]
+    public void ReadFiles_LegacyContentId_MapsToContentRef()
+    {
+        using var scope = TempDirScope.Create();
+        var yamlPath = scope.WriteFile(
+            "legacy_content_id.yaml",
+            """
+            ServerSpec:
+              spec_legacy:
+                diskOverlay:
+                  overlayEntries:
+                    /doc/readme.txt:
+                      entryKind: File
+                      fileKind: Text
+                      contentId: legacy-inline-text
+            """);
+
+        var reader = new BlueprintYamlReader();
+        var catalog = reader.ReadFiles(new[] { yamlPath });
+        var entry = catalog.ServerSpecs["spec_legacy"].DiskOverlay.OverlayEntries["/doc/readme.txt"];
+
+        Assert.Equal("legacy-inline-text", entry.ContentRef);
     }
 
     private sealed class TempDirScope : IDisposable

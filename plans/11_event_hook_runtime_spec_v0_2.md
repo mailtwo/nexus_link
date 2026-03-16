@@ -559,7 +559,15 @@ priority DESC, registrationOrder ASC
   - remote endpoint에서 바깥으로 나가면 `outbound`
   - remote endpoint 안으로 들어오면 `inbound`
 
-## 9.7 processFinished
+## 9.7 mail sent
+- 메일 발송이 성공으로 확정되고 recipient mailbox에 실제 메시지가 커밋된 뒤 `onMailSent`를 enqueue한다.
+- 이 event는 **실제 발신이 일어난 sender endpoint 문맥**에서 발생한다.
+  - sender endpoint server가 있으면 `targetNodeId`는 그 nodeId다.
+  - pure system/template mail처럼 sender endpoint server가 없으면 `targetNodeId = null`을 허용한다.
+- 실패한 발송 시도는 `onMailSent`를 만들지 않는다.
+- `fromAddress`는 헤더상 발신자이고, 실제 발신 주체 판정은 `userKey`, `sourceNodeId`, `sourceIp`를 본다.
+
+## 9.8 processFinished
 - ProcessScheduler가 due process를 완료 처리할 때 `onProcessFinished`를 enqueue한다.
 
 ---
@@ -585,16 +593,19 @@ v1 core hook event는 아래를 포함한다.
 - `onNetPorts`
 - `onSshInspect`
 
-### 10.4 file / transfer
+### 10.4 mail
+- `onMailSent`
+
+### 10.5 file / transfer
 - `onFileRead`
 - `onFileWrite`
 - `onFileDelete`
 - `onFtpTransfer`
 
-### 10.5 periodic
+### 10.6 periodic
 - `onTick`
 
-### 10.6 deferred
+### 10.7 deferred
 - `onDaemonEvent`
 - `onNetBanner`
 - `onFileList`
@@ -1013,7 +1024,73 @@ resultCode: string
 - `direction`
 - `resultCode`
 
-## 12.11 `onTick`
+## 12.11 `onMailSent`
+
+발생 문맥:
+- 메일 발송이 성공으로 확정되고 recipient mailbox에 실제 메시지가 커밋된 뒤 발생한다.
+- node-local sender context가 있으면 `targetNodeId`는 sender endpoint server다.
+- pure system/template mail처럼 sender endpoint server가 없으면 `targetNodeId = null`을 허용한다.
+
+```text
+messageId: string
+sessionId: int | null
+userKey: string
+sourceIp: string | null
+sourceNodeId: string | null
+
+fromAddress: string
+toAddress: string
+subject: string
+bodyText: string
+templateId: string | null
+sentAtMs: long
+
+attachmentIds: List<string>
+attachmentContentIds: List<string>
+attachments: List<MailAttachmentRef>
+```
+
+```text
+MailAttachmentRef
+- attachmentId: string
+- fileName: string
+- fileKind: string | null
+- sizeBytes: int | null
+- contentId: string
+- sourceNodeId: string | null
+- sourcePath: string | null
+```
+
+규칙:
+- 이 event는 **성공적으로 커밋된 outgoing mail**에 대해서만 발생한다. 실패한 발송 시도는 `onMailSent`를 만들지 않는다.
+- `sessionId`는 메일이 session-based remote endpoint 문맥에서 발송된 경우에만 채운다.
+- `userKey`는 실제 발신 주체다.
+  - system/자동 발송이면 literal `"system"`을 사용한다.
+- `fromAddress`는 메일 헤더상 발신 주소다.
+  - spoof 가능한 메일 시스템이라면 실제 주체와 다를 수 있다.
+  - 실제 발신 판정은 `userKey`, `sourceNodeId`, `sourceIp`를 우선한다.
+- `toAddress`는 알파에서 단일 수신자 주소로 고정한다.
+  - `cc` / `bcc`는 deferred다.
+- `templateId`는 template 기반 발송/답장으로 생성된 메일이면 해당 template id를 채우고, 자유 작성 메일이면 `null`이다.
+- `attachmentIds`와 `attachmentContentIds`는 `attachments`의 convenience projection이다.
+  - 순서는 `attachments`와 동일해야 한다.
+  - `attachmentIds[i] == attachments[i].attachmentId`
+  - `attachmentContentIds[i] == attachments[i].contentId`
+- `attachments[].contentId`는 첨부 payload의 canonical content identity다.
+  - rename/path change/copy 이후에도 내용이 같으면 같은 값을 유지한다.
+- `attachments[].sourceNodeId` / `sourcePath`는 첨부 원본 출처 추적용이다.
+  - 출처를 복원할 수 없거나 system-generated attachment면 `null`을 허용한다.
+
+권장 match key:
+- `targetNodeId`
+- `sessionId`
+- `userKey`
+- `sourceNodeId`
+- `fromAddress`
+- `toAddress`
+- `templateId`
+
+## 12.12 `onTick`
 
 ```text
 deltaMs: int
@@ -1260,6 +1337,7 @@ HookRuntimeState
 - [ ] `onProcessFinished`
 - [ ] `onPrivilegeAcquire`
 - [ ] `onFileAcquire`
+- [ ] `onMailSent`
 - [ ] `onAuthAttempt`
 - [ ] `onAuthSuccess`
 - [ ] `onAuthFail`

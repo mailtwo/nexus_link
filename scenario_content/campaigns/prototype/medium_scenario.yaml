@@ -37,7 +37,7 @@ ServerSpec:
       overlayEntries:
         /doc/security_report.txt:
           entryKind: File
-          contentId: res://scenario_content/resources/text/scenario_docs/medium_hint.txt 
+          contentRef: res://scenario_content/resources/text/scenario_docs/medium_hint.txt 
           fileKind: Text
     daemons:
       OTP:
@@ -62,7 +62,7 @@ ServerSpec:
       overlayEntries:
         /opt/bin/optgen:
           entryKind: File
-          contentId: res://scenario_content/resources/bin/mediumOTPIssuerServerOtpgen.bin
+          contentRef: res://scenario_content/resources/bin/mediumOTPIssuerServerOtpgen.bin
           fileKind: ExecutableScript
 Scenario:
   mediumScenario:

@@ -54,6 +54,9 @@ Keywords: virtual file system, VFS overlay, path normalization, file permission,
   - `blobs: Dictionary<contentId, bytes/string>`
   - `refCount: Dictionary<contentId, int>`  (overlay 파일만 카운트)
 - BaseFS의 contentId는 “pin” 처리(삭제/감소 대상 아님) 또는 refCount 관리에서 제외.
+- Blueprint/YAML authoring 계층은 이 runtime 식별자를 직접 쓰지 않는다.
+  - authoring 입력 필드는 `contentRef`이며, world 초기화 시점에 해석되어 VFS/BlobStore의 `contentId`로 변환된다.
+  - Canonical authoring schema: See DOCS_INDEX -> 10.
 
 ---
 
@@ -70,7 +73,8 @@ Keywords: virtual file system, VFS overlay, path normalization, file permission,
 - `size`: 게임에서 인식하는 논리 파일 크기
   - `size` 생략 시 `size = realSize`
   - `size` 지정 시 해당 값을 파일 크기로 사용
-- `BlueprintEntryMeta`는 `realSize`를 별도 필드로 유지한다(디버그/검증용)
+- `BlueprintEntryMeta`는 authoring 입력용 `contentRef`와 `realSize`를 별도 필드로 유지한다(디버그/검증용).
+  - runtime VFS `EntryMeta.contentId`와 동일 개념이 아니다.
 
 디렉토리 표현:
 - “숨김 파일(dir_entry)” 없음

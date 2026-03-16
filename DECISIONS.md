@@ -218,6 +218,16 @@ plans/ 문서의 설계 결정이 추가되거나 변경될 때 기록한다.
   같은 체인에서는 Hot Trace와 forensic 동시 진행을 금지하며, hot 종료 후 forensic를 시작한다.
   `ssh.disconnect(route)`는 닫힌 각 session별 incident를 조회해 forensic를 개별 생성한다.
 - **이유(구버전)**: 즉시 동시 추적으로 인한 과도한 처벌/가독성 저하를 막고,
+
+## 2026-03-15
+
+### [05] Mission generation timing and board model
+- **결정**: 모든 mission은 현재 플레이스루에서 1회용 concrete mission으로 고정한다.
+  `story`와 `side`는 같은 runtime model을 공유하되, `side` mission template selection/materialization은
+  world initialization 시 1회만 수행한다. MissionBoard는 새 mission을 생성/교체/refill하는 시스템이 아니라,
+  이미 존재하는 concrete mission의 현재 상태를 보여주는 projection으로 본다.
+- **이유**: 알파 범위에서 장기 플레이용 추가 mission 공급까지 커버하면 board/deck/slot/persistence 복잡도가 과도하게 커진다.
+  world initialization 1회 선택 + concrete mission 고정 모델이 target binding, save/load, 구현 범위를 가장 단순하게 유지한다.
   다중 hop 종료 시 실제 닫힌 세션 단위 책임 추적을 일관되게 유지하기 위함.
 - **대체 사유**: 04/11 SSOT가 "Hot 도달 즉시 Lock-on 전환" 규칙으로 변경되어,
   same-chain Hot 도달 케이스의 forensic handoff는 생략/무효화 정책으로 대체되었다.
@@ -264,6 +274,90 @@ plans/ 문서의 설계 결정이 추가되거나 변경될 때 기록한다.
   동일 방향 `(sourceNodeId, targetNodeId)`의 다중 active 세션은 1개 edge로 집계한다.
 - **이유**: world session store(active 세션 그래프)의 기본 단위와 1:1로 대응시켜 구현/디버깅 복잡도를 낮추고,
   렌더링 중복을 줄이면서 SSH 마커 기반 시각 계약(10.5.3)을 일관되게 유지하기 위함.
+
+## 2026-03-16
+
+### [10][11] Hook behavior config schema — sidecar manifest + strict type rules
+- **결정**: `scriptRef` behavior function의 `config` schema는 script와 같은 디렉토리의
+  `<scriptStem>.behavior.yaml` sidecar manifest에 둔다.
+  `functions.<name>`은 `::functionName`과 exact match(대소문자 구분)해야 하며,
+  `config`를 사용하는 handler가 있으면 해당 script의 manifest가 반드시 존재해야 한다.
+  타입 체계는 scalar(`int/float/bool/string/contentRef`)와 container(`List/Dictionary`)로 분리하고,
+  container는 `elementType`/`valueType`을 사용한다.
+  validation은 strict no-coercion으로 고정하고, `contentRef` scalar field는
+  `default`를 금지하며 `required: true`를 강제한다.
+- **이유**: 특정 `cfg` key 이름을 엔진이 하드코딩하지 않고도,
+  generic schema 기반 load-time validation/normalization을 구현할 수 있어야 한다.
+  또한 다중 첨부/다중 artifact 같은 config authoring을
+  `file1ContentRef`, `file2ContentRef` 식의 비확장적 필드 나열 없이 표현하기 위함.
+
+### [11] onMailSent payload — templateId + attachment content identity
+- **결정**: `onMailSent`는 메일이 recipient mailbox에 성공적으로 커밋된 경우에만 발생한다.
+  payload는 실제 발신 주체(`userKey`, `sourceNodeId`, `sourceIp`)와 헤더 발신자(`fromAddress`)를 분리하고,
+  `templateId`, `attachmentIds`, `attachmentContentIds`, `attachments[].contentId`를 포함한다.
+  알파에서는 `toAddress` 단일 수신자로 고정하고 `cc/bcc`는 deferred로 둔다.
+- **이유**: 미션 turn-in/보고 메일 판정에서 template reply 여부와 첨부 payload 동일성(content identity)을
+  안정적으로 검사할 수 있어야 하며, spoof 가능한 헤더 발신자와 실제 발신 주체를 혼동하지 않기 위함.
+
+### [05] Mission-local progress — typed key/value store with first-write type lock
+- **결정**: Mission-local progress는 `Dictionary<string, ProgressValue>`로 제한하고,
+  `ProgressValue`는 `bool | int | string`만 허용한다.
+  key는 첫 `mission.setProgress(key, value)` 전까지 존재/타입이 없고,
+  첫 write가 해당 key의 타입을 확정한다. 이후 overwrite는 허용하지만 타입 변경은 API error다.
+  `mission.getProgress(key)`의 missing key는 API error로 처리하고, 개별 key 삭제 API는 두지 않는다.
+- **이유**: 복합 조건 추적에 필요한 최소 표현력은 유지하면서도,
+  자유형 `object` 저장소로 인한 save/load/debugging 복잡도와 script 버그 가능성을 줄이기 위함.
+
+### [05] Mission entry rule grammar — AND lists, reveal latch, watcher-based reevaluation
+- **결정**: `requirements`는 selection-time 전용 **AND 리스트**로 두고,
+  `revealWhen` / `acceptWhen` / `failWhen`도 alpha에서 공통 **AND 리스트** grammar를 사용한다.
+  각 rule item은 top-level key 1개만 가지는 tagged union이어야 하며,
+  `OR` / `anyOf` / nested boolean tree는 deferred한다.
+  `startWhen`은 alpha에서 single rule object로 제한하고, 현재 공식 지원은
+  `missionCompleted: <missionId>` 하나만 둔다.
+  `revealWhen`은 `hidden -> visible` 전이를 만든 뒤 다시 숨김으로 되돌아가지 않는 latched 조건으로 정의하고,
+  `acceptWhen`은 `visible <-> available` 사이를 왕복할 수 있는 dynamic guard로 둔다.
+  runtime reevaluation은 polling이 아니라 MissionManager가 rule dependency를 watch key로 컴파일한
+  event-driven watcher model로 처리한다.
+- **이유**: board 노출 조건과 수락 가능 조건의 의미를 분리해 UX와 상태 전이를 단순화하고,
+  alpha 범위에서 boolean expression tree 전체를 지원하는 복잡도를 피하기 위함이다.
+  또한 world state 변화마다 모든 mission을 전수 재평가하지 않고,
+  영향받는 mission만 부분 재평가하도록 하여 구현과 성능 복잡도를 통제하기 위함이다.
+
+### [05] Mission reward model — declared base rewards plus hidden bonus via `reward.*`
+- **결정**: `rewards:` 블록은 board/UI에 미리 표시할 수 있는 공개 기본 보상으로 두고,
+  MissionManager가 `active -> completed` 전이에서 정확히 1회 자동 적용한다.
+  `reward.*`는 이 기본 보상을 대체하지 않으며,
+  board에 미리 노출하지 않는 숨겨진 추가 보상 / bonus payout 용도로만 사용한다.
+  alpha에서는 hidden bonus의 중복 지급 방지를 위한 별도 문법/런타임 가드는 두지 않고,
+  기획자가 mission-local progress로 1회 지급을 스스로 보장하는 것을 전제로 한다.
+- **이유**: 보드/UI가 미션 수락 전 기본 보상을 안정적으로 표시할 수 있어야 하고,
+  side mission materialization에서 concrete reward value를 미리 확정하는 모델과도 일관되어야 한다.
+  동시에 stealth/speed/optional artifact 같은 비공개 보너스 지급 여지는 남겨 두기 위함이다.
+
+### [05] Mission binding/interpolation grammar — unified namespace with eager resolution
+- **결정**: mission authoring의 placeholder는 공통 binding namespace 위에서 동작하도록 정리한다.
+  story mission은 `bindings:`가 concrete binding을 직접 가지며,
+  side mission template은 `slots:`(node binding)와 `generatedBindings:`(alpha에서는 `string` only)를 함께 사용한다.
+  placeholder 문법은 `SlotRef = "$bindingKey"`와
+  `InterpolationExpr = "{bindingKey[.property]}"`로 고정한다.
+  `SlotRef`는 node-ref 필드에서만 허용하고, interpolation은 display 문자열 필드에서만 허용한다.
+  alpha node property whitelist는 `nodeId`, `hostname`, `ip`로 제한하며,
+  side mission materialization 이후 concrete mission runtime data에는 unresolved placeholder가 남아 있으면 load error로 본다.
+- **이유**: `$target_server`, `{target_server.hostname}`, `{client}` 같은 기존 예시를
+  loader가 모호함 없이 검증/해석할 수 있어야 하며,
+  runtime evaluator가 placeholder를 직접 해석하는 복잡도를 피하고
+  world initialization/materialization 단계에서 concrete 값으로 eager lowering/rendering하기 위함이다.
+
+### [05][10] Mission authoring handoff — `05` owns mission files, `10` owns scenario/campaign entrypoints
+- **결정**: `05`는 `MissionBlueprint` / `MissionTemplate` file 자체의 YAML schema와,
+  concrete mission으로 materialize된 뒤의 lifecycle/progress/completion/runtime semantics를 소유한다.
+  `10`은 scenario/campaign blueprint가 어떤 mission file set을 참조하는지와,
+  world generation / initialization pipeline에서 그 mission file들을 어디서 연결해
+  `05`의 selection/materialization pass에 넘기는지의 entrypoint를 소유한다.
+- **이유**: mission content 자체의 규칙과,
+  scenario/campaign가 그 mission content를 world generator에 연결하는 wiring 책임을 분리해야
+  `05`와 `10`이 같은 사실을 중복 정의하거나 서로의 영역을 침범하지 않기 때문이다.
 
 ## 2026-03-08
 

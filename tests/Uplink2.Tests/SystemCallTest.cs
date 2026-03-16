@@ -8945,7 +8945,7 @@ public sealed class SystemCallTest
         {
             EntryKind = BlueprintEntryKind.File,
             FileKind = BlueprintFileKind.ExecutableHardcode,
-            ContentId = "exec:noop",
+            ContentRef = "exec:noop",
             Size = 4096,
         };
 

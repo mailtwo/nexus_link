@@ -225,7 +225,7 @@ public partial class WorldRuntime
             return;
         }
 
-        var content = ResolveBlueprintContent(entry.ContentId, entry.FileKind);
+        var content = ResolveBlueprintContent(entry.ContentRef, entry.FileKind);
         entry.RealSize = Encoding.UTF8.GetByteCount(content);
         overlay.WriteFile(normalizedPath, content, fileKind: ConvertFileKind(entry.FileKind), size: entry.Size);
     }
@@ -257,28 +257,28 @@ public partial class WorldRuntime
         }
     }
 
-    /// <summary>Resolves blueprint file content string from literal text or res:// path.</summary>
-    private static string ResolveBlueprintContent(string contentId, BlueprintFileKind fileKind)
+    /// <summary>Resolves blueprint contentRef payload from literal text or resource path.</summary>
+    private static string ResolveBlueprintContent(string contentRef, BlueprintFileKind fileKind)
     {
-        if (string.IsNullOrWhiteSpace(contentId))
+        if (string.IsNullOrWhiteSpace(contentRef))
         {
             return string.Empty;
         }
 
-        if (!contentId.StartsWith("res://", StringComparison.Ordinal) &&
-            !contentId.StartsWith("user://", StringComparison.Ordinal))
+        if (!contentRef.StartsWith("res://", StringComparison.Ordinal) &&
+            !contentRef.StartsWith("user://", StringComparison.Ordinal))
         {
-            return contentId;
+            return contentRef;
         }
 
         if (fileKind == BlueprintFileKind.Text ||
             fileKind == BlueprintFileKind.ExecutableScript ||
             fileKind == BlueprintFileKind.ExecutableHardcode)
         {
-            return ReadAllTextFromPath(contentId);
+            return ReadAllTextFromPath(contentRef);
         }
 
-        var bytes = ReadAllBytesFromPath(contentId);
+        var bytes = ReadAllBytesFromPath(contentRef);
         return Convert.ToBase64String(bytes);
     }
 

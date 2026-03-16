@@ -31,7 +31,7 @@ ServerSpec:
       overlayEntries:
         /doc/email.txt:
           entryKind: File
-          contentId: res://scenario_content/resources/text/scenario_docs/hard_hint1.txt 
+          contentRef: res://scenario_content/resources/text/scenario_docs/hard_hint1.txt 
           fileKind: Text
     location: AUTO:North_America
   hardTerminal2Server:
@@ -80,7 +80,7 @@ ServerSpec:
       overlayEntries:
         /doc/email.txt:
           entryKind: File
-          contentId: res://scenario_content/resources/text/scenario_docs/hard_hint2.txt 
+          contentRef: res://scenario_content/resources/text/scenario_docs/hard_hint2.txt 
           fileKind: Text
   hardTerminal5Server:
     initialStatus: online
@@ -100,7 +100,7 @@ ServerSpec:
       overlayEntries:
         /doc/email.txt:
           entryKind: File
-          contentId: res://scenario_content/resources/text/scenario_docs/hard_hint3.txt 
+          contentRef: res://scenario_content/resources/text/scenario_docs/hard_hint3.txt 
           fileKind: Text
   hardGuard1Server:
     initialStatus: online
@@ -120,24 +120,24 @@ ServerSpec:
       overlayEntries:
         /doc/email.txt:
           entryKind: File
-          contentId: res://scenario_content/resources/text/scenario_docs/hard_hint4.txt 
+          contentRef: res://scenario_content/resources/text/scenario_docs/hard_hint4.txt 
           fileKind: Text
         /aegis_shield_security_test.ms:
           entryKind: File
-          contentId: res://scenario_content/resources/text/scenario_docs/aegis_shield_security_test.ms
+          contentRef: res://scenario_content/resources/text/scenario_docs/aegis_shield_security_test.ms
           fileKind: Text
         /connection_test.ms:
           entryKind: File
-          contentId: res://scenario_content/resources/text/scenario_docs/connection_test.ms
+          contentRef: res://scenario_content/resources/text/scenario_docs/connection_test.ms
           fileKind: Text
         /opt/bin/ms:
           entryKind: File
-          contentId: exec:miniscript
+          contentRef: exec:miniscript
           fileKind: ExecutableHardcode
           size: 32000
         /opt/bin/password_breaker:
           entryKind: File
-          contentId: res://scenario_content/resources/text/executions/password_breaker.ms
+          contentRef: res://scenario_content/resources/text/executions/password_breaker.ms
           fileKind: ExecutableScript
   hardGuard2Server:
     initialStatus: online
@@ -157,11 +157,11 @@ ServerSpec:
       overlayEntries:
         /connection_test.ms:
           entryKind: File
-          contentId: res://scenario_content/resources/text/scenario_docs/connection_test.ms
+          contentRef: res://scenario_content/resources/text/scenario_docs/connection_test.ms
           fileKind: Text
         /opt/bin/ms:
           entryKind: File
-          contentId: exec:miniscript
+          contentRef: exec:miniscript
           fileKind: ExecutableHardcode
           size: 32000
   hardGuard3Server:
@@ -182,11 +182,11 @@ ServerSpec:
       overlayEntries:
         /connection_test.ms:
           entryKind: File
-          contentId: res://scenario_content/resources/text/scenario_docs/connection_test.ms
+          contentRef: res://scenario_content/resources/text/scenario_docs/connection_test.ms
           fileKind: Text
         /opt/bin/ms:
           entryKind: File
-          contentId: exec:miniscript
+          contentRef: exec:miniscript
           fileKind: ExecutableHardcode
           size: 32000
   hardGuard4Server:
@@ -207,7 +207,7 @@ ServerSpec:
       overlayEntries:
         /opt/bin/ms:
           entryKind: File
-          contentId: exec:miniscript
+          contentRef: exec:miniscript
           fileKind: ExecutableHardcode
           size: 32000
   hardMainframeServer:

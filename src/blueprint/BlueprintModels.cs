@@ -244,8 +244,8 @@ public sealed class BlueprintEntryMeta
     /// <summary>File kind for file entries.</summary>
     public BlueprintFileKind FileKind { get; set; } = BlueprintFileKind.Text;
 
-    /// <summary>Blob content id or resource path reference for file content.</summary>
-    public string ContentId { get; set; } = string.Empty;
+    /// <summary>Blueprint/YAML content reference for file content.</summary>
+    public string ContentRef { get; set; } = string.Empty;
 
     /// <summary>Optional gameplay-visible file size hint in bytes.</summary>
     public int? Size { get; set; }

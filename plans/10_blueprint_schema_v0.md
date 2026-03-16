@@ -18,6 +18,20 @@ Keywords: blueprint schema, scenario authoring, campaign data, server spec, worl
 
 ---
 
+## 0-A) Mission file handoff to `05`
+
+본 문서(`10`)는 scenario/campaign blueprint가 **어떤 mission file set을 참조하는지**와,
+그 mission file들이 world generation / initialization pipeline에 **어디서 연결되는지**의 entrypoint를 소유한다.
+
+반대로 mission file 자체(`MissionBlueprint` / `MissionTemplate`)의 내부 YAML schema,
+selection/materialization/lifecycle/progress/completion 같은 mission runtime semantics는 `05` owner다.
+
+즉 경계는 아래처럼 고정한다.
+- `10`: scenario/campaign -> mission file 참조 / wiring / generator entrypoint
+- `05`: mission file 내부 구조 / materialization 의미론 / MissionManager runtime contract
+
+---
+
 ## 0) 핵심 개념
 
 - **ServerSpecBlueprint**: 재사용 가능한 “서버 레시피(프리팹)”  
@@ -141,6 +155,21 @@ ServerSpecBlueprint
     # 생략 시 AUTO:Unknown 으로 처리 (worldSeed 기반 전세계 랜덤)
     # v0.2: icon은 블루프린트 입력을 받지 않음(런타임 기본값으로 초기화)
 ```
+
+### 1.0-A DiskOverlay EntryMeta (authoring)
+
+```text
+EntryMeta
+- entryKind: ENUM { File, Dir }
+- fileKind?: ENUM { Text, Binary, Image, ExecutableScript, ExecutableHardcode }
+- contentRef?: string
+- size?: int
+```
+
+규칙:
+- YAML/Blueprint authoring 계층은 파일 payload 전달에 `contentRef`를 사용한다.
+- `contentRef`는 inline literal, `exec:<executableId>`, `res://...`, `user://...` 중 하나를 사용할 수 있다.
+- runtime VFS/BlobStore의 `contentId`는 `contentRef` 해석 결과로 생성되는 내부 식별자이며, YAML 작성자가 직접 넣지 않는다.
 
 ### 1.1 UserBlueprint
 
@@ -436,6 +465,133 @@ events:
   hardScenarioWinEvent:
     guardContent: "id-hardWinGuard"
 ```
+
+### 4.5 Hook behavior sidecar manifest (config schema)
+
+unified hook runtime(`11`)에서 `scriptRef`로 참조되는 behavior function의 `config` schema는
+scenario YAML inline이 아니라 **sidecar manifest**로 작성한다.
+본 섹션은 manifest 파일 배치와 YAML shape를 소유한다.
+runtime의 default merge / validation / immutable `cfg` snapshot / `contentRef` 정규화 의미론은 `11`을 따른다.
+See DOCS_INDEX -> 11.
+
+#### 4.5.1 파일 배치 규칙
+
+- behavior script `foo.ms`의 sidecar manifest는 **같은 디렉토리**의 `foo.behavior.yaml`이다.
+- 예:
+  - `scenario_content/hooks/security.ms`
+  - `scenario_content/hooks/security.behavior.yaml`
+- 별도 `schemaVersion` 필드는 두지 않는다.
+- manifest는 해당 script에 연결된 어떤 handler도 `config`를 사용하지 않을 때만 생략 가능하다.
+- 어떤 handler라도 `config`를 제공하면, 그 handler가 참조하는 script의 manifest는 반드시 존재해야 한다.
+- `functions.<name>` key는 `scriptRef`의 `::functionName`과 **정확히 일치**해야 하며, 대소문자를 구분한다.
+- script에 함수가 있어도 manifest에 schema가 없을 수 있다.
+  - 단, 그 함수를 참조하는 handler가 `config`를 제공하면 load error다.
+
+#### 4.5.2 YAML shape
+
+```yaml
+functions:
+  lockout_on_auth_fail:
+    config:
+      threshold:
+        type: int
+        required: true
+        min: 1
+      lockSeconds:
+        type: int
+        default: 300
+        min: 1
+      closePort:
+        type: bool
+        default: false
+
+  complete_on_mail:
+    config:
+      requesterMail:
+        type: string
+        required: true
+        minLength: 1
+      requiredAttachments:
+        type: List
+        elementType: contentRef
+        required: true
+```
+
+```text
+HookBehaviorManifest
+- functions: Dictionary<string /*functionName*/, HookBehaviorFunctionSchema>
+
+HookBehaviorFunctionSchema
+- config?: Dictionary<string /*fieldName*/, HookConfigFieldSchema>
+
+HookConfigFieldSchema
+- type: string
+- required?: bool
+- default?: Literal
+- min?: int|float
+- max?: int|float
+- minLength?: int
+- maxLength?: int
+- elementType?: string
+- valueType?: string
+```
+
+#### 4.5.3 타입 체계
+
+scalar type:
+- `int`
+- `float`
+- `bool`
+- `string`
+- `contentRef`
+
+container type:
+- `List`
+  - `elementType`를 함께 적어야 한다.
+- `Dictionary`
+  - key는 알파에서 항상 `string`으로 고정한다.
+  - `valueType`을 함께 적어야 한다.
+
+규칙:
+- `contentRef`는 scalar type이다.
+- `contentRef`는 `List.elementType` 또는 `Dictionary.valueType`으로 사용할 수 있다.
+- `elementType` / `valueType`은 container field에서만 허용한다.
+- scalar field에 `elementType` / `valueType`을 적으면 load error다.
+- container field에 `elementType` / `valueType`이 없으면 load error다.
+
+#### 4.5.4 기본값과 required 규칙
+
+- `required` 기본값은 `false`다.
+- `required: true`와 `default`를 동시에 적으면 load error다.
+- `required: false`이고 `default`가 생략되면, 필드 값은 아래 **type default**를 사용한다.
+  - `int` -> `0`
+  - `float` -> `0.0`
+  - `bool` -> `false`
+  - `string` -> `""`
+  - `List` -> `[]`
+  - `Dictionary` -> `{}`
+- `contentRef` field는 예외다.
+  - `default`를 허용하지 않는다.
+  - `required: false`를 허용하지 않는다.
+  - 즉 `type: contentRef` field는 항상 `required: true`를 명시해야 한다.
+
+#### 4.5.5 제약 키 규칙
+
+- `int` / `float`는 `min`, `max`만 허용한다.
+- `string`은 `minLength`, `maxLength`만 허용한다.
+- 알파에서는 `List` / `Dictionary` 전용 제약 키를 정의하지 않는다.
+- 선언된 `type`과 맞지 않는 제약 키를 적으면 load error다.
+- `default` 값도 선언된 type과 제약을 만족해야 한다. 만족하지 않으면 load error다.
+
+#### 4.5.6 strict validation 규칙
+
+- handler `config`에 schema에 없는 key가 있으면 load error다.
+- schema에 정의만 되어 있고 handler가 사용하지 않은 key는 허용한다.
+- field schema에는 해당 type에서 허용된 키만 사용할 수 있다.
+  - unknown schema key 또는 잘못된 type 이름은 load error다.
+- handler `config` 값은 schema type과 **정확히 일치**해야 한다.
+- 타입 변환(coercion)은 허용하지 않는다.
+  - 예: `"300"` -> `int`, `1` -> `bool`, `"false"` -> `bool` 같은 변환은 모두 금지다.
 
 ---
 
